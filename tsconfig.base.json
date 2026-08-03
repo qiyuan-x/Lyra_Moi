@@ -1,0 +1,28 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "composite": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "baseUrl": ".",
+    "paths": {
+      "@lyra/contracts": ["packages/contracts/src/index.ts"],
+      "@lyra/core": ["packages/core/src/index.ts"],
+      "@lyra/agent-engine": ["packages/agent-engine/src/index.ts"],
+      "@lyra/agent-tools": ["packages/agent-tools/src/index.ts"],
+      "@lyra/providers": ["packages/providers/src/index.ts"],
+      "@lyra/storage": ["packages/storage/src/index.ts"],
+      "@lyra/api": ["apps/api/src/index.ts"],
+      "@lyra/worker": ["apps/worker/src/index.ts"]
+    }
+  }
+}

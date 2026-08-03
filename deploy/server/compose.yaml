@@ -1,0 +1,54 @@
+services:
+  api:
+    build:
+      context: ../..
+      dockerfile: deploy/server/Dockerfile
+      target: runtime
+    command: ["node", "apps/api/dist/run.js"]
+    restart: unless-stopped
+    environment:
+      LYRA_ACCESS_TOKEN: ${LYRA_ACCESS_TOKEN}
+    volumes:
+      - lyra-data:/data
+    expose:
+      - "3000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000/api/v1/health/live').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+
+  worker:
+    build:
+      context: ../..
+      dockerfile: deploy/server/Dockerfile
+      target: runtime
+    command: ["node", "apps/worker/dist/run.js"]
+    restart: unless-stopped
+    environment:
+      LYRA_ACCESS_TOKEN: ${LYRA_ACCESS_TOKEN}
+    volumes:
+      - lyra-data:/data
+    depends_on:
+      api:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ../..
+      dockerfile: deploy/server/Dockerfile
+      target: web
+    restart: unless-stopped
+    ports:
+      - "${LYRA_HTTP_PORT:-8080}:80"
+    depends_on:
+      - api
+
+volumes:
+  lyra-data:

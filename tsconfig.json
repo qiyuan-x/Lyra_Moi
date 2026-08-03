@@ -1,0 +1,14 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./packages/contracts" },
+    { "path": "./packages/core" },
+    { "path": "./packages/agent-engine" },
+    { "path": "./packages/agent-tools" },
+    { "path": "./packages/providers" },
+    { "path": "./packages/storage" },
+    { "path": "./apps/web" },
+    { "path": "./apps/api" },
+    { "path": "./apps/worker" }
+  ]
+}
