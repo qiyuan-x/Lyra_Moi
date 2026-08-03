@@ -10,7 +10,7 @@ Lyra Moi 是一个图片创作和 AI 建模工具。
 - 素材库：管理上传图片和生成图片。
 - 提示词库：保存和复用提示词模板。
 
-## 使用方式
+## 使用
 
 ### Windows 启动器
 
@@ -18,13 +18,9 @@ Lyra Moi 是一个图片创作和 AI 建模工具。
 2. 双击 `LyraLauncher.exe`。
 3. 点击“启动服务”。
 4. 服务启动后打开浏览器。
-5. 在“设置”中分别配置 LLM、生图和建模 API Key。
+5. 进入“设置”，配置 LLM、生图和建模供应商。
 
-运行数据会保存在启动器同级的 `data/` 文件夹中。
-
-### 从源码构建和运行
-
-需要 Node.js 22.19+、pnpm 11+ 和 Python 3.10+：
+### 源码运行
 
 ```bash
 pnpm install
@@ -32,26 +28,25 @@ pnpm build
 python main.py
 ```
 
-### 服务器部署
+## 构建
 
-服务器使用 Docker 从源码构建：
-
-```bash
-git clone <仓库地址>
-cd Lyra_Moi/deploy/server
-cp server.env.example .env
-```
-
-修改 `.env` 中的 `LYRA_ACCESS_TOKEN`，然后构建并启动：
+### Windows 发布包
 
 ```bash
-docker compose --env-file .env up -d --build
+python -m pip install -r scripts/requirements-build.txt
+pnpm package:windows
 ```
 
-浏览器访问 `http://服务器地址:8080`。停止服务：
+生成文件：
+
+```text
+release/LyraLauncher.exe
+```
+
+### 服务器构建
+
+服务器需要安装 Docker 和 Docker Compose：
 
 ```bash
-docker compose --env-file .env down
+docker compose -f deploy/server/compose.yaml build
 ```
-
-API Key 只保存在本地 `data/config/.env`，不要提交到 GitHub。
