@@ -75,6 +75,7 @@ function createImageRequest(
   copyString(parameters, responseFormat, "aspect_ratio", "aspect_ratio");
   copyString(parameters, responseFormat, "imageSize", "image_size");
   copyString(parameters, responseFormat, "image_size", "image_size");
+  copyImageResolution(parameters, responseFormat);
   const request: Record<string, unknown> = {
     model,
     input: structuredClone(input),
@@ -89,6 +90,20 @@ function createImageRequest(
     request.generation_config = { thinking_level: thinkingLevel };
   }
   return request;
+}
+
+function copyImageResolution(
+  source: Record<string, unknown>,
+  target: Record<string, unknown>
+): void {
+  const value = source.resolution;
+  if (value === undefined || value === "auto") return;
+  if (typeof value !== "string") invalidSetting("resolution");
+  const normalized = value.trim().toUpperCase();
+  if (normalized !== "1K" && normalized !== "2K" && normalized !== "4K") {
+    invalidSetting("resolution");
+  }
+  target.image_size = normalized;
 }
 
 function parseGeminiImage(value: unknown, index: number): GeneratedImageBinary {

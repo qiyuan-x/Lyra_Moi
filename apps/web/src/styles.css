@@ -386,7 +386,7 @@ img { display: block; max-width: 100%; }
 .image-generation-panel textarea { width: 100%; min-height: 7rem; resize: vertical; padding: .6rem; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: .45rem; line-height: 1.5; }
 .image-generation-panel .field > small { color: var(--muted); font-size: var(--font-caption); line-height: 1.45; }
 .image-generation-prompt-picker { width: 100%; min-height: 2.15rem; justify-content: center; margin: .55rem 0 .7rem; }
-.image-generation-compact-fields { display: grid; grid-template-columns: 1fr 1fr; gap: .55rem; margin-top: .65rem; }
+.image-generation-compact-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .55rem; margin-top: .65rem; }
 .image-generation-ratio-note { margin: .4rem 0 .7rem; color: var(--muted); font-size: var(--font-caption); line-height: 1.4; }
 .image-generation-inputs { overflow: hidden; border: 1px solid var(--border); border-radius: .5rem; }
 .image-generation-inputs.drag-active { border-color: #5573c7; box-shadow: inset 0 0 0 2px rgb(85 115 199 / 14%); }

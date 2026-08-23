@@ -1,4 +1,5 @@
 import type { AssetSnapshot } from "@lyra/contracts";
+import type { ImageResolution } from "./image-resolution.js";
 
 export interface ManualImageTaskInput {
   prompt: string;
@@ -6,4 +7,5 @@ export interface ManualImageTaskInput {
   modelId: string;
   count: number;
   aspectRatio: string;
+  resolution: ImageResolution;
 }

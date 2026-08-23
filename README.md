@@ -1,12 +1,13 @@
 # Lyra Moi
 
-Lyra Moi 是一个图片创作和 AI 建模工具。
+Lyra Moi 是一个调用API进行图片创作和 AI 建模工具。
 
 ## 功能
 
-- Agent 对话：通过自然语言生成和修改图片。
-- 手动生图：选择模型、提示词和参考图片生成图片。
+- Agent 对话：通过自然语言生成和修改图片或者调用生成模型。
+- 图片生成：选择模型、提示词和参考图片生成图片。
 - AI 建模：输入图片生成 3D 模型，并查看或下载模型文件。
+- 动作参考：内置了UE小白人，可以摆pose截图用于让AI理解你想要的姿势。
 - 素材库：管理上传图片和生成图片。
 - 提示词库：保存和复用提示词模板。
 
@@ -28,58 +29,37 @@ pnpm build
 python main.py
 ```
 
-## 构建
+### Docker 部署
 
-### Windows 发布包
+需要安装 Docker 和 Docker Compose。
 
-```bash
-python -m pip install -r scripts/requirements-build.txt
-pnpm package:windows
-```
+1. 进入部署目录，创建服务器配置文件。
 
-生成文件：
+   Windows PowerShell：
 
-```text
-release/LyraLauncher.exe
-release/Lyra-<version>-windows-x64.zip
-release/Lyra-update-<version>-windows-x64.zip
-release/update-artifact.json
-```
+   ```powershell
+   cd deploy/server
+   Copy-Item server.env.example .env
+   ```
 
-### 网页一键升级
+   Linux：
 
-桌面版会在网页左上角显示版本号。点击版本号可检查版本；发现新版本后可直接下载、校验、安装并重启服务。升级失败时会恢复应用目录和升级前的数据库。
+   ```bash
+   cd deploy/server
+   cp server.env.example .env
+   ```
 
-发布包固定使用以下更新清单，地址会写入 `release/release.json`，不在普通设置中提供修改入口：
+2. 打开 `.env`，将 `LYRA_ACCESS_TOKEN` 设置为自己的服务器访问令牌：随意填写，最好复杂一些。
 
-```text
-https://linfrsot.cloud/lyra/updates/latest.json
-```
+   ```env
+   LYRA_ACCESS_TOKEN=换成自己的长随机字符串
+   LYRA_HTTP_PORT=8080
+   ```
 
-更新清单格式：
-
-```json
-{
-  "schemaVersion": 1,
-  "version": "0.0.4",
-  "publishedAt": "2026-08-21T00:00:00Z",
-  "releaseNotes": ["更新说明"],
-  "artifacts": {
-    "windows-x64": {
-      "url": "https://linfrsot.cloud/lyra/updates/packages/Lyra-update-0.0.4-windows-x64.zip",
-      "sha256": "64 位 SHA-256",
-      "size": 12345678
-    }
-  }
-}
-```
-
-`update-artifact.json` 会给出安装包文件名、大小和 SHA-256，可用于生成更新清单。用户数据始终保存在 `data/`，更新包只替换 `app/` 和 `release.json`。
-
-### 服务器构建
-
-服务器需要安装 Docker 和 Docker Compose：
+3. 构建并启动服务：
 
 ```bash
-docker compose -f deploy/server/compose.yaml build
+docker compose --env-file .env up -d --build
 ```
+
+部署完成后访问 `http://服务器地址:8080`，并输入 `.env` 中的访问令牌。

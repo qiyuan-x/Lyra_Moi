@@ -215,7 +215,10 @@ async function parseOpenAiImages(
 function normalizeImageParameters(value: Record<string, unknown>): Record<string, string | number> {
   const result: Record<string, string | number> = {};
   copyString(value, result, "size", "size");
-  if (result.size === undefined && value.aspectRatio !== undefined) {
+  const resolution = normalizeResolution(value.resolution);
+  if (result.size === undefined && resolution) {
+    result.size = openAiSizeForResolution(resolution, value.aspectRatio);
+  } else if (result.size === undefined && value.aspectRatio !== undefined) {
     result.size = openAiSizeForAspectRatio(value.aspectRatio);
   }
   copyString(value, result, "quality", "quality");
@@ -228,6 +231,66 @@ function normalizeImageParameters(value: Record<string, unknown>): Record<string
   copyInteger(value, result, "outputCompression", "output_compression", 0, 100);
   copyInteger(value, result, "output_compression", "output_compression", 0, 100);
   return result;
+}
+
+function normalizeResolution(value: unknown): "1K" | "2K" | "4K" | null {
+  if (value === undefined || value === "auto") return null;
+  if (typeof value !== "string") invalidSetting("resolution");
+  const normalized = value.trim().toUpperCase();
+  if (normalized === "1K" || normalized === "2K" || normalized === "4K") {
+    return normalized;
+  }
+  return invalidSetting("resolution");
+}
+
+function openAiSizeForResolution(
+  resolution: "1K" | "2K" | "4K",
+  aspectRatio: unknown
+): string {
+  const ratio = aspectRatio === undefined || aspectRatio === "auto"
+    ? "1:1"
+    : aspectRatio;
+  if (typeof ratio !== "string") invalidSetting("aspectRatio");
+  const sizes = {
+    "1K": {
+      "1:1": "1024x1024",
+      "2:3": "832x1248",
+      "3:2": "1248x832",
+      "3:4": "896x1200",
+      "4:3": "1200x896",
+      "4:5": "928x1152",
+      "5:4": "1152x928",
+      "9:16": "768x1376",
+      "16:9": "1376x768",
+      "21:9": "1536x672"
+    },
+    "2K": {
+      "1:1": "2048x2048",
+      "2:3": "1696x2528",
+      "3:2": "2528x1696",
+      "3:4": "1792x2400",
+      "4:3": "2400x1792",
+      "4:5": "1856x2304",
+      "5:4": "2304x1856",
+      "9:16": "1536x2752",
+      "16:9": "2752x1536",
+      "21:9": "3168x1344"
+    },
+    "4K": {
+      "1:1": "2880x2880",
+      "2:3": "2304x3456",
+      "3:2": "3456x2304",
+      "3:4": "2448x3264",
+      "4:3": "3264x2448",
+      "4:5": "2560x3200",
+      "5:4": "3200x2560",
+      "9:16": "2160x3840",
+      "16:9": "3840x2160",
+      "21:9": "3840x1648"
+    }
+  } as const;
+  const size = sizes[resolution][ratio.trim() as keyof typeof sizes[typeof resolution]];
+  return size ?? invalidSetting("aspectRatio");
 }
 
 function openAiSizeForAspectRatio(value: unknown): string {

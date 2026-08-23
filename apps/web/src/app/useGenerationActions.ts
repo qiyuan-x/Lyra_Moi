@@ -64,9 +64,14 @@ export function useGenerationActions(
         providerProfileId: selectedModel.providerProfileId,
         providerModelId: selectedModel.id,
         count: input.count,
-        parameters: input.aspectRatio === "auto"
-          ? {}
-          : { aspectRatio: input.aspectRatio }
+        parameters: {
+          ...(input.aspectRatio === "auto"
+            ? {}
+            : { aspectRatio: input.aspectRatio }),
+          ...(input.resolution === "auto"
+            ? {}
+            : { resolution: input.resolution })
+        }
       });
       setEditingImageJob(null);
       options.setAttachments([]);

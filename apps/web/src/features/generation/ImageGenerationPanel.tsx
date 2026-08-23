@@ -13,6 +13,11 @@ import type {
 import { AssetPickerDialog } from "../../components/AssetPickerDialog.js";
 import { Icon } from "../../components/Icon.js";
 import { PromptTemplatePicker } from "../../components/PromptTemplatePicker.js";
+import {
+  IMAGE_RESOLUTIONS,
+  isImageResolution,
+  type ImageResolution
+} from "./image-resolution.js";
 import type { ManualImageTaskInput } from "./task-input.js";
 
 interface ImageGenerationPanelProps {
@@ -39,6 +44,9 @@ export function ImageGenerationPanel(props: ImageGenerationPanelProps) {
   const [aspectRatio, setAspectRatio] = useState(
     () => persistedRef.current.aspectRatio
   );
+  const [resolution, setResolution] = useState(
+    () => persistedRef.current.resolution
+  );
   const [pickerOpen, setPickerOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -53,18 +61,20 @@ export function ImageGenerationPanel(props: ImageGenerationPanelProps) {
     setCount(job?.count ?? 1);
     const ratio = job?.parameters.aspectRatio;
     setAspectRatio(typeof ratio === "string" ? ratio : "auto");
+    const nextResolution = job?.parameters.resolution;
+    setResolution(isImageResolution(nextResolution) ? nextResolution : "auto");
   }, [props.editingJob?.id]);
 
   useEffect(() => {
     try {
       localStorage.setItem(
         formStorageKey(props.projectId),
-        JSON.stringify({ prompt, count, aspectRatio })
+        JSON.stringify({ prompt, count, aspectRatio, resolution })
       );
     } catch {
       // The form remains usable when browser storage is unavailable.
     }
-  }, [props.projectId, prompt, count, aspectRatio]);
+  }, [props.projectId, prompt, count, aspectRatio, resolution]);
 
   function moveAttachment(index: number, direction: -1 | 1) {
     const target = index + direction;
@@ -78,6 +88,7 @@ export function ImageGenerationPanel(props: ImageGenerationPanelProps) {
     setPrompt("");
     setCount(1);
     setAspectRatio("auto");
+    setResolution("auto");
     props.onAttachmentsChange([]);
     props.onCancelEdit();
   }
@@ -91,7 +102,8 @@ export function ImageGenerationPanel(props: ImageGenerationPanelProps) {
         attachments: props.attachments,
         modelId: props.modelId,
         count,
-        aspectRatio
+        aspectRatio,
+        resolution
       });
       resetForm();
     } finally {
@@ -182,9 +194,29 @@ export function ImageGenerationPanel(props: ImageGenerationPanelProps) {
               ))}
             </select>
           </label>
+          <label className="field">
+            <span>分辨率</span>
+            <select
+              value={resolution}
+              onChange={(event) => {
+                const next = event.target.value;
+                if (!isImageResolution(next)) return;
+                setResolution(next);
+                if (next !== "auto" && aspectRatio === "auto") {
+                  setAspectRatio("1:1");
+                }
+              }}
+            >
+              {IMAGE_RESOLUTIONS.map((value) => (
+                <option value={value} key={value}>
+                  {value === "auto" ? "模型默认" : value}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
         <p className="image-generation-ratio-note">
-          自动比例会使用参考图比例或模型默认值。
+          具体分辨率由当前图片供应商转换，选择 2K 或 4K 会增加生成时间和费用。
         </p>
 
         <section
@@ -307,13 +339,15 @@ interface PersistedImageFormState {
   prompt: string;
   count: number;
   aspectRatio: string;
+  resolution: ImageResolution;
 }
 
 function readFormState(projectId: string): PersistedImageFormState {
   const fallback: PersistedImageFormState = {
     prompt: "",
     count: 1,
-    aspectRatio: "auto"
+    aspectRatio: "auto",
+    resolution: "auto"
   };
   try {
     const value: unknown = JSON.parse(
@@ -325,7 +359,8 @@ function readFormState(projectId: string): PersistedImageFormState {
       count: typeof value.count === "number" && [1, 2, 3, 4, 6, 8].includes(value.count)
         ? value.count
         : 1,
-      aspectRatio: typeof value.aspectRatio === "string" ? value.aspectRatio : "auto"
+      aspectRatio: typeof value.aspectRatio === "string" ? value.aspectRatio : "auto",
+      resolution: isImageResolution(value.resolution) ? value.resolution : "auto"
     };
   } catch {
     return fallback;

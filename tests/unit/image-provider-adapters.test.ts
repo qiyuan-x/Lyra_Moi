@@ -161,6 +161,27 @@ describe("image provider adapters", () => {
     expect(requestBody).toMatchObject({ size: "1536x1024" });
   });
 
+  it("maps the shared resolution and aspect ratio to a GPT Image size", async () => {
+    let requestBody: Record<string, unknown> | null = null;
+    const provider = new OpenAiImageProvider({
+      baseUrl: "https://api.openai.test/v1",
+      apiKey: "secret",
+      model: "gpt-image-2",
+      assetLoader: createLoader([]),
+      client: new ProviderHttpClient({
+        fetchImplementation: async (_input, init = {}) => {
+          requestBody = JSON.parse(String(init.body)) as Record<string, unknown>;
+          return Response.json({ data: [{ b64_json: PNG.toString("base64") }] });
+        }
+      })
+    });
+
+    await provider.generate(request({
+      parameters: { aspectRatio: "16:9", resolution: "4K" }
+    }));
+    expect(requestBody).toMatchObject({ size: "3840x2160" });
+  });
+
   it("falls back to chat completions when an OpenAI-compatible image route is missing", async () => {
     const urls: string[] = [];
     let chatBody: Record<string, unknown> | null = null;
@@ -247,7 +268,7 @@ describe("image provider adapters", () => {
           { assetId: "first", position: 1, label: "图一" },
           { assetId: "second", position: 2, label: "图二" }
         ],
-        parameters: { aspectRatio: "16:9", imageSize: "2K" }
+        parameters: { aspectRatio: "16:9", resolution: "2K" }
       })
     );
     expect(loaded).toEqual(["first", "second"]);
