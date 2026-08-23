@@ -14,5 +14,7 @@ describe("agent system prompt", () => {
     expect(prompt).toContain("修改图片");
     expect(prompt).toContain("3D 模型");
     expect(prompt).toContain("不要声明固定人设");
+    expect(prompt).toContain("提示词原样使用");
+    expect(prompt).toContain("必须保持该段文字不变");
   });
 });

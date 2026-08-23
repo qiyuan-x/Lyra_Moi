@@ -9,9 +9,11 @@ import type {
   AgentPromptSettingsSnapshot
 } from "@lyra/contracts";
 import type { ApiClient } from "../../lib/api-client.js";
+import { Icon } from "../../components/Icon.js";
 
 interface AgentPromptSettingsProps {
   api: ApiClient;
+  onBack: () => void;
   onError: (error: unknown) => void;
 }
 
@@ -120,29 +122,17 @@ export function AgentPromptSettings(
     }
   }
 
-  if (!draft || !snapshot) {
-    return (
-      <section className="agent-prompt-settings">
-        <div className="settings-loading">
-          {saveState === "error"
-            ? "Agent 提示词设置加载失败"
-            : "正在加载 Agent 提示词设置…"}
-        </div>
-      </section>
-    );
-  }
-
-  return (
-    <section className="agent-prompt-settings">
-      <header className="agent-prompt-settings-heading">
-        <div>
-          <h2>Agent 设置</h2>
-          <p>
-            配置 Agent 推理时使用的系统提示词。修改会自动保存，
-            并从下一轮 Agent 任务开始生效。
-          </p>
-        </div>
-        <div>
+  const heading = (
+    <header className="settings-detail-heading agent-settings-detail-heading">
+      <button type="button" className="icon-button" aria-label="返回 Agent 设置" onClick={props.onBack}>
+        <Icon name="chevron" size={18} />
+      </button>
+      <div>
+        <h2>Agent 提示词设置</h2>
+        <p>修改后自动保存，并从下一轮 Agent 任务开始生效。</p>
+      </div>
+      {draft && snapshot && (
+        <div className="agent-settings-detail-actions">
           <span className={`agent-prompt-save-state state-${saveState}`}>
             {saveStateLabel(saveState)}
           </span>
@@ -154,7 +144,26 @@ export function AgentPromptSettings(
             全部恢复默认
           </button>
         </div>
-      </header>
+      )}
+    </header>
+  );
+
+  if (!draft || !snapshot) {
+    return (
+      <section className="agent-prompt-settings">
+        {heading}
+        <div className="settings-loading">
+          {saveState === "error"
+            ? "Agent 提示词设置加载失败"
+            : "正在加载 Agent 提示词设置…"}
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="agent-prompt-settings">
+      {heading}
 
       <PromptField
         label="Agent 主系统提示词"
@@ -168,8 +177,8 @@ export function AgentPromptSettings(
       />
 
       <PromptField
-        label="允许优化提示词时的附加规则"
-        description="用户开启“Agent 优化提示词”后，每轮对话额外注入。"
+        label="图片提示词处理规则"
+        description="Agent 创建图片任务时每轮额外注入的处理规则。"
         value={draft.optimizeEnabledPrompt}
         defaultValue={snapshot.defaults.optimizeEnabledPrompt}
         rows={4}
@@ -179,8 +188,8 @@ export function AgentPromptSettings(
       />
 
       <PromptField
-        label="禁止优化提示词时的附加规则"
-        description="用户关闭“Agent 优化提示词”后，每轮对话额外注入。"
+        label="原样提示词兼容规则"
+        description="兼容旧请求中明确要求直接使用用户原文的处理规则。"
         value={draft.optimizeDisabledPrompt}
         defaultValue={snapshot.defaults.optimizeDisabledPrompt}
         rows={4}

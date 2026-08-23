@@ -30,12 +30,27 @@ describe("request contract validation", () => {
   it("accepts a separate optional Meshy texture reference image", () => {
     const value = {
       projectId: "project-1",
+      inputMode: "image",
       imageAssetId: "geometry-image",
       textureImageAssetId: "texture-image",
       providerProfileId: "meshy-profile",
       providerModelId: "meshy-6",
       outputFormats: ["glb", "obj"],
       parameters: { texture: true, pbr: true }
+    };
+
+    expect(parseManualModelGenerationRequest(value)).toEqual(value);
+  });
+
+  it("accepts text-to-model input without an image", () => {
+    const value = {
+      projectId: "project-1",
+      inputMode: "text",
+      prompt: "a low poly spaceship",
+      providerProfileId: "tripo-profile",
+      providerModelId: "tripo-model",
+      outputFormats: ["glb"],
+      parameters: { texture: true }
     };
 
     expect(parseManualModelGenerationRequest(value)).toEqual(value);
@@ -61,6 +76,32 @@ describe("request contract validation", () => {
         selection: { llmProviderProfileId: "profile-1" }
       })
     ).toThrow("llmProviderProfileId and llmModelId must be provided together");
+    expect(() =>
+      parseSendAgentMessageRequest({
+        text: "test",
+        attachments: [],
+        selection: { defaultModelId: "model-1" }
+      })
+    ).toThrow(
+      "defaultModelProviderProfileId and defaultModelId must be provided together"
+    );
+    expect(
+      parseSendAgentMessageRequest({
+        text: "生成图片后创建模型",
+        attachments: [],
+        selection: {
+          defaultImageProviderProfileId: "image-profile",
+          defaultImageModelId: "image-model",
+          defaultModelProviderProfileId: "model-profile",
+          defaultModelId: "model-model"
+        }
+      })
+    ).toMatchObject({
+      selection: {
+        defaultImageModelId: "image-model",
+        defaultModelId: "model-model"
+      }
+    });
   });
 
   it("accepts a boolean Agent image prompt mode", () => {

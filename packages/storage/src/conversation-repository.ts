@@ -113,13 +113,117 @@ export class ConversationRepository {
     return { ...existing, title: normalizedTitle, updatedAt };
   }
 
-  softDelete(conversationId: string): ConversationSnapshot {
+  deletePermanently(conversationId: string): ConversationSnapshot {
     const existing = this.requireById(conversationId);
-    const now = new Date().toISOString();
-    this.#database.connection
-      .prepare("UPDATE conversations SET deleted_at = ?, updated_at = ? WHERE id = ?")
-      .run(now, now, conversationId);
-    return { ...existing, deletedAt: now, updatedAt: now };
+    return this.#database.transaction(() => {
+      const activeRun = this.#database.connection
+        .prepare(`
+          SELECT 1 FROM agent_runs
+          WHERE conversation_id = ?
+            AND status NOT IN ('completed', 'failed', 'cancelled', 'interrupted')
+          LIMIT 1
+        `)
+        .get(conversationId);
+      const activeJob = this.#database.connection
+        .prepare(`
+          SELECT 1 FROM jobs
+          WHERE status IN ('queued', 'running')
+            AND (
+              conversation_id = ?
+              OR agent_run_id IN (
+                SELECT id FROM agent_runs WHERE conversation_id = ?
+              )
+              OR agent_step_id IN (
+                SELECT step.id
+                FROM agent_steps AS step
+                JOIN agent_runs AS run ON run.id = step.agent_run_id
+                WHERE run.conversation_id = ?
+              )
+            )
+          LIMIT 1
+        `)
+        .get(conversationId, conversationId, conversationId);
+      if (activeRun || activeJob) {
+        throw new Error("Cannot delete a conversation while it has active tasks.");
+      }
+
+      const connection = this.#database.connection;
+      connection.prepare(`
+        UPDATE runtime_events
+        SET conversation_id = NULL, agent_run_id = NULL
+        WHERE job_id IN (
+          SELECT job.id
+          FROM jobs AS job
+          WHERE job.conversation_id = ?
+            OR job.agent_run_id IN (
+              SELECT id FROM agent_runs WHERE conversation_id = ?
+            )
+            OR job.agent_step_id IN (
+              SELECT step.id
+              FROM agent_steps AS step
+              JOIN agent_runs AS run ON run.id = step.agent_run_id
+              WHERE run.conversation_id = ?
+            )
+            OR job.request_message_id IN (
+              SELECT id FROM messages WHERE conversation_id = ?
+            )
+        )
+      `).run(conversationId, conversationId, conversationId, conversationId);
+      connection.prepare(`
+        DELETE FROM runtime_events
+        WHERE conversation_id = ?
+          OR agent_run_id IN (
+            SELECT id FROM agent_runs WHERE conversation_id = ?
+          )
+      `).run(conversationId, conversationId);
+      connection.prepare(`
+        UPDATE jobs
+        SET conversation_id = NULL,
+            agent_run_id = NULL,
+            agent_step_id = NULL,
+            request_message_id = NULL
+        WHERE conversation_id = ?
+          OR agent_run_id IN (
+            SELECT id FROM agent_runs WHERE conversation_id = ?
+          )
+          OR agent_step_id IN (
+            SELECT step.id
+            FROM agent_steps AS step
+            JOIN agent_runs AS run ON run.id = step.agent_run_id
+            WHERE run.conversation_id = ?
+          )
+          OR request_message_id IN (
+            SELECT id FROM messages WHERE conversation_id = ?
+          )
+      `).run(conversationId, conversationId, conversationId, conversationId);
+      connection.prepare(`
+        UPDATE messages SET reply_to_id = NULL
+        WHERE reply_to_id IN (
+          SELECT id FROM messages WHERE conversation_id = ?
+        )
+      `).run(conversationId);
+      connection.prepare(`
+        DELETE FROM agent_steps
+        WHERE agent_run_id IN (
+          SELECT id FROM agent_runs WHERE conversation_id = ?
+        )
+      `).run(conversationId);
+      connection.prepare("DELETE FROM agent_runs WHERE conversation_id = ?")
+        .run(conversationId);
+      connection.prepare(`
+        DELETE FROM message_attachments
+        WHERE message_id IN (
+          SELECT id FROM messages WHERE conversation_id = ?
+        )
+      `).run(conversationId);
+      connection.prepare("DELETE FROM messages WHERE conversation_id = ?")
+        .run(conversationId);
+      const result = connection
+        .prepare("DELETE FROM conversations WHERE id = ?")
+        .run(conversationId);
+      if (result.changes !== 1) throw new ConversationNotFoundError(conversationId);
+      return existing;
+    });
   }
 
   createMessage(input: CreateMessageInput): MessageSnapshot {

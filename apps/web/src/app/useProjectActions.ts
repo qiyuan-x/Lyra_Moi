@@ -58,10 +58,10 @@ export function useProjectActions(options: UseProjectActionsOptions) {
     }
   }
 
-  async function archiveProject(projectId: string) {
+  async function deleteProject(projectId: string) {
     setBusy(true);
     try {
-      await options.api.archiveProject(projectId);
+      await options.api.deleteProject(projectId);
       const result = removeProject(
         options.projects,
         options.projectId,
@@ -72,7 +72,7 @@ export function useProjectActions(options: UseProjectActionsOptions) {
         options.setProjectId(result.projectId);
       }
       options.closeManager();
-      options.onNotice("项目已归档");
+      options.onNotice("项目及其数据已删除");
     } catch (error) {
       options.onError(error);
       throw error;
@@ -85,7 +85,7 @@ export function useProjectActions(options: UseProjectActionsOptions) {
     projectBusy: busy,
     createProject,
     updateProject,
-    archiveProject
+    deleteProject
   };
 }
 

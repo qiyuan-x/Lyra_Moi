@@ -1,5 +1,6 @@
 import type { AssetSnapshot, JobSnapshot } from "@lyra/contracts";
 import { Icon } from "../../components/Icon.js";
+import { JobElapsedTime } from "../jobs/JobElapsedTime.js";
 
 export function ModelJobCard(props: {
   job: JobSnapshot;
@@ -12,6 +13,7 @@ export function ModelJobCard(props: {
   onCancel: (jobId: string) => Promise<void>;
   onRetry: (jobId: string) => Promise<void>;
   onDismiss: (jobId: string) => Promise<void>;
+  onDelete: () => void;
   onSelectOutput: (assetId: string) => void;
 }) {
   const active = props.job.status === "queued" || props.job.status === "running";
@@ -37,7 +39,7 @@ export function ModelJobCard(props: {
         <div className="model-job-inputs">
           {props.source
             ? <img src={props.thumbnailUrl(props.source.id)} alt={`模型输入图：${props.source.name}`} />
-            : <span><Icon name="image" size={20} /></span>}
+            : <span><Icon name={props.job.prompt ? "prompt" : "image"} size={20} /></span>}
           {props.textureSource && (
             <img
               src={props.thumbnailUrl(props.textureSource.id)}
@@ -47,12 +49,14 @@ export function ModelJobCard(props: {
           )}
         </div>
         <div>
-          <strong title={props.source?.name ?? props.job.title}>
-            {props.source?.name ?? props.job.title}
+          <strong title={props.source?.name ?? props.job.prompt ?? props.job.title}>
+            {props.source?.name ?? props.job.prompt ?? props.job.title}
           </strong>
           <small>
+            {props.job.prompt ? "文字生成 · " : ""}
             {props.textureSource ? `纹理：${props.textureSource.name} · ` : ""}
-            {jobStatusLabel(props.job)} · 第 {props.job.attempt} 次
+            {jobStatusLabel(props.job)} · {" "}
+            <JobElapsedTime job={props.job} />
           </small>
         </div>
         <b>{active ? `${props.job.progress}%` : jobStatusShort(props.job.status)}</b>
@@ -75,6 +79,11 @@ export function ModelJobCard(props: {
             <button type="button" className="button button-secondary" onClick={() => void props.onRetry(props.job.id)}><Icon name="retry" size={14} />重试</button>
             <button type="button" className="icon-button danger-button" title="移除记录" onClick={() => void props.onDismiss(props.job.id)}><Icon name="trash" size={14} /></button>
           </>
+        )}
+        {props.job.status === "succeeded" && props.outputs.length > 0 && (
+          <button type="button" className="icon-button danger-button" title="删除模型" aria-label="删除模型" onClick={props.onDelete}>
+            <Icon name="trash" size={14} />
+          </button>
         )}
       </footer>
     </article>

@@ -54,6 +54,7 @@ describe("runtime data layout", () => {
       "database",
       "logs",
       "projects",
+      "prompt-previews",
       "run",
       "temp",
       "thumbnails"

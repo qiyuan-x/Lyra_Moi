@@ -13,6 +13,7 @@ interface AssetRailProps {
   onToggleCollapsed: () => void;
   onPreview: (asset: AssetSnapshot) => void;
   onUploadClick: () => void;
+  showPickerButton?: boolean;
 }
 
 export function AssetRail(props: AssetRailProps) {
@@ -40,13 +41,15 @@ export function AssetRail(props: AssetRailProps) {
           <span>{imageAssets.length}</span>
         </div>
         <div className="asset-rail-actions">
-          <button
-            type="button"
-            className="button button-quiet asset-picker-open"
-            onClick={() => setPickerOpen(true)}
-          >
-            <Icon name="library" size={14} />选择引用
-          </button>
+          {props.showPickerButton !== false && (
+            <button
+              type="button"
+              className="button button-quiet asset-picker-open"
+              onClick={() => setPickerOpen(true)}
+            >
+              <Icon name="library" size={14} />选择引用
+            </button>
+          )}
           <button type="button" className="icon-button asset-collapse-button" aria-label="收起图片栏" onClick={props.onToggleCollapsed}>
             <Icon name="chevron" size={17} />
           </button>

@@ -29,7 +29,7 @@ describe("SQLite migrations", () => {
     const database = new LyraDatabase(join(parent, "database", "lyra.sqlite3"));
 
     try {
-      expect(applyMigrations(database.connection, lyraMigrations)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]);
+      expect(applyMigrations(database.connection, lyraMigrations)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]);
       expect(applyMigrations(database.connection, lyraMigrations)).toEqual([]);
       expect(() => assertMigrationsCurrent(database.connection, lyraMigrations)).not.toThrow();
 
@@ -63,11 +63,29 @@ describe("SQLite migrations", () => {
       expect(database.connection.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
       expect(
         database.connection.prepare(`
+          SELECT name
+          FROM pragma_table_info('prompt_templates')
+          WHERE name = 'preview_mime_type'
+        `).all()
+      ).toEqual([{ name: "preview_mime_type" }]);
+      expect(
+        database.connection.prepare(`
           SELECT "notnull", dflt_value
           FROM pragma_table_info('agent_runs')
           WHERE name = 'optimize_image_prompt'
         `).get()
       ).toMatchObject({ notnull: 1, dflt_value: "1" });
+      expect(
+        database.connection.prepare(`
+          SELECT name
+          FROM pragma_table_info('agent_runs')
+          WHERE name IN ('default_model_profile_id', 'default_model_model_id')
+          ORDER BY cid
+        `).all()
+      ).toEqual([
+        { name: "default_model_profile_id" },
+        { name: "default_model_model_id" }
+      ]);
       expect(
         database.connection.prepare(`
           SELECT name
@@ -181,7 +199,7 @@ describe("SQLite migrations", () => {
         ) VALUES (?, ?, 'llm', ?, ?, 1, 0, '{}', ?, ?)
       `).run("deepseek-model", "deepseek-profile", "deepseek-chat", "DeepSeek Chat", now, now);
 
-      expect(applyMigrations(database.connection, lyraMigrations)).toEqual([5, 6, 7, 8, 9, 10, 11, 12, 13]);
+      expect(applyMigrations(database.connection, lyraMigrations)).toEqual([5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]);
       expect(
         database.connection.prepare("SELECT protocol, service_type, base_url FROM provider_profiles WHERE id = ?").get("deepseek-profile")
       ).toMatchObject({
@@ -226,7 +244,7 @@ describe("SQLite migrations", () => {
         now
       );
 
-      expect(applyMigrations(database.connection, lyraMigrations)).toEqual([11, 12, 13]);
+      expect(applyMigrations(database.connection, lyraMigrations)).toEqual([11, 12, 13, 14, 15, 16, 17, 18]);
       expect(
         database.connection.prepare(`
           SELECT id, name, category, note, favorite
@@ -287,7 +305,7 @@ describe("SQLite migrations", () => {
         )
       `).run(project.id, profile.id, model.id, now, now);
 
-      expect(applyMigrations(database.connection, lyraMigrations)).toEqual([13]);
+      expect(applyMigrations(database.connection, lyraMigrations)).toEqual([13, 14, 15, 16, 17, 18]);
       expect(database.connection.prepare(`
         SELECT provider_name_snapshot, remote_model_id_snapshot
         FROM jobs
@@ -295,6 +313,53 @@ describe("SQLite migrations", () => {
       `).get()).toEqual({
         provider_name_snapshot: "Gemini image",
         remote_model_id_snapshot: "gemini-3.1-flash-image"
+      });
+    } finally {
+      database.close();
+    }
+  });
+
+  it("moves FrostAPI 3D profiles to the generic OpenAI-compatible adapter", async () => {
+    const parent = await mkdtemp(join(tmpdir(), "lyra-db-model-adapter-"));
+    temporaryDirectories.push(parent);
+    const database = new LyraDatabase(join(parent, "database", "lyra.sqlite3"));
+
+    try {
+      applyMigrations(database.connection, lyraMigrations.slice(0, 15));
+      const now = new Date().toISOString();
+      database.connection.prepare(`
+        INSERT INTO provider_profiles (
+          id, service_type, name, protocol, adapter_type, base_url, api_key_env,
+          secondary_api_key_env, settings_json, enabled, created_at, updated_at, deleted_at
+        ) VALUES (?, 'model', ?, 'openai-compatible', 'frost-model', ?, ?, NULL, ?, 1, ?, ?, NULL)
+      `).run(
+        "frost-model-profile",
+        "FrostAPI 3D",
+        "https://api.linfrsot.cloud",
+        "LYRA_PROVIDER_FROST_MODEL_API_KEY",
+        JSON.stringify({ __lyra: { providerKind: "frostapi" } }),
+        now,
+        now
+      );
+
+      expect(applyMigrations(
+        database.connection,
+        lyraMigrations.slice(0, 16)
+      )).toEqual([16]);
+      database.connection.prepare(`
+        UPDATE provider_profiles
+        SET settings_json = json_set(settings_json, '$.modelId', 'meshy-t2')
+        WHERE id = 'frost-model-profile'
+      `).run();
+      expect(applyMigrations(database.connection, lyraMigrations)).toEqual([17, 18]);
+      const migrated = database.connection.prepare(`
+        SELECT adapter_type, settings_json
+        FROM provider_profiles
+        WHERE id = 'frost-model-profile'
+      `).get() as { adapter_type: string; settings_json: string };
+      expect(migrated.adapter_type).toBe("openai-compatible");
+      expect(JSON.parse(migrated.settings_json)).toEqual({
+        __lyra: { providerKind: "frostapi" }
       });
     } finally {
       database.close();

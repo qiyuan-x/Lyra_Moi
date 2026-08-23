@@ -8,7 +8,10 @@ import type {
   JobSnapshot,
   ModelGenerationRequest
 } from "@lyra/contracts";
-import { isModelGenerationRequest } from "@lyra/contracts";
+import {
+  isModelGenerationRequest,
+  isTextToModelGenerationRequest
+} from "@lyra/contracts";
 import type { LyraDatabase } from "./database.js";
 import { RuntimeEventRepository } from "./runtime-event-repository.js";
 
@@ -495,7 +498,9 @@ export class JobRepository {
         request.providerModelId,
         providerSnapshot.providerName,
         providerSnapshot.remoteModelId,
-        isModelGenerationRequest(request) ? "" : request.prompt,
+        isModelGenerationRequest(request)
+          ? isTextToModelGenerationRequest(request) ? request.prompt : ""
+          : request.prompt,
         JSON.stringify(request),
         attempt,
         now,
@@ -505,16 +510,20 @@ export class JobRepository {
       "INSERT INTO job_inputs (job_id, asset_id, position, label) VALUES (?, ?, ?, ?)"
     );
     const inputs = isModelGenerationRequest(request)
-      ? [
-          { assetId: request.inputImageAssetId, position: 1, label: "模型输入图" },
-          ...(request.textureImageAssetId
-            ? [{
-                assetId: request.textureImageAssetId,
-                position: 2,
-                label: "纹理输入图"
-              }]
-            : [])
-        ]
+      ? isTextToModelGenerationRequest(request)
+        ? request.textureImageAssetId
+          ? [{ assetId: request.textureImageAssetId, position: 1, label: "纹理输入图" }]
+          : []
+        : [
+            { assetId: request.inputImageAssetId, position: 1, label: "模型输入图" },
+            ...(request.textureImageAssetId
+              ? [{
+                  assetId: request.textureImageAssetId,
+                  position: 2,
+                  label: "纹理输入图"
+                }]
+              : [])
+          ]
       : request.attachments;
     for (const attachment of inputs) {
       insertInput.run(id, attachment.assetId, attachment.position, attachment.label);
@@ -661,7 +670,9 @@ export class JobRepository {
       providerModelId: row.provider_model_id,
       providerName: row.provider_name_snapshot,
       remoteModelId: row.remote_model_id_snapshot,
-      prompt: isModelGenerationRequest(request) ? null : row.prompt,
+      prompt: isModelGenerationRequest(request)
+        ? isTextToModelGenerationRequest(request) ? row.prompt : null
+        : row.prompt,
       count: isModelGenerationRequest(request) ? null : request.count,
       parameters: structuredClone(request.parameters),
       cancelRequested: row.cancel_requested === 1,
@@ -843,7 +854,11 @@ function validateRequest(request: JobRequest, kind: JobKind): void {
     if (!isModelGenerationRequest(request)) {
       throw new Error("Model jobs require a model generation request.");
     }
-    requireText(request.inputImageAssetId, "Model input image asset ID");
+    if (isTextToModelGenerationRequest(request)) {
+      requireText(request.prompt, "Text-to-model prompt");
+    } else {
+      requireText(request.inputImageAssetId, "Model input image asset ID");
+    }
     if (request.textureImageAssetId !== undefined) {
       requireText(request.textureImageAssetId, "Texture input image asset ID");
     }
@@ -884,8 +899,16 @@ function normalizeStoredRequest(
   if (row.kind === "image.generate") {
     return raw as unknown as GenerationRequest;
   }
-  if (typeof raw.inputImageAssetId === "string" && Array.isArray(raw.outputFormats)) {
-    return raw as unknown as ModelGenerationRequest;
+  if (Array.isArray(raw.outputFormats)) {
+    if (raw.inputMode === "text" && typeof raw.prompt === "string") {
+      return raw as unknown as ModelGenerationRequest;
+    }
+    if (typeof raw.inputImageAssetId === "string") {
+      return {
+        ...raw,
+        inputMode: "image"
+      } as unknown as ModelGenerationRequest;
+    }
   }
   const legacy = raw as unknown as GenerationRequest;
   const inputImageAssetId =
@@ -893,6 +916,7 @@ function normalizeStoredRequest(
     (Array.isArray(legacy.attachments) ? legacy.attachments[0]?.assetId : undefined);
   return {
     projectId: row.project_id,
+    inputMode: "image",
     inputImageAssetId: requireText(inputImageAssetId ?? "", "Model input image asset ID"),
     providerProfileId: row.provider_profile_id,
     providerModelId: row.provider_model_id,

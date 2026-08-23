@@ -1,17 +1,34 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import type {
+  AssetSnapshot,
   CreatePromptTemplateRequestBody,
   PromptTemplateSnapshot,
   UpdatePromptTemplateRequestBody
 } from "@lyra/contracts";
-import { ConfirmDialog } from "./AssetLibraryPage.js";
+import { ConfirmDialog } from "./ConfirmDialog.js";
+import {
+  PromptDialog,
+  type PromptPreviewSelection
+} from "../features/prompts/PromptDialog.js";
+import {
+  createPromptArchive,
+  createPromptExportPayload,
+  parsePromptImportFile
+} from "../features/prompts/prompt-transfer.js";
+import { downloadBlob } from "../features/templates/template-archive.js";
 import { Icon } from "./Icon.js";
 
 interface PromptLibraryPageProps {
   prompts: PromptTemplateSnapshot[];
-  onCreate: (value: CreatePromptTemplateRequestBody) => Promise<void>;
-  onUpdate: (promptId: string, value: UpdatePromptTemplateRequestBody) => Promise<void>;
+  generatedImages: AssetSnapshot[];
+  thumbnailUrl: (assetId: string) => string;
+  contentUrl: (assetId: string) => string;
+  previewUrl: (promptId: string) => string;
+  onCreate: (value: CreatePromptTemplateRequestBody) => Promise<PromptTemplateSnapshot>;
+  onUpdate: (promptId: string, value: UpdatePromptTemplateRequestBody) => Promise<PromptTemplateSnapshot>;
   onDelete: (promptId: string) => Promise<void>;
+  onSetPreview: (promptId: string, file: Blob) => Promise<PromptTemplateSnapshot>;
+  onDeletePreview: (promptId: string) => Promise<PromptTemplateSnapshot>;
 }
 
 type Feedback = { type: "error" | "success"; text: string } | null;
@@ -26,6 +43,7 @@ export function PromptLibraryPage(props: PromptLibraryPageProps) {
   const [favoriteBusyId, setFavoriteBusyId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<Feedback>(null);
   const [selectedExportIds, setSelectedExportIds] = useState<Set<string>>(new Set());
+  const [includePreviews, setIncludePreviews] = useState(true);
   const importInputRef = useRef<HTMLInputElement>(null);
 
   const categories = useMemo(
@@ -81,30 +99,39 @@ export function PromptLibraryPage(props: PromptLibraryPageProps) {
     setSelectedExportIds(new Set());
   }
 
-  function exportPrompts() {
-    const payload = props.prompts
-      .filter((item) => selectedExportIds.has(item.id))
-      .map(({ name, category, note, content, variables, favorite }) => ({
-        name,
-        category,
-        note,
-        content,
-        variables,
-        favorite
-      }));
-    if (!payload.length) return;
-    const blob = new Blob(
-      [JSON.stringify({ version: 1, prompts: payload }, null, 2)],
-      { type: "application/json;charset=utf-8" }
-    );
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "lyra-prompts.json";
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  async function exportPrompts() {
+    const payload = createPromptExportPayload(props.prompts, selectedExportIds);
+    if (!payload.prompts.length) return;
+    setBusy(true);
+    setFeedback(null);
+    try {
+      if (!includePreviews) {
+        downloadBlob(new Blob(
+          [JSON.stringify(payload, null, 2)],
+          { type: "application/json;charset=utf-8" }
+        ), "lyra-prompts.json");
+      } else {
+        const previews = new Map<string, Blob>();
+        for (const prompt of props.prompts) {
+          if (!selectedExportIds.has(prompt.id) || !prompt.previewMimeType) continue;
+          const response = await fetch(props.previewUrl(prompt.id), { cache: "no-store" });
+          if (!response.ok) throw new Error(`无法读取“${prompt.name}”的效果图。`);
+          previews.set(prompt.id, await response.blob());
+        }
+        downloadBlob(
+          await createPromptArchive(props.prompts, selectedExportIds, previews),
+          "lyra-prompts.lyra-template.zip"
+        );
+      }
+      setFeedback({ type: "success", text: `已导出 ${payload.prompts.length} 条提示词。` });
+    } catch (error) {
+      setFeedback({
+        type: "error",
+        text: error instanceof Error ? error.message : "提示词导出失败。"
+      });
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function importPrompts(event: ChangeEvent<HTMLInputElement>) {
@@ -114,45 +141,13 @@ export function PromptLibraryPage(props: PromptLibraryPageProps) {
     setFeedback(null);
     setBusy(true);
     try {
-      const parsed: unknown = JSON.parse(await file.text());
-      const records =
-        Array.isArray(parsed)
-          ? parsed
-          : parsed &&
-              typeof parsed === "object" &&
-              Array.isArray((parsed as { prompts?: unknown }).prompts)
-            ? (parsed as { prompts: unknown[] }).prompts
-            : [];
-      if (!records.length) throw new Error("导入文件中没有有效提示词。");
-
-      let imported = 0;
+      const records = await parsePromptImportFile(file);
       // The parent prepends new records. Reverse the input to preserve JSON order.
       for (const record of [...records].reverse()) {
-        if (!record || typeof record !== "object") continue;
-        const item = record as Record<string, unknown>;
-        const name = typeof item.name === "string" ? item.name.trim() : "";
-        const content = typeof item.content === "string" ? item.content.trim() : "";
-        if (!name || !content) continue;
-        const variables = Array.isArray(item.variables)
-          ? item.variables.filter((value): value is string => typeof value === "string")
-          : undefined;
-        await props.onCreate({
-          name,
-          content,
-          category: typeof item.category === "string" ? item.category.trim() : "",
-          note:
-            typeof item.note === "string" && item.note.trim()
-              ? item.note.trim()
-              : typeof item.shortcut === "string" && item.shortcut.trim()
-                ? item.shortcut.trim()
-              : null,
-          favorite: item.favorite === true,
-          ...(variables && variables.length > 0 ? { variables } : {})
-        });
-        imported += 1;
+        const created = await props.onCreate(record.value);
+        if (record.preview) await props.onSetPreview(created.id, record.preview);
       }
-      if (!imported) throw new Error("导入文件中没有可创建的提示词。");
-      setFeedback({ type: "success", text: `已导入 ${imported} 条提示词。` });
+      setFeedback({ type: "success", text: `已导入 ${records.length} 条提示词。` });
     } catch (error) {
       setFeedback({
         type: "error",
@@ -197,7 +192,7 @@ export function PromptLibraryPage(props: PromptLibraryPageProps) {
             ref={importInputRef}
             hidden
             type="file"
-            accept="application/json,.json"
+            accept="application/json,application/zip,.json,.zip"
             onChange={(event) => void importPrompts(event)}
           />
           <button
@@ -212,7 +207,7 @@ export function PromptLibraryPage(props: PromptLibraryPageProps) {
             type="button"
             className="button button-secondary"
             disabled={selectedExportIds.size === 0}
-            onClick={exportPrompts}
+            onClick={() => void exportPrompts()}
           >
             <Icon name="download" size={15} />
             导出{selectedExportIds.size > 0 ? ` (${selectedExportIds.size})` : ""}
@@ -230,7 +225,7 @@ export function PromptLibraryPage(props: PromptLibraryPageProps) {
           <input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="名称、适用模型/备注或内容"
+            placeholder="名称、建议模型或内容"
           />
         </label>
         <label>
@@ -261,6 +256,14 @@ export function PromptLibraryPage(props: PromptLibraryPageProps) {
           <span>选择需要导出的提示词</span>
         </div>
         <div className="prompt-selection-actions">
+          <label className="checkbox-field prompt-export-preview-option">
+            <input
+              type="checkbox"
+              checked={includePreviews}
+              onChange={(event) => setIncludePreviews(event.target.checked)}
+            />
+            包含效果图
+          </label>
           <span>
             已选择 <b>{selectedExportIds.size}</b> 项
           </span>
@@ -294,6 +297,13 @@ export function PromptLibraryPage(props: PromptLibraryPageProps) {
                 aria-label={`选择导出 ${item.name}`}
               />
             </label>
+            {item.previewMimeType && (
+              <img
+                className="prompt-row-preview"
+                src={versionedUrl(props.previewUrl(item.id), item.updatedAt)}
+                alt={`${item.name} 效果图`}
+              />
+            )}
             <div className="prompt-row-main">
               <div className="prompt-row-title">
                 <h2 title={item.name}>{item.name}</h2>
@@ -303,7 +313,7 @@ export function PromptLibraryPage(props: PromptLibraryPageProps) {
               <div className="prompt-row-meta">
                 {item.note && (
                   <span className="prompt-model-note" title={item.note}>
-                    <b>适用模型/备注</b>
+                    <b>建议模型</b>
                     {item.note}
                   </span>
                 )}
@@ -358,12 +368,17 @@ export function PromptLibraryPage(props: PromptLibraryPageProps) {
         <PromptDialog
           prompt={editing === "new" ? null : editing}
           busy={busy}
+          generatedImages={props.generatedImages}
+          thumbnailUrl={props.thumbnailUrl}
+          previewUrl={props.previewUrl}
           onClose={() => setEditing(null)}
-          onSave={async (value) => {
+          onSave={async (value, preview) => {
             setBusy(true);
             try {
-              if (editing === "new") await props.onCreate(value);
-              else await props.onUpdate(editing.id, value);
+              const saved = editing === "new"
+                ? await props.onCreate(value)
+                : await props.onUpdate(editing.id, value);
+              await applyPreviewSelection(saved, preview, props);
               setEditing(null);
             } catch {
               // The parent displays the API error.
@@ -397,105 +412,23 @@ export function PromptLibraryPage(props: PromptLibraryPageProps) {
   );
 }
 
-function PromptDialog(props: {
-  prompt: PromptTemplateSnapshot | null;
-  busy: boolean;
-  onClose: () => void;
-  onSave: (value: CreatePromptTemplateRequestBody) => Promise<void>;
-}) {
-  const [name, setName] = useState(props.prompt?.name ?? "");
-  const [category, setCategory] = useState(props.prompt?.category ?? "");
-  const [note, setNote] = useState(props.prompt?.note ?? "");
-  const [content, setContent] = useState(props.prompt?.content ?? "");
-  const [favorite, setFavorite] = useState(props.prompt?.favorite ?? false);
-
-  function submit(event: FormEvent) {
-    event.preventDefault();
-    if (!name.trim() || !content.trim()) return;
-    void props.onSave({
-      name: name.trim(),
-      category: category.trim(),
-      note: note.trim() || null,
-      content: content.trim(),
-      favorite
-    });
+async function applyPreviewSelection(
+  prompt: PromptTemplateSnapshot,
+  selection: PromptPreviewSelection,
+  props: PromptLibraryPageProps
+): Promise<void> {
+  if (selection.type === "keep") return;
+  if (selection.type === "remove") {
+    if (prompt.previewMimeType) await props.onDeletePreview(prompt.id);
+    return;
   }
+  const response = await fetch(props.contentUrl(selection.assetId));
+  if (!response.ok) throw new Error("无法读取选择的生成图片。");
+  const blob = await response.blob();
+  if (!blob.type.startsWith("image/")) throw new Error("选择的素材不是图片。");
+  await props.onSetPreview(prompt.id, blob);
+}
 
-  return (
-    <div className="modal-backdrop" onMouseDown={props.onClose}>
-      <form
-        className="form-modal prompt-form-modal"
-        onSubmit={submit}
-        onMouseDown={(event) => event.stopPropagation()}
-      >
-        <header>
-          <div>
-            <strong>{props.prompt ? "编辑提示词" : "新建提示词"}</strong>
-            <span>保存后可以在生图输入框中快速填充。</span>
-          </div>
-          <button type="button" className="icon-button" onClick={props.onClose}>
-            <Icon name="close" size={18} />
-          </button>
-        </header>
-        <div className="form-body form-grid">
-          <label className="field">
-            <span>名称</span>
-            <input
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              maxLength={120}
-              autoFocus
-            />
-          </label>
-          <label className="field">
-            <span>分类</span>
-            <input
-              value={category}
-              onChange={(event) => setCategory(event.target.value)}
-              maxLength={80}
-              placeholder="例如：角色设计"
-            />
-          </label>
-          <label className="field form-wide">
-            <span>适用模型/备注</span>
-            <input
-              value={note}
-              onChange={(event) => setNote(event.target.value)}
-              maxLength={200}
-              placeholder="例如：Nano Banana 效果更好"
-            />
-          </label>
-          <label className="field form-wide">
-            <span>提示词内容</span>
-            <textarea
-              value={content}
-              onChange={(event) => setContent(event.target.value)}
-              maxLength={10000}
-              rows={8}
-            />
-          </label>
-          <label className="checkbox-field form-wide">
-            <input
-              type="checkbox"
-              checked={favorite}
-              onChange={(event) => setFavorite(event.target.checked)}
-            />
-            加入收藏
-          </label>
-        </div>
-        <footer>
-          <button type="button" className="button button-secondary" onClick={props.onClose}>
-            取消
-          </button>
-          <button
-            type="submit"
-            className="button button-primary"
-            disabled={props.busy || !name.trim() || !content.trim()}
-          >
-            {props.busy ? "保存中…" : "保存"}
-          </button>
-        </footer>
-      </form>
-    </div>
-  );
+function versionedUrl(url: string, version: string): string {
+  return `${url}${url.includes("?") ? "&" : "?"}v=${encodeURIComponent(version)}`;
 }

@@ -13,6 +13,8 @@ from apps.launcher.paths import LauncherPaths
 from apps.launcher.process_manager import (
     ProcessManager,
     ProcessRecord,
+    detect_lan_ipv4,
+    format_service_log_line,
     force_terminate,
     get_process_creation_token,
     process_matches,
@@ -20,6 +22,47 @@ from apps.launcher.process_manager import (
 
 
 class ProcessManagerTests(unittest.TestCase):
+    def test_formats_service_log_without_duplicate_iso_timestamp(self) -> None:
+        message = format_service_log_line(
+            "worker",
+            "[2026-08-08T13:55:50.382Z] Agent and image workers ready.",
+        )
+        self.assertRegex(message, r"^\[\d{2}:\d{2}:\d{2}\] \[WORKER\] ")
+        self.assertNotIn("2026-08-08T", message)
+        self.assertTrue(message.endswith("Agent and image workers ready."))
+
+    def test_uses_lan_binding_with_separate_local_and_lan_urls(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="lyra-launcher-network-") as temporary:
+            root = Path(temporary)
+            paths = LauncherPaths(
+                base_dir=root,
+                data_dir=root / "data",
+                node_executable=Path(sys.executable),
+                api_entry=root / "api.js",
+                worker_entry=root / "worker.js",
+                web_root=root / "web",
+                system_prompt=root / "prompt.txt",
+            )
+            manager = ProcessManager(paths, port=4321, lan_ip="192.168.2.137")
+            self.assertEqual(manager.bind_host, "0.0.0.0")
+            self.assertEqual(manager.local_url, "http://127.0.0.1:4321/")
+            self.assertEqual(manager.lan_url, "http://192.168.2.137:4321/")
+            self.assertEqual(
+                manager.health_url,
+                "http://127.0.0.1:4321/api/v1/health/ready",
+            )
+
+    def test_accepts_a_configured_lan_address(self) -> None:
+        previous = os.environ.get("LYRA_LAN_IP")
+        os.environ["LYRA_LAN_IP"] = "192.168.50.8"
+        try:
+            self.assertEqual(detect_lan_ipv4(), "192.168.50.8")
+        finally:
+            if previous is None:
+                os.environ.pop("LYRA_LAN_IP", None)
+            else:
+                os.environ["LYRA_LAN_IP"] = previous
+
     def test_discovers_release_layout(self) -> None:
         with tempfile.TemporaryDirectory(prefix="lyra-launcher-paths-") as temporary:
             root = Path(temporary)

@@ -88,8 +88,12 @@ export function parseManualGenerationRequest(value: unknown): ManualGenerationRe
 export function parseManualModelGenerationRequest(
   value: unknown
 ): ManualModelGenerationRequestBody {
-  assertSchema(validateManualModel, value);
-  return structuredClone(value);
+  const normalized = isRecord(value) && value.inputMode === undefined &&
+    typeof value.imageAssetId === "string"
+    ? { ...value, inputMode: "image" }
+    : value;
+  assertSchema(validateManualModel, normalized);
+  return structuredClone(normalized);
 }
 
 export function parseSendAgentMessageRequest(value: unknown): SendAgentMessageRequestBody {
@@ -111,6 +115,13 @@ export function parseSendAgentMessageRequest(value: unknown): SendAgentMessageRe
     if (hasImageProfile !== hasImageModel) {
       throw new ContractValidationError([
         "defaultImageProviderProfileId and defaultImageModelId must be provided together"
+      ]);
+    }
+    const hasModelProfile = Boolean(selection.defaultModelProviderProfileId);
+    const hasModel = Boolean(selection.defaultModelId);
+    if (hasModelProfile !== hasModel) {
+      throw new ContractValidationError([
+        "defaultModelProviderProfileId and defaultModelId must be provided together"
       ]);
     }
   }
@@ -227,6 +238,10 @@ function formatErrors(errors: ErrorObject[] | null | undefined): string[] {
   return errors.map(
     (error) => `${error.instancePath || "/"} ${error.message ?? "is invalid"}`
   );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function assertNonBlank(field: string, value: string): void {

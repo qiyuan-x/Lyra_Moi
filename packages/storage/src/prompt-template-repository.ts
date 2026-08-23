@@ -15,6 +15,7 @@ interface PromptTemplateRow {
   content: string;
   variables_json: string | null;
   favorite: number;
+  preview_mime_type: string | null;
   created_at: string;
   updated_at: string;
   deleted_at: string | null;
@@ -51,7 +52,7 @@ export class PromptTemplateRepository {
     const rows = this.#database.connection
       .prepare(`
         SELECT id, name, category, note, content, variables_json,
-               favorite, created_at, updated_at, deleted_at
+               favorite, preview_mime_type, created_at, updated_at, deleted_at
         FROM prompt_templates
         WHERE ${where.join(" AND ")}
         ORDER BY favorite DESC, updated_at DESC, name
@@ -64,7 +65,7 @@ export class PromptTemplateRepository {
     const row = this.#database.connection
       .prepare(`
         SELECT id, name, category, note, content, variables_json,
-               favorite, created_at, updated_at, deleted_at
+               favorite, preview_mime_type, created_at, updated_at, deleted_at
         FROM prompt_templates
         WHERE id = ? AND deleted_at IS NULL
       `)
@@ -133,6 +134,19 @@ export class PromptTemplateRepository {
       .run(now, now, promptId);
     return { ...existing, deletedAt: now, updatedAt: now };
   }
+
+  setPreviewMimeType(promptId: string, mimeType: string | null): PromptTemplateSnapshot {
+    this.requireById(promptId);
+    const updatedAt = new Date().toISOString();
+    this.#database.connection
+      .prepare(`
+        UPDATE prompt_templates
+        SET preview_mime_type = ?, updated_at = ?
+        WHERE id = ? AND deleted_at IS NULL
+      `)
+      .run(mimeType, updatedAt, promptId);
+    return this.requireById(promptId);
+  }
 }
 
 function mapPrompt(row: PromptTemplateRow): PromptTemplateSnapshot {
@@ -148,6 +162,7 @@ function mapPrompt(row: PromptTemplateRow): PromptTemplateSnapshot {
     content: row.content,
     variables,
     favorite: row.favorite === 1,
+    previewMimeType: row.preview_mime_type,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     deletedAt: row.deleted_at

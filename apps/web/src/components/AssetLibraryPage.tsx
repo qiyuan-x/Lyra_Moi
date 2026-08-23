@@ -1,43 +1,64 @@
 import { useMemo, useState, type FormEvent } from "react";
-import type { AssetSnapshot } from "@lyra/contracts";
+import type { AssetSnapshot, JobSnapshot } from "@lyra/contracts";
 import { Icon } from "./Icon.js";
+import { ConfirmDialog } from "./ConfirmDialog.js";
+import {
+  countCompletedModels,
+  ModelAssetLibrary
+} from "../features/assets/ModelAssetLibrary.js";
+
+type LibrarySection = "upload" | "generated" | "models";
 
 interface AssetLibraryPageProps {
   assets: AssetSnapshot[];
+  modelAssets: AssetSnapshot[];
+  jobs: JobSnapshot[];
   generationModelByAssetId: Map<string, string>;
   thumbnailUrl: (assetId: string) => string;
+  contentUrl: (assetId: string) => string;
   onAttach: (asset: AssetSnapshot) => void;
   onPreview: (asset: AssetSnapshot) => void;
+  onViewModel: (assetId: string) => void;
   onUpload: () => void;
   onUpdate: (assetId: string, input: { name: string; tags: string[] }) => Promise<void>;
   onDelete: (assetId: string) => Promise<void>;
+  onDeleteModel: (assetIds: string[]) => Promise<void>;
 }
 
 export function AssetLibraryPage(props: AssetLibraryPageProps) {
   const [search, setSearch] = useState("");
-  const [source, setSource] = useState<"upload" | "generated">("upload");
+  const [source, setSource] = useState<LibrarySection>("upload");
   const [tag, setTag] = useState("");
   const [editing, setEditing] = useState<AssetSnapshot | null>(null);
   const [deleting, setDeleting] = useState<AssetSnapshot | null>(null);
   const [busy, setBusy] = useState(false);
   const tags = useMemo(
-    () => [...new Set(props.assets.filter((asset) => asset.source === source).flatMap((asset) => asset.tags))].sort(),
+    () => source === "models"
+      ? []
+      : [...new Set(props.assets.filter((asset) => asset.source === source).flatMap((asset) => asset.tags))].sort(),
     [props.assets, source]
   );
   const visible = useMemo(() => {
     const needle = search.trim().toLocaleLowerCase("zh-CN");
+    if (source === "models") return [];
     return props.assets.filter((asset) => {
       if (asset.source !== source) return false;
       if (tag && !asset.tags.includes(tag)) return false;
       return !needle || `${asset.name} ${asset.originalName ?? ""} ${asset.tags.join(" ")}`.toLocaleLowerCase("zh-CN").includes(needle);
     });
   }, [props.assets, search, source, tag]);
+  const modelCount = useMemo(
+    () => countCompletedModels(props.jobs, props.modelAssets),
+    [props.jobs, props.modelAssets]
+  );
 
   return (
     <section className="library-page">
       <header className="page-heading">
-        <div><h1>素材库</h1><p>上传素材和生成图片分别保存在当前项目中。</p></div>
-        <button type="button" className="button button-primary" onClick={props.onUpload}><Icon name="plus" size={16} />上传图片</button>
+        <div><h1>素材库</h1><p>统一查看当前项目的图片素材、生成图片和 AI 模型。</p></div>
+        {source !== "models" && (
+          <button type="button" className="button button-primary" onClick={props.onUpload}><Icon name="plus" size={16} />上传图片</button>
+        )}
       </header>
       <div className="asset-source-tabs" role="tablist" aria-label="素材分类">
         <button type="button" role="tab" aria-selected={source === "upload"} onClick={() => { setSource("upload"); setTag(""); }}>
@@ -46,13 +67,30 @@ export function AssetLibraryPage(props: AssetLibraryPageProps) {
         <button type="button" role="tab" aria-selected={source === "generated"} onClick={() => { setSource("generated"); setTag(""); }}>
           生成图片 <span>{props.assets.filter((asset) => asset.source === "generated").length}</span>
         </button>
+        <i className="asset-source-divider" aria-hidden="true" />
+        <button type="button" role="tab" aria-selected={source === "models"} onClick={() => { setSource("models"); setTag(""); }}>
+          AI 模型 <span>{modelCount}</span>
+        </button>
       </div>
       <div className="library-filters">
-        <label className="search-field"><span>搜索</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="名称或标签" /></label>
-        <label><span>标签</span><select value={tag} onChange={(event) => setTag(event.target.value)}><option value="">全部标签</option>{tags.map((item) => <option value={item} key={item}>{item}</option>)}</select></label>
-        <span className="filter-count">{visible.length} 项</span>
+        <label className="search-field"><span>搜索</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={source === "models" ? "名称、供应商或模型" : "名称或标签"} /></label>
+        {source !== "models" && (
+          <label><span>标签</span><select value={tag} onChange={(event) => setTag(event.target.value)}><option value="">全部标签</option>{tags.map((item) => <option value={item} key={item}>{item}</option>)}</select></label>
+        )}
+        <span className="filter-count">{source === "models" ? modelCount : visible.length} 项</span>
       </div>
-      {visible.length === 0 ? (
+      {source === "models" ? (
+        <ModelAssetLibrary
+          jobs={props.jobs}
+          images={props.assets}
+          modelAssets={props.modelAssets}
+          search={search}
+          thumbnailUrl={props.thumbnailUrl}
+          contentUrl={props.contentUrl}
+          onView={props.onViewModel}
+          onDelete={props.onDeleteModel}
+        />
+      ) : visible.length === 0 ? (
         <div className="library-empty"><Icon name="library" size={28} /><strong>没有符合条件的素材</strong><span>调整筛选条件，或上传新的图片。</span></div>
       ) : (
         <div className="asset-library-grid">
@@ -108,18 +146,6 @@ function AssetEditDialog(props: { asset: AssetSnapshot; busy: boolean; onClose: 
         <div className="form-body"><label className="field"><span>名称</span><input value={name} onChange={(event) => setName(event.target.value)} maxLength={200} autoFocus /></label><label className="field"><span>标签</span><input value={tags} onChange={(event) => setTags(event.target.value)} placeholder="角色, 参考, 正面" /><small>用逗号分隔多个标签</small></label></div>
         <footer><button type="button" className="button button-secondary" onClick={props.onClose}>取消</button><button type="submit" className="button button-primary" disabled={props.busy || !name.trim()}>{props.busy ? "保存中" : "保存"}</button></footer>
       </form>
-    </div>
-  );
-}
-
-export function ConfirmDialog(props: { title: string; text: string; busy: boolean; onClose: () => void; onConfirm: () => Promise<void> }) {
-  return (
-    <div className="modal-backdrop" onMouseDown={props.onClose}>
-      <div className="form-modal confirm-modal" role="dialog" aria-modal="true" onMouseDown={(event) => event.stopPropagation()}>
-        <header><div><strong>{props.title}</strong></div><button type="button" className="icon-button" onClick={props.onClose}><Icon name="close" size={18} /></button></header>
-        <div className="form-body"><p>{props.text}</p></div>
-        <footer><button type="button" className="button button-secondary" onClick={props.onClose}>取消</button><button type="button" className="button button-danger" disabled={props.busy} onClick={() => void props.onConfirm()}>{props.busy ? "处理中" : "确认删除"}</button></footer>
-      </div>
     </div>
   );
 }

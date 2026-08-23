@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { GenerationRequest } from "@lyra/contracts";
 import {
+  DashScopeImageProvider,
   GeminiImageProvider,
   OpenAiImageProvider,
   ProviderHttpClient,
+  StabilityImageProvider,
   type FetchLike,
   type ProviderAssetLoader
 } from "@lyra/providers";
@@ -14,6 +16,67 @@ const PNG = Buffer.from(
 );
 
 describe("image provider adapters", () => {
+  it("uses the DashScope multimodal image endpoint with ordered references", async () => {
+    let body: Record<string, unknown> | null = null;
+    const urls: string[] = [];
+    const provider = new DashScopeImageProvider({
+      baseUrl: "https://dashscope.test/api/v1",
+      apiKey: "dashscope-secret",
+      model: "qwen-image-3.0-pro",
+      assetLoader: createLoader([]),
+      client: new ProviderHttpClient({
+        fetchImplementation: async (input, init = {}) => {
+          const url = String(input);
+          urls.push(url);
+          if (url.includes("multimodal-generation")) {
+            body = JSON.parse(String(init.body)) as Record<string, unknown>;
+            return Response.json({
+              output: {
+                choices: [{ message: { content: [{ image: "https://cdn.test/qwen.png" }] } }]
+              }
+            });
+          }
+          return new Response(PNG, { headers: { "Content-Type": "image/png" } });
+        }
+      })
+    });
+
+    const images = await provider.generate(request({
+      attachments: [{ assetId: "reference", position: 1, label: "图一" }],
+      parameters: { aspectRatio: "16:9" }
+    }));
+
+    expect(urls[0]).toBe(
+      "https://dashscope.test/api/v1/services/aigc/multimodal-generation/generation"
+    );
+    expect(body).toMatchObject({ model: "qwen-image-3.0-pro", size: "1664*928" });
+    expect(images[0]?.data).toEqual(PNG);
+  });
+
+  it("sends Stability image generation as multipart and reads binary output", async () => {
+    let form: FormData | null = null;
+    let url = "";
+    const provider = new StabilityImageProvider({
+      baseUrl: "https://api.stability.test",
+      apiKey: "stability-secret",
+      model: "stable-image-core",
+      assetLoader: createLoader([]),
+      client: new ProviderHttpClient({
+        fetchImplementation: async (input, init = {}) => {
+          url = String(input);
+          form = init.body as FormData;
+          return new Response(PNG, { headers: { "Content-Type": "image/png" } });
+        }
+      })
+    });
+
+    const images = await provider.generate(request({ parameters: { aspectRatio: "3:2" } }));
+    expect(url).toBe("https://api.stability.test/v2beta/stable-image/generate/core");
+    expect(form!.get("prompt")).toBe("Draw an image");
+    expect(form!.get("aspect_ratio")).toBe("3:2");
+    expect(images[0]?.data).toEqual(PNG);
+  });
+
   it("sends OpenAI edit attachments as ordered multipart image fields", async () => {
     const loaded: string[] = [];
     let form: FormData | null = null;

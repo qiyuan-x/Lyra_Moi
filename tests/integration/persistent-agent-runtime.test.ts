@@ -192,6 +192,7 @@ describe("persistent Agent runtime", () => {
         systemPrompt: "这是修改后的系统提示词。",
         optimizeEnabledPrompt: "这是修改后的优化规则。"
       });
+      fixture.settings.set("agent_max_tool_calls", 17);
       const secondConversation = fixture.agentService.createConversation(
         fixture.seed.projectId
       );
@@ -218,6 +219,8 @@ describe("persistent Agent runtime", () => {
         "这是修改后的系统提示词。",
         "这是修改后的优化规则。"
       ]);
+      expect(fixture.agentRuns.requireStored(second.agentRun.id).maxToolCalls)
+        .toBe(17);
     } finally {
       await agentWorker.stop();
       fixture.database.close();
@@ -232,10 +235,41 @@ describe("persistent Agent runtime", () => {
     const modelProvider = new FakeModelProvider();
     const modelWorker = fixture.createModelWorker(modelProvider);
     try {
+      const selectedModelProfile = fixture.providers.createProfile({
+        id: "provider-model-selected",
+        serviceType: "model",
+        name: "Selected model provider",
+        protocol: "openai-compatible",
+        adapterType: "meshy",
+        baseUrl: "https://selected-provider.example",
+        apiKeyEnvironmentVariable: "LYRA_TEST_SELECTED_MODEL"
+      });
+      const selectedModel = fixture.providers.createModel(
+        selectedModelProfile.id,
+        {
+          serviceType: "model",
+          remoteModelId: "selected-meshy-6",
+          displayName: "Selected Meshy",
+          enabled: true,
+          isDefault: false
+        }
+      );
       const conversation = fixture.agentService.createConversation(fixture.seed.projectId);
       const submitted = fixture.agentService.sendMessage(conversation.id, {
         text: "先生成角色图片，再制作成 3D 模型",
-        attachments: []
+        attachments: [],
+        selection: {
+          defaultImageProviderProfileId: fixture.seed.providerProfileId,
+          defaultImageModelId: fixture.seed.imageModelId,
+          defaultModelProviderProfileId: selectedModelProfile.id,
+          defaultModelId: selectedModel.id
+        }
+      });
+      expect(fixture.agentRuns.requireStored(submitted.agentRun.id)).toMatchObject({
+        defaultImageProfileId: fixture.seed.providerProfileId,
+        defaultImageModelId: fixture.seed.imageModelId,
+        defaultModelProfileId: selectedModelProfile.id,
+        defaultModelModelId: selectedModel.id
       });
       agentWorker.start();
       imageWorker.start();
@@ -263,6 +297,8 @@ describe("persistent Agent runtime", () => {
       expect(modelJob).toMatchObject({
         status: "succeeded",
         source: "agent",
+        providerProfileId: selectedModelProfile.id,
+        providerModelId: selectedModel.id,
         inputs: [
           {
             assetId: imageJob?.outputs[0]?.assetId,

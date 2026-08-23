@@ -13,6 +13,7 @@ interface UseAssetWorkspaceOptions {
   projectId: string;
   assets: AssetSnapshot[];
   setAssets: Dispatch<SetStateAction<AssetSnapshot[]>>;
+  setModelAssets: Dispatch<SetStateAction<AssetSnapshot[]>>;
   onNotice: (text: string) => void;
   onError: (error: unknown) => void;
 }
@@ -63,8 +64,8 @@ export function useAssetWorkspace(options: UseAssetWorkspaceOptions) {
     await attachGenerated(assetId);
   }
 
-  async function upload(files: File[]) {
-    if (!options.projectId) return;
+  async function uploadAssets(files: File[]): Promise<AssetSnapshot[]> {
+    if (!options.projectId || files.length === 0) return [];
     try {
       const uploaded: AssetSnapshot[] = [];
       const knownIds = new Set(options.assets.map((asset) => asset.id));
@@ -87,13 +88,23 @@ export function useAssetWorkspace(options: UseAssetWorkspaceOptions) {
         uploaded.push(asset);
       }
       options.setAssets((current) => prependUniqueAssets(current, uploaded));
-      setAttachments((current) => appendUniqueAssets(current, uploaded));
       const messages = [`已处理 ${uploaded.length} 张图片`];
       if (reusedCount > 0) messages.push(`复用 ${reusedCount} 张`);
       if (renamedCount > 0) messages.push(`自动改名 ${renamedCount} 张`);
       options.onNotice(messages.join("，"));
+      return uploaded;
     } catch (error) {
       options.onError(error);
+      throw error;
+    }
+  }
+
+  async function upload(files: File[]) {
+    try {
+      const uploaded = await uploadAssets(files);
+      setAttachments((current) => appendUniqueAssets(current, uploaded));
+    } catch {
+      // uploadAssets reports the error.
     }
   }
 
@@ -111,15 +122,31 @@ export function useAssetWorkspace(options: UseAssetWorkspaceOptions) {
     }
   }
 
-  async function deleteAsset(assetId: string) {
+  async function deleteAssets(assetIds: string[]) {
+    const uniqueIds = [...new Set(assetIds)].filter(Boolean);
+    if (uniqueIds.length === 0) return;
+    const deleted = new Set<string>();
+    const updateLocalState = () => {
+      if (deleted.size === 0) return;
+      options.setAssets((current) => current.filter((asset) => !deleted.has(asset.id)));
+      options.setModelAssets((current) => current.filter((asset) => !deleted.has(asset.id)));
+      setAttachments((current) => current.filter((asset) => !deleted.has(asset.id)));
+    };
     try {
-      await options.api.deleteAsset(assetId);
-      options.setAssets((current) => removeAsset(current, assetId));
-      setAttachments((current) => removeAsset(current, assetId));
+      for (const assetId of uniqueIds) {
+        await options.api.deleteAsset(assetId);
+        deleted.add(assetId);
+      }
     } catch (error) {
+      updateLocalState();
       options.onError(error);
       throw error;
     }
+    updateLocalState();
+  }
+
+  async function deleteAsset(assetId: string) {
+    await deleteAssets([assetId]);
   }
 
   return {
@@ -131,9 +158,11 @@ export function useAssetWorkspace(options: UseAssetWorkspaceOptions) {
     toggleAttachment,
     attachGenerated,
     toggleGeneratedAttachment,
+    uploadAssets,
     upload,
     updateAsset,
-    deleteAsset
+    deleteAsset,
+    deleteAssets
   };
 }
 

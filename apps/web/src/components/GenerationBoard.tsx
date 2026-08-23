@@ -1,5 +1,8 @@
+import { useEffect, useState } from "react";
 import type { AssetSnapshot, JobSnapshot } from "@lyra/contracts";
 import { Icon } from "./Icon.js";
+import { JobElapsedTime } from "../features/jobs/JobElapsedTime.js";
+import { formatImageAssetSummary } from "../features/jobs/job-display.js";
 import { providerSnapshotLabel } from "../features/providers/catalog-selectors.js";
 
 interface GenerationBoardProps {
@@ -39,6 +42,13 @@ function FlowConnector() {
 }
 
 export function GenerationBoard(props: GenerationBoardProps) {
+  const latestJobId = props.jobs.at(-1)?.id ?? null;
+  const [expandedMobileJobId, setExpandedMobileJobId] = useState<string | null>(latestJobId);
+
+  useEffect(() => {
+    if (latestJobId) setExpandedMobileJobId(latestJobId);
+  }, [latestJobId]);
+
   if (props.jobs.length === 0) {
     return (
       <section className="empty-workspace">
@@ -66,7 +76,13 @@ export function GenerationBoard(props: GenerationBoardProps) {
         const canRetry = job.status === "failed" || job.status === "cancelled" || job.status === "interrupted";
 
         return (
-          <article className={`generation-flow-card status-${job.status}`} data-job-id={job.id} key={job.id}>
+          <article
+            className={`generation-flow-card status-${job.status}${
+              expandedMobileJobId === job.id ? " mobile-expanded" : " mobile-collapsed"
+            }`}
+            data-job-id={job.id}
+            key={job.id}
+          >
             <header className="generation-flow-header">
               <div className="generation-title">
                 <div>
@@ -77,10 +93,23 @@ export function GenerationBoard(props: GenerationBoardProps) {
                   {job.source === "agent" ? "Agent 对话" : "手动生成"}
                   <i aria-hidden="true">·</i>
                   {formatTaskTime(job.createdAt)}
+                  <i aria-hidden="true">·</i>
+                  <JobElapsedTime job={job} />
                   {job.attempt > 1 && <><i aria-hidden="true">·</i>第 {job.attempt} 次尝试</>}
                 </span>
               </div>
-              <span className={`status-pill status-${job.status}`}>{statusText[job.status]}</span>
+              <div className="generation-flow-header-actions">
+                <span className={`status-pill status-${job.status}`}>{statusText[job.status]}</span>
+                <button
+                  type="button"
+                  className="icon-button mobile-task-toggle"
+                  aria-label={expandedMobileJobId === job.id ? `收起任务 ${taskNumber}` : `展开任务 ${taskNumber}`}
+                  aria-expanded={expandedMobileJobId === job.id}
+                  onClick={() => setExpandedMobileJobId((current) => current === job.id ? null : job.id)}
+                >
+                  <Icon name="chevron" size={15} />
+                </button>
+              </div>
             </header>
 
             <div className="generation-flow">
@@ -166,37 +195,45 @@ export function GenerationBoard(props: GenerationBoardProps) {
                   </div>
                 ) : job.status === "succeeded" && job.outputs.length > 0 ? (
                   <div className={`output-grid output-count-${Math.min(job.outputs.length, 4)}`}>
-                    {job.outputs.map((output) => (
-                      <div
-                        className={`output-image${props.attachmentOrder.has(output.assetId) ? " selected" : ""}`}
-                        key={output.assetId}
-                        draggable
-                        role="button"
-                        tabIndex={0}
-                        aria-label={`${props.attachmentOrder.has(output.assetId) ? "取消引用" : "引用"}生成结果`}
-                        onDragStart={(event) => event.dataTransfer.setData("application/x-lyra-asset-id", output.assetId)}
-                        onClick={() => void props.onToggleAttachment(output.assetId)}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter" || event.key === " ") {
-                            event.preventDefault();
-                            void props.onToggleAttachment(output.assetId);
-                          }
-                        }}
-                      >
-                        <img src={props.contentUrl(output.assetId)} alt={`任务 ${taskNumber} 生成结果`} loading="lazy" />
-                        {props.attachmentOrder.has(output.assetId) && (
-                          <span className="output-reference-order">图{props.attachmentOrder.get(output.assetId)}</span>
-                        )}
-                        <div className="image-actions">
-                          <button type="button" onClick={(event) => { event.stopPropagation(); void props.onToggleAttachment(output.assetId); }}>
-                            {props.attachmentOrder.has(output.assetId) ? "取消引用" : "引用"}
-                          </button>
-                          <button type="button" aria-label="预览图片" onClick={(event) => { event.stopPropagation(); props.onPreview(output.assetId); }}>
-                            <Icon name="expand" size={16} />
-                          </button>
+                    {job.outputs.map((output) => {
+                      const asset = props.assetsById.get(output.assetId);
+                      return (
+                        <div className="output-result" key={output.assetId}>
+                          <div
+                            className={`output-image${props.attachmentOrder.has(output.assetId) ? " selected" : ""}`}
+                            draggable
+                            role="button"
+                            tabIndex={0}
+                            aria-label={`${props.attachmentOrder.has(output.assetId) ? "取消引用" : "引用"}生成结果`}
+                            onDragStart={(event) => event.dataTransfer.setData("application/x-lyra-asset-id", output.assetId)}
+                            onClick={() => void props.onToggleAttachment(output.assetId)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter" || event.key === " ") {
+                                event.preventDefault();
+                                void props.onToggleAttachment(output.assetId);
+                              }
+                            }}
+                          >
+                            <img src={props.contentUrl(output.assetId)} alt={`任务 ${taskNumber} 生成结果`} loading="lazy" />
+                            {props.attachmentOrder.has(output.assetId) && (
+                              <span className="output-reference-order">图{props.attachmentOrder.get(output.assetId)}</span>
+                            )}
+                            <div className="image-actions">
+                              <button type="button" onClick={(event) => { event.stopPropagation(); void props.onToggleAttachment(output.assetId); }}>
+                                {props.attachmentOrder.has(output.assetId) ? "取消引用" : "引用"}
+                              </button>
+                              <button type="button" aria-label="预览图片" onClick={(event) => { event.stopPropagation(); props.onPreview(output.assetId); }}>
+                                <Icon name="expand" size={16} />
+                              </button>
+                            </div>
+                          </div>
+                          <div className="output-image-info">
+                            <span>{formatImageAssetSummary(asset)}</span>
+                            <small title={providerLabel}>{providerLabel}</small>
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 ) : (
                   <div className="generation-error" role="alert" aria-live="assertive">

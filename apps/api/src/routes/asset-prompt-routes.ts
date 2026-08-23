@@ -170,6 +170,48 @@ export const handleAssetPromptRoutes: BusinessRouteHandler =
       }
     }
 
+    const promptPreview = matchPath(
+      url.pathname,
+      /^\/api\/v1\/prompts\/([^/]+)\/preview$/u
+    );
+    if (promptPreview) {
+      const prompts = requireService(
+        options.prompts,
+        "Prompt template"
+      );
+      const promptId = promptPreview[0]!;
+      if (request.method === "GET") {
+        const preview = prompts.getPreview(promptId);
+        writeBinary(
+          response,
+          preview.data,
+          preview.mimeType,
+          preview.etag,
+          requestId
+        );
+        return true;
+      }
+      if (request.method === "PUT") {
+        const form = await readMultipartForm(request, options.maxAssetBodyBytes);
+        const file = form.get("file");
+        if (!(file instanceof Blob)) throw new Error("提示词效果图文件不能为空。");
+        writeJson(response, 200, {
+          prompt: prompts.setPreview(
+            promptId,
+            new Uint8Array(await file.arrayBuffer()),
+            file.type
+          )
+        }, requestId);
+        return true;
+      }
+      if (request.method === "DELETE") {
+        writeJson(response, 200, {
+          prompt: prompts.deletePreview(promptId)
+        }, requestId);
+        return true;
+      }
+    }
+
     const prompt = matchPath(
       url.pathname,
       /^\/api\/v1\/prompts\/([^/]+)$/u

@@ -1,4 +1,5 @@
 import type { ModelGenerationRequest, ModelOutputFormat } from "@lyra/contracts";
+import { isTextToModelGenerationRequest } from "@lyra/contracts";
 import { ProviderConnectionError } from "./provider-errors.js";
 import { ProviderHttpClient } from "./provider-http-client.js";
 import {
@@ -7,6 +8,7 @@ import {
   readEnum,
   readNullableInteger,
   requireModelInput,
+  requireModelPrompt,
   requireRecord,
   requireText,
   type BinaryModelProvider,
@@ -51,6 +53,36 @@ export class TripoModelProvider implements BinaryModelProvider {
 
   async submit(request: ModelGenerationRequest, signal?: AbortSignal): Promise<string> {
     const outputFormats = normalizeOutputFormats(request.outputFormats);
+    const parameters = parseTripoParameters(request, this.#model);
+    if (isTextToModelGenerationRequest(request)) {
+      const prompt = requireModelPrompt(request);
+      if (prompt.length > 1024) {
+        throw new Error("Tripo text-to-model prompt cannot exceed 1024 characters.");
+      }
+      const task = this.#unwrap(await this.#client.postJson(
+        `${this.#baseUrl}/task`,
+        this.#headers(),
+        {
+          ...this.#settings,
+          type: "text_to_model",
+          model_version: this.#model,
+          prompt,
+          texture: parameters.texture,
+          pbr: parameters.pbr,
+          face_limit: parameters.faceLimit,
+          texture_quality: parameters.textureQuality,
+          ...(parameters.geometryQuality
+            ? { geometry_quality: parameters.geometryQuality }
+            : {})
+        },
+        signal
+      ));
+      return encodeCheckpoint({
+        stage: "generation",
+        taskId: requireText(task.task_id, "Tripo did not return a task ID."),
+        outputFormats
+      });
+    }
     const input = requireModelInput(request);
     const image = await this.#assetLoader.loadModelInput(input.assetId, input.projectId);
     const upload = new FormData();
@@ -69,7 +101,6 @@ export class TripoModelProvider implements BinaryModelProvider {
       uploadBody.image_token ?? uploadBody.file_token,
       "Tripo did not return an image token."
     );
-    const parameters = parseTripoParameters(request, this.#model);
     const task = this.#unwrap(await this.#client.postJson(
       `${this.#baseUrl}/task`,
       this.#headers(),

@@ -11,6 +11,7 @@ export interface RuntimeLayout {
   logs: string;
   temp: string;
   run: string;
+  promptPreviews: string;
   environmentFile: string;
   databaseFile: string;
 }
@@ -53,6 +54,7 @@ export function createRuntimeLayout(dataDirectory: string): RuntimeLayout {
     logs: resolve(root, "logs"),
     temp: resolve(root, "temp"),
     run: resolve(root, "run"),
+    promptPreviews: resolve(root, "prompt-previews"),
     environmentFile: resolve(config, ".env"),
     databaseFile: resolve(database, "lyra.sqlite3")
   };
@@ -69,7 +71,8 @@ export async function ensureRuntimeLayout(layout: RuntimeLayout): Promise<void> 
       layout.thumbnails,
       layout.logs,
       layout.temp,
-      layout.run
+      layout.run,
+      layout.promptPreviews
     ].map((directory) => mkdir(directory, { recursive: true }))
   );
 }

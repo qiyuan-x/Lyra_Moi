@@ -41,7 +41,40 @@ pnpm package:windows
 
 ```text
 release/LyraLauncher.exe
+release/Lyra-<version>-windows-x64.zip
+release/Lyra-update-<version>-windows-x64.zip
+release/update-artifact.json
 ```
+
+### 网页一键升级
+
+桌面版会在网页左上角显示版本号。点击版本号可检查版本；发现新版本后可直接下载、校验、安装并重启服务。升级失败时会恢复应用目录和升级前的数据库。
+
+发布包固定使用以下更新清单，地址会写入 `release/release.json`，不在普通设置中提供修改入口：
+
+```text
+https://linfrsot.cloud/lyra/updates/latest.json
+```
+
+更新清单格式：
+
+```json
+{
+  "schemaVersion": 1,
+  "version": "0.0.4",
+  "publishedAt": "2026-08-21T00:00:00Z",
+  "releaseNotes": ["更新说明"],
+  "artifacts": {
+    "windows-x64": {
+      "url": "https://linfrsot.cloud/lyra/updates/packages/Lyra-update-0.0.4-windows-x64.zip",
+      "sha256": "64 位 SHA-256",
+      "size": 12345678
+    }
+  }
+}
+```
+
+`update-artifact.json` 会给出安装包文件名、大小和 SHA-256，可用于生成更新清单。用户数据始终保存在 `data/`，更新包只替换 `app/` 和 `release.json`。
 
 ### 服务器构建
 

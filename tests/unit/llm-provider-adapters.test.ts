@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AgentMessage, AgentToolDefinition } from "@lyra/agent-engine";
 import {
+  AnthropicLlmProvider,
   GeminiInteractionsLlmProvider,
   OpenAiCompatibleLlmProvider,
   OpenAiResponsesLlmProvider,
@@ -22,6 +23,60 @@ const tools: AgentToolDefinition[] = [
 ];
 
 describe("LLM provider adapters", () => {
+  it("maps Agent tools through the native Anthropic Messages API", async () => {
+    let request: { url: string; init: RequestInit; body: Record<string, unknown> } | null = null;
+    const provider = new AnthropicLlmProvider({
+      baseUrl: "https://api.anthropic.test/v1",
+      apiKey: "anthropic-secret",
+      model: "claude-test",
+      settings: { maxOutputTokens: 300 },
+      client: new ProviderHttpClient({
+        fetchImplementation: async (input, init = {}) => {
+          request = {
+            url: String(input),
+            init,
+            body: JSON.parse(String(init.body)) as Record<string, unknown>
+          };
+          return Response.json({
+            content: [{
+              type: "tool_use",
+              id: "tool_1",
+              name: "generate_image",
+              input: { prompt: "draw it" }
+            }]
+          });
+        }
+      })
+    });
+
+    await expect(provider.complete({
+      messages: [
+        { role: "system", content: "System prompt" },
+        { role: "user", content: "Draw" }
+      ],
+      tools,
+      signal: undefined
+    })).resolves.toEqual({
+      type: "tool_call",
+      call: {
+        id: "tool_1",
+        name: "generate_image",
+        arguments: { prompt: "draw it" }
+      }
+    });
+    expect(request!.url).toBe("https://api.anthropic.test/v1/messages");
+    expect(request!.init.headers).toMatchObject({
+      "x-api-key": "anthropic-secret",
+      "anthropic-version": "2023-06-01"
+    });
+    expect(request!.body).toMatchObject({
+      model: "claude-test",
+      max_tokens: 300,
+      system: "System prompt",
+      tool_choice: { type: "auto" }
+    });
+  });
+
   it("maps Agent messages and tool calls through the OpenAI Responses API", async () => {
     const requests: Array<{ url: string; init: RequestInit; body: Record<string, unknown> }> = [];
     const fetchImplementation: FetchLike = async (input, init = {}) => {

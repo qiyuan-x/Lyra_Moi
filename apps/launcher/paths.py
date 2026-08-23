@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import json
 import shutil
 import subprocess
 import sys
@@ -17,6 +18,44 @@ class LauncherPaths:
     worker_entry: Path
     web_root: Path
     system_prompt: Path
+
+    @property
+    def application_version(self) -> str:
+        for manifest in (self.base_dir / "release.json", self.base_dir / "package.json"):
+            try:
+                value = json.loads(manifest.read_text(encoding="utf-8"))
+                version = value.get("version") if isinstance(value, dict) else None
+                if isinstance(version, str) and version.strip():
+                    return version.strip()
+            except (OSError, ValueError):
+                pass
+        return "0.0.4"
+
+    @property
+    def update_manifest_url(self) -> str | None:
+        configured = os.environ.get("LYRA_UPDATE_MANIFEST_URL", "").strip()
+        if configured:
+            return configured
+        try:
+            value = json.loads((self.base_dir / "release.json").read_text(encoding="utf-8"))
+            url = value.get("updateManifestUrl") if isinstance(value, dict) else None
+            return url.strip() if isinstance(url, str) and url.strip() else None
+        except (OSError, ValueError):
+            return None
+
+    @property
+    def update_helper_command(self) -> list[str]:
+        packaged_launcher = self.base_dir / "LyraLauncher.exe"
+        if getattr(sys, "frozen", False) or packaged_launcher.is_file():
+            executable = Path(sys.executable).resolve() if getattr(sys, "frozen", False) else packaged_launcher
+            return [str(executable), "--apply-update"]
+        return [
+            str(Path(sys.executable).resolve()),
+            str(self.base_dir / "main.py"),
+            "--base-dir",
+            str(self.base_dir),
+            "--apply-update",
+        ]
 
     @classmethod
     def discover(cls, base_dir: Path | str | None = None) -> "LauncherPaths":
@@ -66,6 +105,14 @@ class LauncherPaths:
     @property
     def lock_file(self) -> Path:
         return self.run_dir / "launcher.lock"
+
+    @property
+    def update_state_file(self) -> Path:
+        return self.run_dir / "application-update-state.json"
+
+    @property
+    def update_request_file(self) -> Path:
+        return self.run_dir / "application-update-request.json"
 
     def stop_file(self, role: str) -> Path:
         return self.run_dir / f"{role}.stop"

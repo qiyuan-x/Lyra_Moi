@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import type { ProjectSnapshot } from "@lyra/contracts";
+import { ConfirmDialog } from "./ConfirmDialog.js";
 import { Icon } from "./Icon.js";
 
 interface ProjectManagerDialogProps {
@@ -11,7 +12,7 @@ interface ProjectManagerDialogProps {
   onSelect: (projectId: string) => void;
   onCreate: (input: { name: string; description: string }) => Promise<void>;
   onUpdate: (projectId: string, input: { name: string; description: string }) => Promise<void>;
-  onArchive: (projectId: string) => Promise<void>;
+  onDelete: (projectId: string) => Promise<void>;
 }
 
 export function ProjectManagerDialog(props: ProjectManagerDialogProps) {
@@ -19,6 +20,7 @@ export function ProjectManagerDialog(props: ProjectManagerDialogProps) {
     props.initialCreating ? null : props.currentId || null
   );
   const [creating, setCreating] = useState(Boolean(props.initialCreating));
+  const [deleting, setDeleting] = useState<ProjectSnapshot | null>(null);
   const selected = props.projects.find((project) => project.id === editingId) ?? null;
   const [name, setName] = useState(selected?.name ?? "");
   const [description, setDescription] = useState(selected?.description ?? "");
@@ -51,11 +53,12 @@ export function ProjectManagerDialog(props: ProjectManagerDialogProps) {
   }
 
   return (
+    <>
     <div className="modal-backdrop" onMouseDown={props.onClose}>
-      <div className="project-manager" role="dialog" aria-modal="true" aria-label="项目管理" onMouseDown={(event) => event.stopPropagation()}>
+      <div className="project-manager" role="dialog" aria-modal="true" aria-label="项目设置" onMouseDown={(event) => event.stopPropagation()}>
         <header>
-          <div><strong>项目管理</strong><span>项目之间的对话、任务和图片互相隔离</span></div>
-          <button type="button" className="icon-button" aria-label="关闭项目管理" onClick={props.onClose}><Icon name="close" size={18} /></button>
+          <div><strong>项目设置</strong><span>项目之间的对话、任务、图片和模型互相隔离</span></div>
+          <button type="button" className="icon-button" aria-label="关闭项目设置" onClick={props.onClose}><Icon name="close" size={18} /></button>
         </header>
         <div className="project-manager-body">
           <aside>
@@ -87,14 +90,17 @@ export function ProjectManagerDialog(props: ProjectManagerDialogProps) {
             <label className="field"><span>项目描述</span><textarea value={description} onChange={(event) => setDescription(event.target.value)} maxLength={500} rows={5} /></label>
             <div className="project-form-actions">
               {!creating && selected && (
-                <button
-                  type="button"
-                  className="button button-danger"
-                  disabled={props.busy || props.projects.length <= 1}
-                  onClick={() => void props.onArchive(selected.id)}
-                >
-                  归档项目
-                </button>
+                <div className="project-delete-action">
+                  <button
+                    type="button"
+                    className="button button-danger"
+                    disabled={props.busy || props.projects.length <= 1}
+                    onClick={() => setDeleting(selected)}
+                  >
+                    删除项目
+                  </button>
+                  {props.projects.length <= 1 && <span>至少需要保留一个项目</span>}
+                </div>
               )}
               <button type="submit" className="button button-primary" disabled={props.busy || !name.trim()}>
                 {props.busy ? "处理中" : creating ? "创建项目" : "保存修改"}
@@ -104,5 +110,19 @@ export function ProjectManagerDialog(props: ProjectManagerDialogProps) {
         </div>
       </div>
     </div>
+    {deleting && (
+      <ConfirmDialog
+        title="永久删除项目"
+        text={`确定永久删除“${deleting.name}”？该项目的对话、任务、图片、模型和本地项目文件都会被删除，无法恢复。`}
+        confirmText="确认删除"
+        busy={props.busy}
+        onClose={() => setDeleting(null)}
+        onConfirm={async () => {
+          await props.onDelete(deleting.id);
+          setDeleting(null);
+        }}
+      />
+    )}
+    </>
   );
 }

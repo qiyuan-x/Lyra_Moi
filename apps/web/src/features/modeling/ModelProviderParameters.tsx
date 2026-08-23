@@ -1,5 +1,9 @@
 import type { ReactNode } from "react";
-import type { ModelOutputFormat, ProviderAdapterType } from "@lyra/contracts";
+import {
+  isMeshyGenerationModel,
+  type ModelOutputFormat,
+  type ProviderAdapterType
+} from "@lyra/contracts";
 
 export function ModelProviderParameters(props: {
   adapter: ProviderAdapterType;
@@ -18,7 +22,7 @@ export function ModelProviderParameters(props: {
   const number = (key: string, fallback: number) =>
     typeof props.parameters[key] === "number" ? props.parameters[key] as number : fallback;
 
-  if (props.adapter === "meshy") {
+  if (isMeshyGenerationModel(props.adapter, props.remoteModelId)) {
     const smart = props.remoteModelId === "meshy-t1" || props.remoteModelId === "meshy-t2";
     const texture = bool("texture", true);
     const targetMaximum = smart ? 15_000 : 300_000;
@@ -27,6 +31,11 @@ export function ModelProviderParameters(props: {
       : null;
     return (
       <>
+        {props.adapter === "openai-compatible" && (
+          <p className="modeling-config-note">
+            当前模型通过 OpenAI 兼容 3D 端点提交，生成参数复用 Meshy 设置。
+          </p>
+        )}
         <OutputFormatChecks
           formats={["glb", "obj", "fbx", "stl", "usdz", "3mf"]}
           selected={props.outputFormats}
@@ -85,10 +94,15 @@ export function ModelProviderParameters(props: {
           <option value="a-pose">A-Pose</option>
           <option value="t-pose">T-Pose</option>
         </SelectField>
-        {["latest", "meshy-6"].includes(props.remoteModelId) && (
+        {["latest", "meshy-6", "meshy-7"].includes(props.remoteModelId) && (
           <>
             <Toggle label="输入图增强" checked={bool("imageEnhancement", true)} onChange={(checked) => set("imageEnhancement", checked)} />
-            <Toggle label="移除纹理光照" checked={bool("removeLighting", true)} onChange={(checked) => set("removeLighting", checked)} />
+            {props.remoteModelId === "meshy-6" && (
+              <Toggle label="移除纹理光照" checked={bool("removeLighting", true)} onChange={(checked) => set("removeLighting", checked)} />
+            )}
+            {["latest", "meshy-7"].includes(props.remoteModelId) && (
+              <Toggle label="Ultra 模式" checked={bool("ultraMode", false)} onChange={(checked) => set("ultraMode", checked)} />
+            )}
           </>
         )}
       </>
@@ -148,6 +162,38 @@ export function ModelProviderParameters(props: {
         {!props.outputFormats.includes("glb") && (
           <p className="modeling-config-note">此格式没有 GLB 在线预览，生成后可直接下载。</p>
         )}
+      </>
+    );
+  }
+
+  if (props.adapter === "stability-3d") {
+    return (
+      <>
+        <OutputFormatChecks
+          formats={["glb"]}
+          selected={["glb"]}
+          required="glb"
+          onChange={props.onOutputFormatsChange}
+        />
+        <p className="modeling-config-note">
+          Stability AI 3D 使用图片生成模型，当前输出 GLB，可直接在网页中查看。
+        </p>
+      </>
+    );
+  }
+
+  if (props.adapter === "openai-compatible") {
+    return (
+      <>
+        <OutputFormatChecks
+          formats={["glb"]}
+          selected={["glb"]}
+          required="glb"
+          onChange={props.onOutputFormatsChange}
+        />
+        <p className="modeling-config-note">
+          OpenAI 兼容 3D API 使用统一端点处理文字或图片建模，输出 GLB，可直接在网页中查看。
+        </p>
       </>
     );
   }

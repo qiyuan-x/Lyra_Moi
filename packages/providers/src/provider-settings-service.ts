@@ -4,6 +4,7 @@ import type {
   CreateProviderModelRequestBody,
   DiscoveredProviderModel,
   ProviderConnectionTestResult,
+  ProviderAdapterType,
   ProviderModelSnapshot,
   ProviderProfileSnapshot,
   ProviderProtocol,
@@ -29,6 +30,7 @@ import type { ProviderRegistry } from "./provider-registry.js";
 
 const DEFAULT_BASE_URLS: Partial<Record<ProviderProtocol, string>> = {
   openai: "https://api.openai.com/v1",
+  anthropic: "https://api.anthropic.com/v1",
   gemini: "https://generativelanguage.googleapis.com/v1beta"
 };
 
@@ -74,7 +76,12 @@ export class ProviderSettingsService {
       name: input.name.trim(),
       protocol: input.protocol,
       adapterType: input.adapterType ?? input.protocol,
-      baseUrl: normalizeBaseUrl(input.protocol, input.baseUrl, input.serviceType),
+      baseUrl: normalizeBaseUrl(
+        input.protocol,
+        input.baseUrl,
+        input.serviceType,
+        input.adapterType ?? input.protocol
+      ),
       apiKeyEnvironmentVariable,
       secondaryApiKeyEnvironmentVariable,
       settings: structuredClone(input.settings ?? {})
@@ -145,11 +152,18 @@ export class ProviderSettingsService {
       const repositoryInput: UpdateStoredProviderProfileInput = {};
       if (input.name !== undefined) repositoryInput.name = input.name.trim();
       const protocol = input.protocol ?? existing.protocol;
+      const adapterType = input.adapterType ?? (
+        input.protocol !== undefined && isProtocolAdapter(existing.adapterType)
+          ? input.protocol
+          : existing.adapterType
+      );
       if (input.protocol !== undefined) repositoryInput.protocol = input.protocol;
-      if (input.adapterType !== undefined) repositoryInput.adapterType = input.adapterType;
+      if (input.adapterType !== undefined || adapterType !== existing.adapterType) {
+        repositoryInput.adapterType = adapterType;
+      }
       validateAdapterServiceType(
         existing.serviceType,
-        input.adapterType ?? existing.adapterType
+        adapterType
       );
       if (input.settings !== undefined) {
         repositoryInput.settings = structuredClone(input.settings);
@@ -158,7 +172,8 @@ export class ProviderSettingsService {
         repositoryInput.baseUrl = normalizeBaseUrl(
           protocol,
           input.baseUrl ?? existing.baseUrl,
-          existing.serviceType
+          existing.serviceType,
+          adapterType
         );
       }
       if (input.enabled !== undefined) repositoryInput.enabled = input.enabled;
@@ -423,7 +438,8 @@ export class ProviderSettingsService {
 export function normalizeBaseUrl(
   protocol: ProviderProtocol,
   value?: string,
-  serviceType?: ProviderServiceType
+  serviceType?: ProviderServiceType,
+  adapterType?: ProviderAdapterType
 ): string {
   const source = value?.trim() || DEFAULT_BASE_URLS[protocol];
   if (!source) throw new Error("Base URL is required for an OpenAI-compatible provider.");
@@ -439,7 +455,12 @@ export function normalizeBaseUrl(
   if (url.username || url.password || url.search || url.hash) {
     throw new Error("Provider Base URL cannot contain credentials, query parameters, or fragments.");
   }
-  if (protocol === "openai-compatible" && serviceType !== "model" && url.pathname === "/") {
+  if (
+    protocol === "openai-compatible" &&
+    (adapterType ?? protocol) === "openai-compatible" &&
+    serviceType !== "model" &&
+    url.pathname === "/"
+  ) {
     url.pathname = "/v1";
   }
   return url.toString().replace(/\/+$/u, "");
@@ -467,13 +488,36 @@ function validateAdapterServiceType(
   const modelAdapter =
     adapterType === "meshy" ||
     adapterType === "hunyuan" ||
-    adapterType === "tripo";
-  if (serviceType === "model" && !modelAdapter) {
-    throw new Error("AI modeling requires a Meshy, Hunyuan, or Tripo adapter.");
+    adapterType === "tripo" ||
+    adapterType === "stability-3d";
+  const supportsModel = modelAdapter || adapterType === "openai-compatible";
+  const imageAdapter =
+    adapterType === "dashscope-image" ||
+    adapterType === "seedream-image" ||
+    adapterType === "zhipu-image" ||
+    adapterType === "hunyuan-image" ||
+    adapterType === "stability-image";
+  if (serviceType === "model" && !supportsModel) {
+    throw new Error("AI modeling requires a supported modeling adapter.");
   }
   if (serviceType !== "model" && modelAdapter) {
     throw new Error("AI modeling adapters can only be used in AI modeling settings.");
   }
+  if (serviceType === "image" && adapterType === "anthropic") {
+    throw new Error("Anthropic does not support image generation.");
+  }
+  if (serviceType !== "image" && imageAdapter) {
+    throw new Error("Image generation adapters can only be used in AI image settings.");
+  }
+}
+
+function isProtocolAdapter(
+  adapterType: StoredProviderProfile["adapterType"]
+): adapterType is ProviderProtocol {
+  return adapterType === "openai" ||
+    adapterType === "anthropic" ||
+    adapterType === "gemini" ||
+    adapterType === "openai-compatible";
 }
 
 export function filterDiscoveredModels(
@@ -497,7 +541,7 @@ export function isImageGenerationModelId(
     return /^gemini-[a-z0-9.]+-[a-z0-9.-]*image(?:[-.]|$)/u.test(id) ||
       /^imagen(?:[-.]|$)/u.test(id);
   }
-  return /(?:^|[-_.])(gpt-image|dall-e|imagen|imagegen|image-generation|nano-banana|flux|stable-diffusion|sdxl|recraft|ideogram|midjourney|seedream|qwen-image|kolors|hidream|jimeng|cogview)(?:[-_.]|$)/u.test(id) ||
+  return /(?:^|[-_.])(gpt-image|dall-e|imagen|imagegen|image-generation|nano-banana|flux|stable-image|stable-diffusion|sd3|sdxl|recraft|ideogram|midjourney|seedream|qwen-image|wan[0-9]|kolors|hidream|jimeng|cogview|glm-image|hunyuan-image)(?:[-_.]|$)/u.test(id) ||
     /^gemini-[a-z0-9.]+-[a-z0-9.-]*image(?:[-.]|$)/u.test(id) ||
     /(?:^|[-_.])image(?:[-_.]|$)/u.test(id);
 }

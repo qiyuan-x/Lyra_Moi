@@ -256,6 +256,12 @@ export class AgentWorkerRuntime {
 
   async #execute(run: StoredAgentRun, signal: AbortSignal): Promise<void> {
     const resume = this.#findResumeInput(run);
+    const defaultModel = run.defaultModelProfileId && run.defaultModelModelId
+      ? {
+          providerProfileId: run.defaultModelProfileId,
+          id: run.defaultModelModelId
+        }
+      : this.#resolveDefaultModel();
     const provider = new RecordingLlmProvider(
       run.id,
       await this.#llmProviders.resolve(run.llmProviderProfileId, run.llmProviderModelId),
@@ -269,7 +275,7 @@ export class AgentWorkerRuntime {
     ) {
       tools.register(createQueuedGenerateImageTool(this.#generations, this.#agentSteps));
     }
-    if (this.#modelGenerations) {
+    if (this.#modelGenerations && defaultModel) {
       tools.register(createQueuedGenerateModelTool(this.#modelGenerations, this.#agentSteps));
     }
     const engine = new AgentEngine({
@@ -305,7 +311,6 @@ export class AgentWorkerRuntime {
       history,
       requestIndex
     );
-    const defaultModel = this.#resolveDefaultModel();
     const promptSettings = this.#promptSettings.get();
     const messages: AgentMessage[] = [
       { role: "system", content: promptSettings.systemPrompt },

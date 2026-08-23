@@ -17,6 +17,7 @@ interface UseConversationWorkspaceOptions {
   conversationId: string;
   setConversations: Dispatch<SetStateAction<ConversationSnapshot[]>>;
   setConversationId: Dispatch<SetStateAction<string>>;
+  setConversationDraftActive: Dispatch<SetStateAction<boolean>>;
   setMessages: Dispatch<SetStateAction<MessageSnapshot[]>>;
   setRuns: Dispatch<SetStateAction<AgentRunSnapshot[]>>;
   setStepsByRun: Dispatch<
@@ -36,6 +37,7 @@ export function useConversationWorkspace(
       prependConversation(current, conversation)
     );
     options.setConversationId(conversation.id);
+    options.setConversationDraftActive(false);
     options.setMessages([]);
     options.setRuns([]);
     options.setStepsByRun(new Map());
@@ -51,16 +53,12 @@ export function useConversationWorkspace(
     return conversation.id;
   }
 
-  async function createNewConversation() {
-    if (!options.projectId) return;
-    try {
-      const conversation = await options.api.createConversation(
-        options.projectId
-      );
-      activateConversation(conversation);
-    } catch (error) {
-      options.onError(error);
-    }
+  function startNewConversation() {
+    options.setConversationDraftActive(true);
+    options.setConversationId("");
+    options.setMessages([]);
+    options.setRuns([]);
+    options.setStepsByRun(new Map());
   }
 
   async function renameConversation(
@@ -88,6 +86,13 @@ export function useConversationWorkspace(
     setBusy(true);
     try {
       await options.api.deleteConversation(conversationId);
+      if (options.conversationId === conversationId) {
+        options.setConversationDraftActive(true);
+        options.setConversationId("");
+        options.setMessages([]);
+        options.setRuns([]);
+        options.setStepsByRun(new Map());
+      }
       await options.refreshProject(options.projectId);
     } catch (error) {
       options.onError(error);
@@ -100,7 +105,7 @@ export function useConversationWorkspace(
   return {
     conversationBusy: busy,
     ensureCurrentConversation,
-    createNewConversation,
+    startNewConversation,
     renameConversation,
     deleteConversation
   };

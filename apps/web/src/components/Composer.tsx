@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState, type DragEvent, type FormEvent } from "react";
+import { useRef, useState, type DragEvent, type FormEvent } from "react";
 import type { AssetSnapshot, PromptTemplateSnapshot } from "@lyra/contracts";
 import { Icon } from "./Icon.js";
+import { PromptTemplatePicker } from "./PromptTemplatePicker.js";
 
 interface ComposerProps {
   attachments: AssetSnapshot[];
@@ -14,27 +15,13 @@ interface ComposerProps {
   onReorder: (from: number, to: number) => void;
   onPreview: (asset: AssetSnapshot) => void;
   onUpload: (files: File[]) => Promise<void>;
+  onOpenAssets: () => void;
   onSubmit: () => Promise<void>;
 }
 
 export function Composer(props: ComposerProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
-  const promptMenuRef = useRef<HTMLDetailsElement>(null);
-
-  useEffect(() => {
-    const closePromptMenu = (event: PointerEvent) => {
-      const menu = promptMenuRef.current;
-      if (menu?.open && event.target instanceof Node && !menu.contains(event.target)) menu.open = false;
-    };
-    document.addEventListener("pointerdown", closePromptMenu);
-    return () => document.removeEventListener("pointerdown", closePromptMenu);
-  }, []);
-
-  function selectPrompt(value: string) {
-    props.onInsertPrompt(value);
-    if (promptMenuRef.current) promptMenuRef.current.open = false;
-  }
 
   async function submit(event?: FormEvent) {
     event?.preventDefault();
@@ -128,30 +115,16 @@ export function Composer(props: ComposerProps) {
             <Icon name="plus" size={16} />
             添加图片
           </button>
-          <details ref={promptMenuRef} className="prompt-menu">
-            <summary className="button button-quiet">
-              <Icon name="prompt" size={16} />提示词库</summary>
-            <div className="prompt-menu-panel">
-              {props.promptTemplates.length > 0 ? (
-                <>
-                  <strong>模板</strong>
-                  {props.promptTemplates.map((item) => (
-                    <button
-                      type="button"
-                      key={item.id}
-                      title={item.content}
-                      onClick={() => selectPrompt(item.content)}
-                    >
-                      <span>{item.name}</span>
-                      <small>{item.category || "未分类"}</small>
-                    </button>
-                  ))}
-                </>
-              ) : (
-                <span className="muted">提示词库为空</span>
-              )}
-            </div>
-          </details>
+          <button type="button" className="button button-quiet" onClick={props.onOpenAssets}>
+            <Icon name="library" size={16} />
+            素材库
+          </button>
+          <PromptTemplatePicker
+            templates={props.promptTemplates}
+            placement="top"
+            secondaryText={(template) => template.category || "未分类"}
+            onSelect={props.onInsertPrompt}
+          />
         </div>
         <div className="composer-actions">
           <span className="key-hint">Ctrl + Enter</span>

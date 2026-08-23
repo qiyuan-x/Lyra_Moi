@@ -21,9 +21,10 @@ import type {
   RuntimeEventRepository
 } from "@lyra/storage";
 
-const DEFAULT_MODEL_KEYS: Record<"llm" | "image", string> = {
+const DEFAULT_MODEL_KEYS: Record<"llm" | "image" | "model", string> = {
   llm: "default_llm_model_id",
-  image: "default_image_model_id"
+  image: "default_image_model_id",
+  model: "default_model_provider_model_id"
 };
 
 export interface AgentConversationServiceOptions {
@@ -79,10 +80,7 @@ export class AgentConversationService {
   }
 
   deleteConversation(conversationId: string): ConversationSnapshot {
-    const activeRun = this.#agentRuns.listByConversation(conversationId)
-      .find((run) => !["completed", "failed", "cancelled", "interrupted"].includes(run.status));
-    if (activeRun) throw new Error("Cannot delete a conversation while its Agent is running.");
-    return this.#conversations.softDelete(conversationId);
+    return this.#conversations.deletePermanently(conversationId);
   }
 
   listMessages(conversationId: string): MessageSnapshot[] {
@@ -107,6 +105,13 @@ export class AgentConversationService {
           "image"
         )
       : this.#findDefaultModel("image");
+    const model = input.selection?.defaultModelId
+      ? this.#requireSelectedModel(
+          input.selection.defaultModelProviderProfileId!,
+          input.selection.defaultModelId,
+          "model"
+        )
+      : this.#findDefaultModel("model");
     const maxToolCallsSetting = this.#settings.get("agent_max_tool_calls");
     const maxToolCalls =
       typeof maxToolCallsSetting === "number" &&
@@ -143,6 +148,8 @@ export class AgentConversationService {
         llmProviderModelId: llm.id,
         defaultImageProfileId: image?.providerProfileId ?? null,
         defaultImageModelId: image?.id ?? null,
+        defaultModelProfileId: model?.providerProfileId ?? null,
+        defaultModelModelId: model?.id ?? null,
         optimizeImagePrompt: input.optimizeImagePrompt ?? true,
         systemPromptVersion: this.#systemPromptVersion,
         maxToolCalls
@@ -222,13 +229,13 @@ export class AgentConversationService {
     return model;
   }
 
-  #requireDefaultModel(serviceType: "llm" | "image"): ProviderModelSnapshot {
+  #requireDefaultModel(serviceType: "llm" | "image" | "model"): ProviderModelSnapshot {
     const model = this.#findDefaultModel(serviceType);
     if (!model) throw new Error(`Default ${serviceType} provider model is not configured.`);
     return model;
   }
 
-  #findDefaultModel(serviceType: "llm" | "image"): ProviderModelSnapshot | null {
+  #findDefaultModel(serviceType: "llm" | "image" | "model"): ProviderModelSnapshot | null {
     const modelId = this.#settings.get(DEFAULT_MODEL_KEYS[serviceType]);
     if (typeof modelId !== "string" || !modelId) return null;
     const model = this.#providers.findModel(modelId);

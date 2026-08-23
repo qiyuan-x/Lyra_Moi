@@ -8,4 +8,6 @@ export * from "./runtime-event-stream.js";
 export * from "./asset-service.js";
 export * from "./agent-conversation-service.js";
 export * from "./agent-prompt-settings-service.js";
+export * from "./agent-runtime-settings-service.js";
+export * from "./community-settings-service.js";
 export * from "./binary-image-provider.js";

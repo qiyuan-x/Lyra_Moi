@@ -12,14 +12,16 @@ const OUTPUT_FORMATS = new Set<ModelOutputFormat>([
   "3mf"
 ]);
 
-interface GenerateModelArguments {
-  imageAssetId: string;
+type GenerateModelArguments = {
   textureImageAssetId?: string;
   providerProfileId?: string;
   providerModelId?: string;
   outputFormats?: ModelOutputFormat[];
   parameters?: Record<string, unknown>;
-}
+} & (
+  | { inputMode: "image"; imageAssetId: string }
+  | { inputMode: "text"; prompt: string }
+);
 
 type ApprovalDecision = "approved" | "rejected" | "none";
 
@@ -31,13 +33,13 @@ export function createQueuedGenerateModelTool(
     definition: {
       name: "generate_model",
       description:
-        "根据指定图片创建 3D 建模任务。该操作会先请求用户审核，只有用户批准后才会提交任务。imageAssetId 必须使用本轮附件中的项目图片资产 ID，或此前工具结果中的输出 assetId。",
+        "根据图片或文字创建 3D 建模任务。该操作会先请求用户审核，只有用户批准后才会提交任务。图片模式必须使用真实的项目图片资产 ID，文字模式使用 prompt。",
       parameters: {
         type: "object",
         additionalProperties: false,
-        required: ["imageAssetId"],
         properties: {
           imageAssetId: { type: "string", minLength: 1 },
+          prompt: { type: "string", minLength: 1, maxLength: 1024 },
           textureImageAssetId: { type: "string", minLength: 1 },
           providerProfileId: { type: "string", minLength: 1 },
           providerModelId: { type: "string", minLength: 1 },
@@ -51,7 +53,11 @@ export function createQueuedGenerateModelTool(
             }
           },
           parameters: { type: "object", additionalProperties: true }
-        }
+        },
+        oneOf: [
+          { required: ["imageAssetId"] },
+          { required: ["prompt"] }
+        ]
       }
     },
     async execute(argumentsValue, context) {
@@ -91,7 +97,10 @@ export function createQueuedGenerateModelTool(
       const job = generationService.submit(
         context.projectId,
         {
-          imageAssetId: input.imageAssetId,
+          inputMode: input.inputMode,
+          ...(input.inputMode === "image"
+            ? { imageAssetId: input.imageAssetId }
+            : { prompt: input.prompt }),
           ...(input.textureImageAssetId
             ? { textureImageAssetId: input.textureImageAssetId }
             : {}),
@@ -121,8 +130,13 @@ function normalizeArguments(
   value: unknown,
   context: { defaultModelProviderProfileId?: string; defaultModelId?: string }
 ): GenerateModelArguments {
-  if (!isRecord(value) || typeof value.imageAssetId !== "string" || !value.imageAssetId.trim()) {
-    throw new Error("generate_model requires imageAssetId.");
+  if (!isRecord(value)) {
+    throw new Error("generate_model arguments must be an object.");
+  }
+  const imageAssetId = readOptionalString(value.imageAssetId);
+  const prompt = readOptionalString(value.prompt);
+  if ((!imageAssetId && !prompt) || (imageAssetId && prompt)) {
+    throw new Error("generate_model requires exactly one of imageAssetId or prompt.");
   }
   const providerProfileId = readOptionalString(value.providerProfileId);
   const providerModelId = readOptionalString(value.providerModelId);
@@ -144,7 +158,9 @@ function normalizeArguments(
           throw new Error("parameters must be an object.");
         })();
   return {
-    imageAssetId: value.imageAssetId.trim(),
+    ...(imageAssetId
+      ? { inputMode: "image" as const, imageAssetId }
+      : { inputMode: "text" as const, prompt: prompt! }),
     ...(textureImageAssetId ? { textureImageAssetId } : {}),
     providerProfileId: resolvedProfileId,
     providerModelId: resolvedModelId,
@@ -196,7 +212,10 @@ function buildApprovalPrompt(input: GenerateModelArguments): string {
   const texture = input.textureImageAssetId
     ? `，纹理输入图为 ${input.textureImageAssetId}`
     : "";
-  return `准备使用图片资产 ${input.imageAssetId}${texture} 创建 3D 模型，输出格式：${formats}。是否批准开始建模？`;
+  const source = input.inputMode === "image"
+    ? `图片资产 ${input.imageAssetId}`
+    : `文字描述“${input.prompt}”`;
+  return `准备使用${source}${texture}创建 3D 模型，输出格式：${formats}。是否批准开始建模？`;
 }
 
 function readOutputFormats(value: unknown): ModelOutputFormat[] | undefined {

@@ -11,11 +11,24 @@ try {
   if (deploymentMode === "server" && !accessToken) {
     throw new Error("LYRA_ACCESS_TOKEN is required in server deployment mode.");
   }
+  const updateHelperCommand = parseHelperCommand(process.env.LYRA_UPDATE_HELPER_COMMAND);
   await clearProcessStopFile(stopFile);
   const runtime = await createApiRuntime({
     ...(process.env.LYRA_DATA_DIR ? { dataDirectory: process.env.LYRA_DATA_DIR } : {}),
     ...(process.env.LYRA_WEB_DIST ? { webRoot: process.env.LYRA_WEB_DIST } : {}),
     ...(process.env.LYRA_WORKER_VERSION ? { workerVersion: process.env.LYRA_WORKER_VERSION } : {}),
+    ...(process.env.LYRA_APP_VERSION ? { appVersion: process.env.LYRA_APP_VERSION } : {}),
+    ...(process.env.LYRA_APP_BASE_DIR
+      ? { applicationBaseDirectory: process.env.LYRA_APP_BASE_DIR }
+      : {}),
+    deploymentMode,
+    applicationPort: port,
+    ...(process.env.LYRA_UPDATE_MANIFEST_URL
+      ? { updateManifestUrl: process.env.LYRA_UPDATE_MANIFEST_URL }
+      : {}),
+    ...(updateHelperCommand
+      ? { updateHelperCommand }
+      : {}),
     ...(process.env.LYRA_AGENT_SYSTEM_PROMPT
       ? { systemPrompt: process.env.LYRA_AGENT_SYSTEM_PROMPT }
       : {}),
@@ -61,4 +74,13 @@ function parsePort(value: string | undefined): number {
 
 function timestamp(): string {
   return `[${new Date().toISOString()}]`;
+}
+
+function parseHelperCommand(value: string | undefined): string[] | undefined {
+  if (!value?.trim()) return undefined;
+  const command = JSON.parse(value) as unknown;
+  if (!Array.isArray(command) || command.length === 0 || command.some((item) => typeof item !== "string" || !item.trim())) {
+    throw new Error("LYRA_UPDATE_HELPER_COMMAND must be a non-empty JSON string array.");
+  }
+  return command;
 }

@@ -1,5 +1,6 @@
 import type {
   DiscoveredProviderModel,
+  ProviderAdapterType,
   ProviderProtocol
 } from "@lyra/contracts";
 import { ProviderConnectionError } from "./provider-errors.js";
@@ -13,8 +14,14 @@ import type {
 import {
   HunyuanModelDiscoveryAdapter,
   MeshyModelDiscoveryAdapter,
+  StabilityModelDiscoveryAdapter,
   TripoModelDiscoveryAdapter
 } from "./model-provider-discovery.js";
+import {
+  DashScopeImageDiscoveryAdapter,
+  HunyuanImageDiscoveryAdapter,
+  StabilityImageDiscoveryAdapter
+} from "./image-provider-discovery.js";
 
 export interface HttpProviderRegistryOptions {
   fetchImplementation?: FetchLike;
@@ -30,35 +37,92 @@ export function createHttpProviderRegistry(
   return new ProviderRegistry()
     .register(new OpenAiModelDiscoveryAdapter("openai", true, client))
     .register(new OpenAiModelDiscoveryAdapter("openai-compatible", false, client))
+    .register(new OpenAiModelDiscoveryAdapter("openai-compatible", true, client, "seedream-image"))
+    .register(new OpenAiModelDiscoveryAdapter("openai-compatible", true, client, "zhipu-image"))
+    .register(new AnthropicModelDiscoveryAdapter(client))
     .register(new GeminiModelDiscoveryAdapter(client))
+    .register(new DashScopeImageDiscoveryAdapter(client))
+    .register(new HunyuanImageDiscoveryAdapter(client))
+    .register(new StabilityImageDiscoveryAdapter(client))
     .register(new MeshyModelDiscoveryAdapter(client))
     .register(new HunyuanModelDiscoveryAdapter(client))
+    .register(new StabilityModelDiscoveryAdapter(client))
     .register(new TripoModelDiscoveryAdapter(client));
+}
+
+class AnthropicModelDiscoveryAdapter implements ProviderDiscoveryAdapter {
+  readonly protocol = "anthropic" as const;
+  readonly adapterType = "anthropic" as const;
+  readonly #client: ProviderHttpClient;
+
+  constructor(client: ProviderHttpClient) {
+    this.#client = client;
+  }
+
+  async discoverModels(input: ProviderDiscoveryInput): Promise<DiscoveredProviderModel[]> {
+    if (!input.apiKey) {
+      throw new ProviderConnectionError("MISSING_API_KEY", "Provider API key is not configured.");
+    }
+    const body = await this.#client.getJson(
+      `${input.profile.baseUrl}/models`,
+      {
+        Accept: "application/json",
+        "x-api-key": input.apiKey,
+        "anthropic-version": "2023-06-01"
+      },
+      input.signal
+    );
+    if (!isRecord(body) || !Array.isArray(body.data)) {
+      throw new ProviderConnectionError(
+        "INVALID_RESPONSE",
+        "Provider model list response is invalid."
+      );
+    }
+    return uniqueAndSortModels(body.data.flatMap((value): DiscoveredProviderModel[] => {
+      if (!isRecord(value) || typeof value.id !== "string" || !value.id.trim()) return [];
+      return [{
+        remoteModelId: value.id,
+        displayName: typeof value.display_name === "string" && value.display_name.trim()
+          ? value.display_name
+          : value.id,
+        metadata: {}
+      }];
+    }));
+  }
 }
 
 class OpenAiModelDiscoveryAdapter implements ProviderDiscoveryAdapter {
   readonly protocol: ProviderProtocol;
-  readonly adapterType: ProviderProtocol;
+  readonly adapterType: ProviderAdapterType;
   readonly #requiresApiKey: boolean;
   readonly #client: ProviderHttpClient;
 
-  constructor(protocol: ProviderProtocol, requiresApiKey: boolean, client: ProviderHttpClient) {
+  constructor(
+    protocol: ProviderProtocol,
+    requiresApiKey: boolean,
+    client: ProviderHttpClient,
+    adapterType: ProviderAdapterType = protocol
+  ) {
     this.protocol = protocol;
-    this.adapterType = protocol;
+    this.adapterType = adapterType;
     this.#requiresApiKey = requiresApiKey;
     this.#client = client;
   }
 
   async discoverModels(input: ProviderDiscoveryInput): Promise<DiscoveredProviderModel[]> {
-    if (this.#requiresApiKey && !input.apiKey) {
+    if ((this.#requiresApiKey || input.profile.serviceType === "model") && !input.apiKey) {
       throw new ProviderConnectionError("MISSING_API_KEY", "Provider API key is not configured.");
     }
     const headers: Record<string, string> = { Accept: "application/json" };
     if (input.apiKey) headers.Authorization = `Bearer ${input.apiKey}`;
     let body: unknown;
     try {
+      const baseUrl = input.profile.serviceType === "model" &&
+        new URL(input.profile.baseUrl).pathname === "/"
+        ? `${input.profile.baseUrl}/v1`
+        : input.profile.baseUrl;
       body = await this.#client.getJson(
-        `${input.profile.baseUrl}/models`,
+        `${baseUrl}/models`,
         headers,
         input.signal
       );

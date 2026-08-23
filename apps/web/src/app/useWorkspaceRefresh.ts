@@ -20,6 +20,7 @@ type WorkspaceRefreshOptions = {
   api: ApiClient;
   projectId: string;
   conversationId: string;
+  conversationDraftActive: boolean;
   setAssets: Dispatch<SetStateAction<AssetSnapshot[]>>;
   setModelAssets: Dispatch<SetStateAction<AssetSnapshot[]>>;
   setJobs: Dispatch<SetStateAction<JobSnapshot[]>>;
@@ -93,9 +94,11 @@ export function useWorkspaceRefresh(
       ] as const)
     );
     if (sequence !== conversationRefreshSequenceRef.current) return;
-    currentOptions.setMessages(nextMessages);
-    currentOptions.setRuns(nextRuns);
-    currentOptions.setStepsByRun(new Map(stepEntries));
+    const latestOptions = optionsRef.current;
+    if (latestOptions.conversationId !== targetConversationId) return;
+    latestOptions.setMessages(nextMessages);
+    latestOptions.setRuns(nextRuns);
+    latestOptions.setStepsByRun(new Map(stepEntries));
   }, []);
 
   const refreshProject = useCallback(async (
@@ -129,12 +132,15 @@ export function useWorkspaceRefresh(
         : Promise.resolve(undefined)
     ]);
     if (sequence !== projectRefreshSequenceRef.current) return;
-    if (nextAssets) currentOptions.setAssets(nextAssets);
-    if (nextModelAssets) currentOptions.setModelAssets(nextModelAssets);
-    if (nextJobs) currentOptions.setJobs(nextJobs);
+    const latestOptions = optionsRef.current;
+    if (latestOptions.projectId !== targetProjectId) return;
+    if (nextAssets) latestOptions.setAssets(nextAssets);
+    if (nextModelAssets) latestOptions.setModelAssets(nextModelAssets);
+    if (nextJobs) latestOptions.setJobs(nextJobs);
     if (nextConversations) {
-      currentOptions.setConversations(nextConversations);
-      currentOptions.setConversationId((current) => {
+      latestOptions.setConversations(nextConversations);
+      latestOptions.setConversationId((current) => {
+        if (latestOptions.conversationDraftActive) return "";
         if (nextConversations.some((conversation) => conversation.id === current)) return current;
         return nextConversations[0]?.id ?? "";
       });

@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
 import socket
 import subprocess
 import sys
+import time
+import zipfile
 from pathlib import Path
 
 
@@ -13,6 +16,14 @@ ROOT = Path(__file__).resolve().parents[1]
 BUILD_DIR = ROOT / "build"
 RELEASE_DIR = ROOT / "release"
 APP_DIR = RELEASE_DIR / "app"
+UPDATE_MANIFEST_URL = "https://linfrsot.cloud/lyra/updates/latest.json"
+UPDATE_PACKAGE_BASE_URL = "https://linfrsot.cloud/lyra/updates/packages"
+RELEASE_NOTES = (
+    "完善 Windows 启动器自动检查、一键升级、失败恢复和版本回退。",
+    "新增内嵌社区、动作参考编辑器和动作模板效果图导入导出。",
+    "提示词模板支持选择、显示和打包效果图。",
+    "更新 AI 建模供应商配置及 Meshy、OpenAI 兼容接口。",
+)
 sys.path.insert(0, str(ROOT))
 
 from apps.launcher.paths import LauncherPaths  # noqa: E402
@@ -32,6 +43,9 @@ def main() -> int:
     _copy_sharp_runtime()
     _copy_node_runtime()
     _build_launcher_executable()
+    _write_release_manifest()
+    _build_update_archive()
+    _build_portable_archive()
     _smoke_test_release()
     _reset_release_data()
     _safe_remove(BUILD_DIR)
@@ -148,6 +162,96 @@ def _build_launcher_executable() -> None:
     )
 
 
+def _application_version() -> str:
+    package = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))
+    version = package.get("version")
+    if not isinstance(version, str) or not version.strip():
+        raise RuntimeError("Root package.json version is missing.")
+    return version.strip()
+
+
+def _write_release_manifest() -> None:
+    payload = {
+        "schemaVersion": 1,
+        "version": _application_version(),
+        "platform": "windows-x64",
+        "builtAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "updateManifestUrl": UPDATE_MANIFEST_URL,
+    }
+    (RELEASE_DIR / "release.json").write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _build_update_archive() -> None:
+    version = _application_version()
+    archive = RELEASE_DIR / f"Lyra-update-{version}-windows-x64.zip"
+    with zipfile.ZipFile(
+        archive,
+        mode="w",
+        compression=zipfile.ZIP_DEFLATED,
+        compresslevel=9,
+    ) as bundle:
+        bundle.write(RELEASE_DIR / "release.json", "release.json")
+        bundle.write(RELEASE_DIR / "LyraLauncher.exe", "LyraLauncher.exe")
+        for source in sorted(APP_DIR.rglob("*")):
+            if source.is_file():
+                bundle.write(source, source.relative_to(RELEASE_DIR).as_posix())
+    checksum = hashlib.sha256()
+    with archive.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            checksum.update(chunk)
+    metadata = {
+        "schemaVersion": 1,
+        "version": version,
+        "platform": "windows-x64",
+        "fileName": archive.name,
+        "size": archive.stat().st_size,
+        "sha256": checksum.hexdigest(),
+    }
+    (RELEASE_DIR / "update-artifact.json").write_text(
+        json.dumps(metadata, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    release = json.loads((RELEASE_DIR / "release.json").read_text(encoding="utf-8"))
+    latest = {
+        "schemaVersion": 1,
+        "version": version,
+        "publishedAt": release["builtAt"],
+        "releaseNotes": list(RELEASE_NOTES),
+        "artifacts": {
+            "windows-x64": {
+                "url": f"{UPDATE_PACKAGE_BASE_URL}/{archive.name}",
+                "size": metadata["size"],
+                "sha256": metadata["sha256"],
+            }
+        },
+    }
+    (RELEASE_DIR / "latest.json").write_text(
+        json.dumps(latest, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _build_portable_archive() -> None:
+    version = _application_version()
+    archive = RELEASE_DIR / f"Lyra-{version}-windows-x64.zip"
+    with zipfile.ZipFile(
+        archive,
+        mode="w",
+        compression=zipfile.ZIP_DEFLATED,
+        compresslevel=9,
+    ) as bundle:
+        for relative in (Path("LyraLauncher.exe"), Path("release.json")):
+            bundle.write(RELEASE_DIR / relative, relative.as_posix())
+        bundle.writestr("data/.gitkeep", "")
+        for directory in (APP_DIR, RELEASE_DIR / "runtime"):
+            for source in sorted(directory.rglob("*")):
+                if source.is_file():
+                    bundle.write(source, source.relative_to(RELEASE_DIR).as_posix())
+
+
 def _smoke_test_release() -> None:
     port = _find_free_port()
     manager = ProcessManager(
@@ -160,6 +264,33 @@ def _smoke_test_release() -> None:
         statuses = manager.start_services()
         if not all(status.running for status in statuses.values()) or not manager.is_api_ready():
             raise RuntimeError("Release services did not pass the readiness check.")
+        request_file = _write_update_smoke_request(port)
+        updater = RELEASE_DIR / "data" / "temp" / "updater" / "LyraUpdater.exe"
+        updater.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(RELEASE_DIR / "LyraLauncher.exe", updater)
+        update_result = subprocess.run(
+            [
+                str(updater),
+                "--base-dir",
+                str(RELEASE_DIR),
+                "--apply-update",
+                str(request_file),
+            ],
+            cwd=RELEASE_DIR,
+            timeout=90,
+            check=False,
+        )
+        if update_result.returncode != 0 or not manager.is_api_ready(timeout=3):
+            raise RuntimeError(
+                f"Packaged updater smoke test failed with code {update_result.returncode}."
+            )
+        update_state = json.loads(
+            (RELEASE_DIR / "data" / "run" / "application-update-state.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        if update_state.get("snapshot", {}).get("status") != "completed":
+            raise RuntimeError("Packaged updater did not report a completed state.")
     finally:
         manager.stop_services()
     result = subprocess.run(
@@ -170,6 +301,62 @@ def _smoke_test_release() -> None:
     )
     if result.returncode != 0:
         raise RuntimeError(f"Launcher executable smoke test failed with code {result.returncode}.")
+
+
+def _write_update_smoke_request(port: int) -> Path:
+    metadata = json.loads((RELEASE_DIR / "update-artifact.json").read_text(encoding="utf-8"))
+    version = _application_version()
+    state_file = RELEASE_DIR / "data" / "run" / "application-update-state.json"
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+    state_file.write_text(
+        json.dumps(
+            {
+                "schemaVersion": 1,
+                "snapshot": {
+                    "enabled": True,
+                    "currentVersion": version,
+                    "latestVersion": version,
+                    "platform": "windows-x64",
+                    "updateAvailable": True,
+                    "status": "scheduled",
+                    "progress": 0,
+                    "message": "packaged updater smoke test",
+                    "checkedAt": None,
+                    "publishedAt": None,
+                    "releaseNotes": [],
+                    "artifactSize": metadata["size"],
+                },
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    request_file = RELEASE_DIR / "data" / "run" / "application-update-request.json"
+    request_file.write_text(
+        json.dumps(
+            {
+                "schemaVersion": 1,
+                "baseDir": str(RELEASE_DIR),
+                "currentVersion": version,
+                "targetVersion": version,
+                "platform": "windows-x64",
+                "artifact": {
+                    "url": (RELEASE_DIR / metadata["fileName"]).as_uri(),
+                    "sha256": metadata["sha256"],
+                    "size": metadata["size"],
+                },
+                "stateFile": str(state_file),
+                "port": port,
+                "updateLauncher": True,
+                "restartLauncher": False,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    return request_file
 
 
 def _stop_existing_release() -> None:

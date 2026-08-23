@@ -18,8 +18,8 @@ interface UseAgentActionsOptions {
   conversationId: string;
   prompt: string;
   attachments: AssetSnapshot[];
-  optimizeImagePrompt: boolean;
   selectedImageModel: ProviderModelSnapshot | undefined;
+  selectedModelModel: ProviderModelSnapshot | undefined;
   agentReady: boolean;
   ensureCurrentConversation: () => Promise<string>;
   clearComposer: () => void;
@@ -45,13 +45,23 @@ export function useAgentActions(options: UseAgentActionsOptions) {
       await options.api.sendAgentMessage(conversationId, {
         text: options.prompt,
         attachments: toOrderedAttachments(options.attachments),
-        optimizeImagePrompt: options.optimizeImagePrompt,
-        ...(options.selectedImageModel
+        ...(options.selectedImageModel || options.selectedModelModel
           ? {
               selection: {
-                defaultImageProviderProfileId:
-                  options.selectedImageModel.providerProfileId,
-                defaultImageModelId: options.selectedImageModel.id
+                ...(options.selectedImageModel
+                  ? {
+                      defaultImageProviderProfileId:
+                        options.selectedImageModel.providerProfileId,
+                      defaultImageModelId: options.selectedImageModel.id
+                    }
+                  : {}),
+                ...(options.selectedModelModel
+                  ? {
+                      defaultModelProviderProfileId:
+                        options.selectedModelModel.providerProfileId,
+                      defaultModelId: options.selectedModelModel.id
+                    }
+                  : {})
               }
             }
           : {})

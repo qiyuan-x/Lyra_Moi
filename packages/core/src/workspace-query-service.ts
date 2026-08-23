@@ -76,10 +76,12 @@ export class WorkspaceQueryService {
     return this.#projects.update(projectId, input);
   }
 
-  archiveProject(projectId: string): ProjectSnapshot {
+  deleteProject(projectId: string): ProjectSnapshot {
     const active = this.#projects.listActive();
     if (active.length <= 1) throw new Error("At least one active project is required.");
-    return this.#projects.archive(projectId);
+    const deleted = this.#projects.deletePermanently(projectId);
+    this.#projectDirectories?.delete(projectId);
+    return deleted;
   }
 
   updateProjectImageMode(projectId: string, value: unknown): ProjectSnapshot {

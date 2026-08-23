@@ -13,6 +13,8 @@ interface AgentRunRow {
   llm_provider_model_id: string;
   default_image_profile_id: string | null;
   default_image_model_id: string | null;
+  default_model_profile_id: string | null;
+  default_model_model_id: string | null;
   optimize_image_prompt: number;
   system_prompt_version: string;
   max_tool_calls: number;
@@ -33,6 +35,8 @@ export interface StoredAgentRun extends AgentRunSnapshot {
   llmProviderModelId: string;
   defaultImageProfileId: string | null;
   defaultImageModelId: string | null;
+  defaultModelProfileId: string | null;
+  defaultModelModelId: string | null;
   optimizeImagePrompt: boolean;
   systemPromptVersion: string;
   maxToolCalls: number;
@@ -48,6 +52,8 @@ export interface CreateAgentRunInput {
   llmProviderModelId: string;
   defaultImageProfileId?: string | null;
   defaultImageModelId?: string | null;
+  defaultModelProfileId?: string | null;
+  defaultModelModelId?: string | null;
   optimizeImagePrompt?: boolean;
   systemPromptVersion: string;
   maxToolCalls?: number;
@@ -89,11 +95,12 @@ export class AgentRunRepository {
           id, project_id, conversation_id, request_message_id, status,
           llm_provider_profile_id, llm_provider_model_id,
           default_image_profile_id, default_image_model_id,
+          default_model_profile_id, default_model_model_id,
           optimize_image_prompt, system_prompt_version, max_tool_calls, tool_call_count, current_step,
           cancel_requested, locked_by, locked_at, error_code, error_message,
           created_at, updated_at, finished_at
         ) VALUES (
-          ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, 0, 0, 0,
+          ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0,
           NULL, NULL, NULL, NULL, ?, ?, NULL
         )
       `)
@@ -106,6 +113,8 @@ export class AgentRunRepository {
         input.llmProviderModelId,
         input.defaultImageProfileId ?? null,
         input.defaultImageModelId ?? null,
+        input.defaultModelProfileId ?? null,
+        input.defaultModelModelId ?? null,
         input.optimizeImagePrompt === false ? 0 : 1,
         requireText(input.systemPromptVersion, "System prompt version"),
         maxToolCalls,
@@ -416,7 +425,8 @@ export class AgentRunRepository {
 const AGENT_RUN_SELECT = `
   SELECT id, project_id, conversation_id, request_message_id, status,
          llm_provider_profile_id, llm_provider_model_id, default_image_profile_id,
-         default_image_model_id, optimize_image_prompt, system_prompt_version, max_tool_calls,
+         default_image_model_id, default_model_profile_id, default_model_model_id,
+         optimize_image_prompt, system_prompt_version, max_tool_calls,
          tool_call_count, current_step, cancel_requested, locked_by, locked_at,
          error_code, error_message, created_at, updated_at, finished_at
   FROM agent_runs
@@ -441,6 +451,8 @@ function mapStoredAgentRun(row: AgentRunRow): StoredAgentRun {
     llmProviderModelId: row.llm_provider_model_id,
     defaultImageProfileId: row.default_image_profile_id,
     defaultImageModelId: row.default_image_model_id,
+    defaultModelProfileId: row.default_model_profile_id,
+    defaultModelModelId: row.default_model_model_id,
     optimizeImagePrompt: row.optimize_image_prompt === 1,
     systemPromptVersion: row.system_prompt_version,
     maxToolCalls: row.max_tool_calls,
@@ -455,6 +467,8 @@ function toSnapshot(run: StoredAgentRun): AgentRunSnapshot {
     llmProviderModelId: _llmProviderModelId,
     defaultImageProfileId: _defaultImageProfileId,
     defaultImageModelId: _defaultImageModelId,
+    defaultModelProfileId: _defaultModelProfileId,
+    defaultModelModelId: _defaultModelModelId,
     optimizeImagePrompt: _optimizeImagePrompt,
     systemPromptVersion: _systemPromptVersion,
     maxToolCalls: _maxToolCalls,

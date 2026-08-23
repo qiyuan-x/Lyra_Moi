@@ -8,6 +8,7 @@ export interface PromptTemplateSnapshot {
   content: string;
   variables: string[];
   favorite: boolean;
+  previewMimeType: string | null;
   createdAt: UtcDateTime;
   updatedAt: UtcDateTime;
   deletedAt: UtcDateTime | null;

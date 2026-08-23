@@ -3,7 +3,9 @@ import { resolve } from "node:path";
 import {
   AgentConversationService,
   AgentPromptSettingsService,
+  AgentRuntimeSettingsService,
   AssetService,
+  CommunitySettingsService,
   ManualGenerationService,
   ModelGenerationService,
   PromptTemplateService,
@@ -18,6 +20,7 @@ import {
   EnvironmentFileSecretStore,
   ImmutableBlobStore,
   ProjectDirectoryStore,
+  PromptPreviewStore,
   openReadyRuntimeDatabase,
   SharpImageProcessor,
   ThumbnailStore,
@@ -30,6 +33,7 @@ import {
   type RuntimeLayout
 } from "@lyra/storage";
 import { createApiServer } from "./server.js";
+import { ApplicationUpdateService } from "./application-update-service.js";
 
 export interface CreateApiRuntimeOptions {
   dataDirectory?: string;
@@ -38,6 +42,12 @@ export interface CreateApiRuntimeOptions {
   accessToken?: string;
   systemPrompt?: string;
   systemPromptFile?: string;
+  appVersion?: string;
+  applicationBaseDirectory?: string;
+  deploymentMode?: string;
+  updateManifestUrl?: string;
+  updateHelperCommand?: string[];
+  applicationPort?: number;
 }
 
 export interface ApiRuntime {
@@ -94,6 +104,25 @@ export async function createApiRuntime(options: CreateApiRuntimeOptions = {}): P
           : {})
       })
     );
+    const agentRuntimeSettings = new AgentRuntimeSettingsService(settings);
+    const communitySettings = new CommunitySettingsService(settings);
+    const applicationUpdates = new ApplicationUpdateService({
+      currentVersion: options.appVersion?.trim() || "0.0.4",
+      baseDirectory: options.applicationBaseDirectory?.trim() || process.cwd(),
+      stateFile: resolve(layout.run, "application-update-state.json"),
+      requestFile: resolve(layout.run, "application-update-request.json"),
+      ...(options.updateManifestUrl?.trim()
+        ? { manifestUrl: options.updateManifestUrl.trim() }
+        : {}),
+      ...(options.updateHelperCommand?.length
+        ? { helperCommand: options.updateHelperCommand }
+        : {}),
+      ...(options.deploymentMode?.trim()
+        ? { deploymentMode: options.deploymentMode.trim() }
+        : {}),
+      ...(options.applicationPort ? { port: options.applicationPort } : {})
+    });
+    void applicationUpdates.check().catch(() => undefined);
     const server = createApiServer({
       events: new RuntimeEventFeed(runtimeEvents),
       workspace: new WorkspaceQueryService({
@@ -134,10 +163,16 @@ export async function createApiRuntime(options: CreateApiRuntimeOptions = {}): P
         secrets: secretStore,
         registry: createHttpProviderRegistry()
       }),
-      prompts: new PromptTemplateService({ prompts }),
+      prompts: new PromptTemplateService({
+        prompts,
+        previews: new PromptPreviewStore(layout.promptPreviews)
+      }),
       agentPromptSettings,
+      agentRuntimeSettings,
+      communitySettings,
+      applicationUpdates,
       readiness: () => {
-        const workerVersion = options.workerVersion?.trim() || "0.1.0";
+        const workerVersion = options.workerVersion?.trim() || options.appVersion?.trim() || "0.0.4";
         const heartbeatCutoff = new Date(Date.now() - 5_000).toISOString();
         const webReady =
           !options.webRoot?.trim() || existsSync(resolve(options.webRoot, "index.html"));

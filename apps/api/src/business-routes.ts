@@ -1,7 +1,9 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { CreateApiServerOptions } from "./api-types.js";
 import { handleAgentSettingsRoutes } from "./routes/agent-settings-routes.js";
+import { handleApplicationUpdateRoutes } from "./routes/application-update-routes.js";
 import { handleAssetPromptRoutes } from "./routes/asset-prompt-routes.js";
+import { handleCommunitySettingsRoutes } from "./routes/community-settings-routes.js";
 import type {
   BusinessRouteContext,
   BusinessRouteHandler
@@ -11,7 +13,9 @@ import { handleProjectConversationRoutes } from "./routes/project-conversation-r
 import { handleProviderRoutes } from "./routes/provider-routes.js";
 
 const businessRouteHandlers: BusinessRouteHandler[] = [
+  handleApplicationUpdateRoutes,
   handleAgentSettingsRoutes,
+  handleCommunitySettingsRoutes,
   handleProjectConversationRoutes,
   handleJobGenerationRoutes,
   handleAssetPromptRoutes,

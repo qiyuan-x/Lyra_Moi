@@ -1,10 +1,13 @@
 import type {
   AgentPromptSettingsSnapshot,
+  AgentRuntimeSettingsSnapshot,
   AgentRunSnapshot,
   AgentStepSnapshot,
   ApplicationDefaultModels,
+  ApplicationUpdateSnapshot,
   AssetListQuery,
   AssetSnapshot,
+  CommunitySettingsSnapshot,
   ConversationSnapshot,
   CreatePromptTemplateRequestBody,
   CreateProviderModelRequestBody,
@@ -13,7 +16,7 @@ import type {
   DiscoveredProviderModel,
   JobSnapshot,
   ManualGenerationRequestBody,
-  ManualModelGenerationRequestBody,
+  ManualModelGenerationInput,
   MessageSnapshot,
   OrderedAssetInput,
   ProjectSnapshot,
@@ -26,6 +29,8 @@ import type {
   SendAgentMessageRequestBody,
   UpdatePromptTemplateRequestBody,
   UpdateAgentPromptSettingsRequestBody,
+  UpdateAgentRuntimeSettingsRequestBody,
+  UpdateCommunitySettingsRequestBody,
   UpdateProviderModelRequestBody,
   UpdateProviderProfileRequestBody
 } from "@lyra/contracts";
@@ -40,6 +45,35 @@ export interface ProviderCatalog {
 }
 
 export class ApiClient {
+  getCommunitySettings(): Promise<CommunitySettingsSnapshot> {
+    return request<CommunitySettingsSnapshot>("/api/v1/settings/community");
+  }
+
+  updateCommunitySettings(
+    body: UpdateCommunitySettingsRequestBody
+  ): Promise<CommunitySettingsSnapshot> {
+    return request<CommunitySettingsSnapshot>("/api/v1/settings/community", {
+      method: "PATCH",
+      body: JSON.stringify(body)
+    });
+  }
+
+  getApplicationUpdate(): Promise<ApplicationUpdateSnapshot> {
+    return request<ApplicationUpdateSnapshot>("/api/v1/system/update");
+  }
+
+  checkApplicationUpdate(): Promise<ApplicationUpdateSnapshot> {
+    return request<ApplicationUpdateSnapshot>("/api/v1/system/update/check", {
+      method: "POST"
+    });
+  }
+
+  applyApplicationUpdate(): Promise<ApplicationUpdateSnapshot> {
+    return request<ApplicationUpdateSnapshot>("/api/v1/system/update/apply", {
+      method: "POST"
+    });
+  }
+
   getAgentPromptSettings(): Promise<AgentPromptSettingsSnapshot> {
     return request<AgentPromptSettingsSnapshot>(
       "/api/v1/settings/agent-prompts"
@@ -62,6 +96,28 @@ export class ApiClient {
     );
   }
 
+  getAgentRuntimeSettings(): Promise<AgentRuntimeSettingsSnapshot> {
+    return request<AgentRuntimeSettingsSnapshot>(
+      "/api/v1/settings/agent-runtime"
+    );
+  }
+
+  updateAgentRuntimeSettings(
+    body: UpdateAgentRuntimeSettingsRequestBody
+  ): Promise<AgentRuntimeSettingsSnapshot> {
+    return request<AgentRuntimeSettingsSnapshot>(
+      "/api/v1/settings/agent-runtime",
+      { method: "PATCH", body: JSON.stringify(body) }
+    );
+  }
+
+  resetAgentRuntimeSettings(): Promise<AgentRuntimeSettingsSnapshot> {
+    return request<AgentRuntimeSettingsSnapshot>(
+      "/api/v1/settings/agent-runtime",
+      { method: "DELETE" }
+    );
+  }
+
   listProjects(): Promise<ProjectSnapshot[]> {
     return request<{ items: ProjectSnapshot[] }>("/api/v1/projects").then((value) => value.items);
   }
@@ -80,7 +136,7 @@ export class ApiClient {
     }).then((value) => value.project);
   }
 
-  archiveProject(projectId: string): Promise<ProjectSnapshot> {
+  deleteProject(projectId: string): Promise<ProjectSnapshot> {
     return request<{ project: ProjectSnapshot }>(`/api/v1/projects/${encodeURIComponent(projectId)}`, {
       method: "DELETE"
     }).then((value) => value.project);
@@ -248,6 +304,28 @@ export class ApiClient {
     }).then((value) => value.prompt);
   }
 
+  setPromptPreview(promptId: string, file: Blob): Promise<PromptTemplateSnapshot> {
+    const body = new FormData();
+    body.append("file", file, "prompt-preview");
+    return request<{ prompt: PromptTemplateSnapshot }>(
+      `/api/v1/prompts/${encodeURIComponent(promptId)}/preview`,
+      { method: "PUT", body }
+    ).then((value) => value.prompt);
+  }
+
+  deletePromptPreview(promptId: string): Promise<PromptTemplateSnapshot> {
+    return request<{ prompt: PromptTemplateSnapshot }>(
+      `/api/v1/prompts/${encodeURIComponent(promptId)}/preview`,
+      { method: "DELETE" }
+    ).then((value) => value.prompt);
+  }
+
+  promptPreviewUrl(promptId: string): string {
+    return appendAccessToken(
+      `${API_BASE}/api/v1/prompts/${encodeURIComponent(promptId)}/preview`
+    );
+  }
+
   listConversations(projectId: string): Promise<ConversationSnapshot[]> {
     return request<{ items: ConversationSnapshot[] }>(
       `/api/v1/projects/${encodeURIComponent(projectId)}/conversations`
@@ -268,11 +346,11 @@ export class ApiClient {
     ).then((value) => value.conversation);
   }
 
-  deleteConversation(conversationId: string): Promise<ConversationSnapshot> {
-    return request<{ conversation: ConversationSnapshot }>(
+  deleteConversation(conversationId: string): Promise<void> {
+    return request(
       `/api/v1/conversations/${encodeURIComponent(conversationId)}`,
       { method: "DELETE" }
-    ).then((value) => value.conversation);
+    ).then(() => undefined);
   }
 
   listMessages(conversationId: string): Promise<MessageSnapshot[]> {
@@ -332,7 +410,7 @@ export class ApiClient {
 
   createModelGeneration(
     projectId: string,
-    body: Omit<ManualModelGenerationRequestBody, "projectId">
+    body: ManualModelGenerationInput
   ): Promise<JobSnapshot> {
     return request<{ job: JobSnapshot }>(
       `/api/v1/projects/${encodeURIComponent(projectId)}/model-generations`,

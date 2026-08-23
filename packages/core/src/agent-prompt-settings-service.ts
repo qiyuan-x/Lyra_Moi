@@ -10,7 +10,7 @@ const SETTINGS_KEY = "agent.prompt-settings.v1";
 const MAX_PROMPT_LENGTH = 30_000;
 
 export const defaultOptimizeEnabledPrompt =
-  "本轮允许 Agent 优化生图提示词。";
+  "可以整理用户的自然语言生图需求；用户明确要求原样使用的提示词必须逐字保留。";
 
 export const defaultOptimizeDisabledPrompt =
   "本轮已关闭提示词优化。判断需要生图时仍可调用工具，但生图服务会使用用户本轮原文，不得改写。";

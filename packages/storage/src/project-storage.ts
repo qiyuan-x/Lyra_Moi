@@ -1,4 +1,4 @@
-import { constants } from "node:fs";
+import { constants, rmSync } from "node:fs";
 import { copyFile, mkdir, stat } from "node:fs/promises";
 import { mkdirSync } from "node:fs";
 import { dirname, resolve, sep } from "node:path";
@@ -33,6 +33,13 @@ export class ProjectDirectoryStore {
     ]) {
       mkdirSync(directory, { recursive: true });
     }
+  }
+
+  delete(projectId: string): void {
+    rmSync(resolveProjectRoot(this.root, projectId), {
+      recursive: true,
+      force: true
+    });
   }
 }
 

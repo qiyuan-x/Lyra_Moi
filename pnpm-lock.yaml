@@ -41,6 +41,9 @@ importers:
       '@lyra/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      fflate:
+        specifier: 0.8.3
+        version: 0.8.3
       react:
         specifier: ^19.2.7
         version: 19.2.7

@@ -56,7 +56,7 @@ export const handleProjectConversationRoutes: BusinessRouteHandler =
         200,
         {
           project: requireService(options.workspace, "Workspace")
-            .archiveProject(project[0]!)
+            .deleteProject(project[0]!)
         },
         requestId
       );
@@ -77,9 +77,7 @@ export const handleProjectConversationRoutes: BusinessRouteHandler =
           response,
           200,
           {
-            items: conversations.listConversations(
-              projectConversations[0]!
-            )
+            items: conversations.listConversations(projectConversations[0]!)
           },
           requestId
         );

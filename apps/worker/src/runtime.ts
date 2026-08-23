@@ -96,7 +96,7 @@ export async function createWorkerRuntime(
       secrets: new EnvironmentFileSecretStore(layout.environmentFile),
       assets: assetService
     });
-    const version = options.version?.trim() || "0.1.0";
+    const version = options.version?.trim() || "0.0.4";
     const pid = options.pid ?? process.pid;
     const agentPromptSettings = new AgentPromptSettingsService(
       settings,

@@ -1,7 +1,9 @@
 import type {
   AgentConversationService,
   AgentPromptSettingsService,
+  AgentRuntimeSettingsService,
   AssetService,
+  CommunitySettingsService,
   ManualGenerationService,
   ModelGenerationService,
   PromptTemplateService,
@@ -9,6 +11,7 @@ import type {
   WorkspaceQueryService
 } from "@lyra/core";
 import type { ProviderSettingsService } from "@lyra/providers";
+import type { ApplicationUpdateService } from "./application-update-service.js";
 
 export interface CreateApiServerOptions {
   events: RuntimeEventFeed;
@@ -20,6 +23,9 @@ export interface CreateApiServerOptions {
   providers?: ProviderSettingsService;
   prompts?: PromptTemplateService;
   agentPromptSettings?: AgentPromptSettingsService;
+  agentRuntimeSettings?: AgentRuntimeSettingsService;
+  communitySettings?: CommunitySettingsService;
+  applicationUpdates?: ApplicationUpdateService;
   isReady?: () => boolean;
   readiness?: () => { ok: boolean; [key: string]: unknown };
   eventPollIntervalMs?: number;

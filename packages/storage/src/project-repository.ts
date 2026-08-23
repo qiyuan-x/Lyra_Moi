@@ -115,22 +115,108 @@ export class ProjectRepository {
     return this.findById(projectId)!;
   }
 
-  archive(projectId: string): ProjectSnapshot {
+  deletePermanently(projectId: string): ProjectSnapshot {
     return this.#database.transaction(() => {
-      const now = new Date().toISOString();
-      const result = this.#database.connection
+      const project = this.findById(projectId);
+      if (!project || project.deletedAt !== null) {
+        throw new Error(`Project not found: ${projectId}`);
+      }
+      const activeJob = this.#database.connection
         .prepare(`
-          UPDATE projects
-          SET deleted_at = ?, updated_at = ?
-          WHERE id = ? AND deleted_at IS NULL
+          SELECT 1 FROM jobs
+          WHERE project_id = ? AND status IN ('queued', 'running')
+          LIMIT 1
         `)
-        .run(now, now, projectId);
+        .get(projectId);
+      const activeAgent = this.#database.connection
+        .prepare(`
+          SELECT 1 FROM agent_runs
+          WHERE project_id = ?
+            AND status NOT IN ('completed', 'failed', 'cancelled', 'interrupted')
+          LIMIT 1
+        `)
+        .get(projectId);
+      if (activeJob || activeAgent) {
+        throw new Error("Cannot delete a project while it has active tasks.");
+      }
+
+      const connection = this.#database.connection;
+      connection.prepare(`
+        UPDATE agent_steps SET child_job_id = NULL
+        WHERE child_job_id IN (SELECT id FROM jobs WHERE project_id = ?)
+      `).run(projectId);
+      connection.prepare(`
+        UPDATE jobs SET retry_of_job_id = NULL
+        WHERE retry_of_job_id IN (SELECT id FROM jobs WHERE project_id = ?)
+      `).run(projectId);
+      connection.prepare(`
+        UPDATE jobs
+        SET conversation_id = NULL,
+            agent_run_id = NULL,
+            agent_step_id = NULL,
+            request_message_id = NULL,
+            retry_of_job_id = NULL
+        WHERE project_id = ?
+      `).run(projectId);
+      connection.prepare(`
+        UPDATE messages SET reply_to_id = NULL
+        WHERE reply_to_id IN (
+          SELECT message.id
+          FROM messages AS message
+          JOIN conversations AS conversation
+            ON conversation.id = message.conversation_id
+          WHERE conversation.project_id = ?
+        )
+      `).run(projectId);
+
+      connection.prepare("DELETE FROM runtime_events WHERE project_id = ?").run(projectId);
+      connection.prepare(`
+        DELETE FROM job_inputs
+        WHERE job_id IN (SELECT id FROM jobs WHERE project_id = ?)
+      `).run(projectId);
+      connection.prepare(`
+        DELETE FROM job_outputs
+        WHERE job_id IN (SELECT id FROM jobs WHERE project_id = ?)
+      `).run(projectId);
+      connection.prepare("DELETE FROM jobs WHERE project_id = ?").run(projectId);
+      connection.prepare(`
+        DELETE FROM agent_steps
+        WHERE agent_run_id IN (SELECT id FROM agent_runs WHERE project_id = ?)
+      `).run(projectId);
+      connection.prepare("DELETE FROM agent_runs WHERE project_id = ?").run(projectId);
+      connection.prepare(`
+        DELETE FROM message_attachments
+        WHERE message_id IN (
+          SELECT message.id
+          FROM messages AS message
+          JOIN conversations AS conversation
+            ON conversation.id = message.conversation_id
+          WHERE conversation.project_id = ?
+        )
+      `).run(projectId);
+      connection.prepare(`
+        DELETE FROM messages
+        WHERE conversation_id IN (
+          SELECT id FROM conversations WHERE project_id = ?
+        )
+      `).run(projectId);
+      connection.prepare("DELETE FROM conversations WHERE project_id = ?").run(projectId);
+      connection.prepare(`
+        DELETE FROM asset_tags
+        WHERE asset_id IN (SELECT id FROM assets WHERE project_id = ?)
+      `).run(projectId);
+      connection.prepare("DELETE FROM assets WHERE project_id = ?").run(projectId);
+      const result = connection
+        .prepare("DELETE FROM projects WHERE id = ?")
+        .run(projectId);
       if (result.changes !== 1) throw new Error(`Project not found: ${projectId}`);
+
+      const now = new Date().toISOString();
       if (this.#readDefaultProjectId() === projectId) {
         const replacement = this.listActive()[0];
         if (replacement) this.#writeDefaultProjectId(replacement.id, now);
       }
-      return this.findById(projectId)!;
+      return project;
     });
   }
 

@@ -55,6 +55,20 @@ export class ProviderHttpClient {
     return this.requestJson(url, { method: "POST", headers, body }, signal);
   }
 
+  async postMultipartBinary(
+    url: string,
+    headers: Record<string, string>,
+    body: FormData,
+    signal?: AbortSignal
+  ): Promise<{ data: Buffer; mimeType: string | null }> {
+    const response = await this.#request(url, { method: "POST", headers, body }, signal);
+    const data = await readLimitedBody(response, this.#maxResponseBytes);
+    return {
+      data,
+      mimeType: response.headers.get("content-type")?.split(";", 1)[0]?.trim() || null
+    };
+  }
+
   async getBinary(
     url: string,
     headers: Record<string, string> = {},

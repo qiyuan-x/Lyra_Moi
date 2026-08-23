@@ -1,10 +1,14 @@
-import type { ModelOutputFormat, ProviderAdapterType } from "@lyra/contracts";
+import {
+  isMeshyGenerationModel,
+  type ModelOutputFormat,
+  type ProviderAdapterType
+} from "@lyra/contracts";
 
 export function defaultModelParameters(
   adapter: ProviderAdapterType | undefined,
   model: string
 ): Record<string, unknown> {
-  if (adapter === "meshy") {
+  if (isMeshyGenerationModel(adapter, model)) {
     return {
       texture: true,
       pbr: true,
@@ -13,7 +17,8 @@ export function defaultModelParameters(
       targetFaceCount: model === "meshy-t1" ? null : model === "meshy-t2" ? 4_000 : 30_000,
       poseMode: "",
       imageEnhancement: true,
-      removeLighting: true
+      removeLighting: true,
+      ultraMode: false
     };
   }
   if (adapter === "hunyuan") {
@@ -24,6 +29,7 @@ export function defaultModelParameters(
       polygonType: "triangle"
     };
   }
+  if (adapter === "stability-3d" || adapter === "openai-compatible") return {};
   return {
     texture: true,
     pbr: true,
@@ -44,7 +50,7 @@ export function validateModelParameters(
   if (!adapter) return "请选择建模模型。";
   if (outputFormats.length === 0) return "至少选择一种输出格式。";
   const faceCount = parameters.targetFaceCount;
-  if (adapter === "meshy") {
+  if (isMeshyGenerationModel(adapter, model)) {
     if (model === "meshy-t1" || faceCount === null) return null;
     const maximum = model === "meshy-t2" ? 15_000 : 300_000;
     return isIntegerInRange(faceCount, 100, maximum)
@@ -56,6 +62,16 @@ export function validateModelParameters(
     return isIntegerInRange(faceCount, 3_000, 1_500_000)
       ? null
       : "目标面数应为 3,000 至 1,500,000。";
+  }
+  if (adapter === "stability-3d") {
+    return outputFormats.length === 1 && outputFormats[0] === "glb"
+      ? null
+      : "Stability AI 3D 当前仅支持 GLB 输出。";
+  }
+  if (adapter === "openai-compatible") {
+    return outputFormats.length === 1 && outputFormats[0] === "glb"
+      ? null
+      : "OpenAI 兼容 3D API 当前仅支持 GLB 输出。";
   }
   const p1 = model.startsWith("P1-");
   const minimum = p1 ? 48 : 1_000;
@@ -75,6 +91,8 @@ export function modelAdapterLabel(adapter: ProviderAdapterType | undefined): str
   if (adapter === "meshy") return "Meshy";
   if (adapter === "hunyuan") return "混元";
   if (adapter === "tripo") return "Tripo";
+  if (adapter === "stability-3d") return "Stability AI";
+  if (adapter === "openai-compatible") return "OpenAI 兼容";
   return "";
 }
 

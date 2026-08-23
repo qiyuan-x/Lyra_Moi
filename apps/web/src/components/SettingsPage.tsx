@@ -9,6 +9,9 @@ import type { ApiClient, ProviderCatalog } from "../lib/api-client.js";
 import type { AppearanceMode } from "../lib/appearance.js";
 import { AppearanceSettings } from "../features/settings/AppearanceSettings.js";
 import { AgentPromptSettings } from "../features/settings/AgentPromptSettings.js";
+import { AgentRuntimeSettings } from "../features/settings/AgentRuntimeSettings.js";
+import { AgentSettingsOverview } from "../features/settings/AgentSettingsOverview.js";
+import { CommunitySettings } from "../features/settings/CommunitySettings.js";
 import {
   ModelDialog,
   ModelList
@@ -31,7 +34,7 @@ import {
   serviceSettings,
   type ProviderPreset
 } from "../features/settings/provider-presets.js";
-import { ConfirmDialog } from "./AssetLibraryPage.js";
+import { ConfirmDialog } from "./ConfirmDialog.js";
 import { Icon } from "./Icon.js";
 
 interface SettingsPageProps {
@@ -41,6 +44,7 @@ interface SettingsPageProps {
   onChanged: (catalog: ProviderCatalog) => void;
   onError: (error: unknown) => void;
   onAppearanceChange: (mode: AppearanceMode) => void;
+  onCommunityChanged: (url: string) => void;
 }
 
 type ProviderDialogState = {
@@ -51,7 +55,9 @@ type ProviderDialogState = {
 export function SettingsPage(props: SettingsPageProps) {
   const [serviceType, setServiceType] = useState<ProviderServiceType>("llm");
   const [specialSection, setSpecialSection] =
-    useState<"agent" | "display" | null>(null);
+    useState<"agent" | "community" | "display" | null>(null);
+  const [agentDetail, setAgentDetail] =
+    useState<"prompts" | "runtime" | null>(null);
   const [detailTarget, setDetailTarget] = useState<ProviderDialogState | null>(null);
   const [modelDialog, setModelDialog] = useState<ProviderModelSnapshot | null>(null);
   const [deletingProvider, setDeletingProvider] = useState<ProviderProfileSnapshot | null>(null);
@@ -145,6 +151,7 @@ export function SettingsPage(props: SettingsPageProps) {
 
   function selectService(next: ProviderServiceType) {
     setSpecialSection(null);
+    setAgentDetail(null);
     setServiceType(next);
     setDetailTarget(null);
     setConnectionFeedback(null);
@@ -267,9 +274,23 @@ export function SettingsPage(props: SettingsPageProps) {
           ))}
           <button
             type="button"
+            className={specialSection === "community" ? "active" : ""}
+            onClick={() => {
+              setSpecialSection("community");
+              setAgentDetail(null);
+              setDetailTarget(null);
+              setConnectionFeedback(null);
+              setOpenProviderMenuId(null);
+            }}
+          >
+            社区设置
+          </button>
+          <button
+            type="button"
             className={specialSection === "agent" ? "active" : ""}
             onClick={() => {
               setSpecialSection("agent");
+              setAgentDetail(null);
               setDetailTarget(null);
               setConnectionFeedback(null);
               setOpenProviderMenuId(null);
@@ -282,6 +303,7 @@ export function SettingsPage(props: SettingsPageProps) {
             className={specialSection === "display" ? "active" : ""}
             onClick={() => {
               setSpecialSection("display");
+              setAgentDetail(null);
               setDetailTarget(null);
               setConnectionFeedback(null);
               setOpenProviderMenuId(null);
@@ -292,16 +314,36 @@ export function SettingsPage(props: SettingsPageProps) {
         </nav>
 
         <div className="settings-window-content">
-          {specialSection === "display" ? (
+          {specialSection === "community" ? (
+            <CommunitySettings
+              api={props.api}
+              onError={props.onError}
+              onChanged={props.onCommunityChanged}
+            />
+          ) : specialSection === "display" ? (
             <AppearanceSettings
               mode={props.appearanceMode}
               onChange={props.onAppearanceChange}
             />
           ) : specialSection === "agent" ? (
-            <AgentPromptSettings
-              api={props.api}
-              onError={props.onError}
-            />
+            agentDetail === "prompts" ? (
+              <AgentPromptSettings
+                api={props.api}
+                onBack={() => setAgentDetail(null)}
+                onError={props.onError}
+              />
+            ) : agentDetail === "runtime" ? (
+              <AgentRuntimeSettings
+                api={props.api}
+                onBack={() => setAgentDetail(null)}
+                onError={props.onError}
+              />
+            ) : (
+              <AgentSettingsOverview
+                onOpenPrompts={() => setAgentDetail("prompts")}
+                onOpenRuntime={() => setAgentDetail("runtime")}
+              />
+            )
           ) : !detailTarget ? (
             <>
               <section className="settings-overview-heading">
@@ -337,7 +379,7 @@ export function SettingsPage(props: SettingsPageProps) {
                     <ProviderRow
                       key={preset.id}
                       menuOpen={openProviderMenuId === `${serviceType}:${preset.id}`}
-                      name={preset.name}
+                      name={profile?.name ?? preset.name}
                       shortName={preset.shortName}
                       presetId={preset.id}
                       interfaceLabel={adapterLabel(profile?.adapterType ?? preset.adapterType)}
@@ -387,7 +429,7 @@ export function SettingsPage(props: SettingsPageProps) {
                   className="button button-secondary settings-add-provider"
                   onClick={() => setDetailTarget({ profile: null, preset: null })}
                 >
-                  <Icon name="plus" size={15} />添加 OpenAI 兼容连接
+                  <Icon name="plus" size={15} />添加供应商
                 </button>
               )}
             </>
@@ -412,53 +454,54 @@ export function SettingsPage(props: SettingsPageProps) {
                 serviceType={serviceType}
                 onSave={saveConnection}
                 onTest={testConnection}
+                afterConnection={selected ? (
+                  <section className="settings-detail-section settings-model-section">
+                    <header>
+                      <div><strong>{serviceSettings[serviceType].label.replace("设置", "模型")}</strong><span>连通性测试成功后自动同步此能力可用的远程模型。</span></div>
+                      <div className="settings-section-actions">
+                        <button type="button" className="button button-secondary" disabled={busy} onClick={() => void run(async () => {
+                          const result = await props.api.testProvider(selected.id);
+                          await refresh();
+                          setConnectionFeedback({
+                            type: "success",
+                            text: `已同步 ${result.modelCount} 个可用模型`
+                          });
+                        })}>检测并同步模型</button>
+                      </div>
+                    </header>
+                    <label className="field settings-detail-default">
+                      <span>当前使用模型</span>
+                      <select
+                        value={selectedModels.some((model) => model.id === props.catalog.defaults[serviceType]) ? props.catalog.defaults[serviceType] ?? "" : ""}
+                        title={selectedDetailModelLabel}
+                        onChange={(event) => selectDetailModel(event.target.value)}
+                      >
+                        <option value="">请选择模型</option>
+                        {selectedModels.filter((model) => model.enabled).map((model) => (
+                          <option value={model.id} key={model.id}>
+                            {providerModelDisplayName(model)}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <ModelList
+                      models={selectedModels}
+                      defaultId={props.catalog.defaults[serviceType]}
+                      onToggle={(model) => void run(async () => {
+                        await props.api.updateProviderModel(model.id, { enabled: !model.enabled });
+                        await refresh();
+                      })}
+                      onEdit={setModelDialog}
+                      onDelete={setDeletingModel}
+                    />
+                  </section>
+                ) : (
+                  <section className="settings-model-pending">
+                    <Icon name="settings" size={24} />
+                    <div><strong>等待自动保存</strong><span>填写完整连接信息后将自动创建供应商配置。</span></div>
+                  </section>
+                )}
               />
-
-              {selected ? <section className="settings-detail-section settings-model-section">
-                <header>
-                  <div><strong>{serviceSettings[serviceType].label.replace("设置", "模型")}</strong><span>连通性测试成功后自动同步此能力可用的远程模型。</span></div>
-                  <div className="settings-section-actions">
-                    <button type="button" className="button button-secondary" disabled={busy} onClick={() => void run(async () => {
-                      const result = await props.api.testProvider(selected.id);
-                      await refresh();
-                      setConnectionFeedback({
-                        type: "success",
-                        text: `已同步 ${result.modelCount} 个可用模型`
-                      });
-                    })}>检测并同步模型</button>
-                  </div>
-                </header>
-                <label className="field settings-detail-default">
-                  <span>当前使用模型</span>
-                  <select
-                    value={selectedModels.some((model) => model.id === props.catalog.defaults[serviceType]) ? props.catalog.defaults[serviceType] ?? "" : ""}
-                    title={selectedDetailModelLabel}
-                    onChange={(event) => selectDetailModel(event.target.value)}
-                  >
-                    <option value="">请选择模型</option>
-                    {selectedModels.filter((model) => model.enabled).map((model) => (
-                      <option value={model.id} key={model.id}>
-                        {providerModelDisplayName(model)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <ModelList
-                  models={selectedModels}
-                  defaultId={props.catalog.defaults[serviceType]}
-                  onToggle={(model) => void run(async () => {
-                    await props.api.updateProviderModel(model.id, { enabled: !model.enabled });
-                    await refresh();
-                  })}
-                  onEdit={setModelDialog}
-                  onDelete={setDeletingModel}
-                />
-              </section> : (
-                <section className="settings-model-pending">
-                  <Icon name="settings" size={24} />
-                  <div><strong>等待自动保存</strong><span>填写完整连接信息后将自动创建供应商配置。</span></div>
-                </section>
-              )}
             </>
           )}
         </div>

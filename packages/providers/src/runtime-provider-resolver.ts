@@ -11,8 +11,11 @@ import type {
   ProviderProtocol,
   ProviderServiceType
 } from "@lyra/contracts";
+import { AnthropicLlmProvider } from "./anthropic-llm-provider.js";
 import { GeminiImageProvider } from "./gemini-image-provider.js";
 import { GeminiInteractionsLlmProvider } from "./gemini-llm-provider.js";
+import { DashScopeImageProvider } from "./dashscope-image-provider.js";
+import { HunyuanImageProvider } from "./hunyuan-image-provider.js";
 import { HunyuanModelProvider } from "./hunyuan-model-provider.js";
 import type { ProviderAssetLoader } from "./image-provider-types.js";
 import { MeshyModelProvider } from "./meshy-model-provider.js";
@@ -29,10 +32,15 @@ import {
 import type { OpenAiLlmProviderOptions } from "./openai-llm-provider.js";
 import { ProviderConnectionError } from "./provider-errors.js";
 import { ProviderHttpClient } from "./provider-http-client.js";
+import { StabilityImageProvider } from "./stability-image-provider.js";
+import { StabilityModelProvider } from "./stability-model-provider.js";
 import { TripoModelProvider } from "./tripo-model-provider.js";
+import { OpenAiCompatibleModelProvider } from "./openai-compatible-model-provider.js";
 
 type RuntimeLlmProviderOptions = OpenAiLlmProviderOptions;
-type RuntimeImageProviderOptions = OpenAiImageProviderOptions;
+type RuntimeImageProviderOptions = OpenAiImageProviderOptions & {
+  secondaryApiKey: string | null;
+};
 type RuntimeModelProviderOptions = {
   baseUrl: string;
   apiKey: string;
@@ -47,17 +55,27 @@ const llmProviderFactories: Record<
   (options: RuntimeLlmProviderOptions) => LlmProvider
 > = {
   openai: (options) => new OpenAiResponsesLlmProvider(options),
+  anthropic: (options) => new AnthropicLlmProvider(options),
   gemini: (options) => new GeminiInteractionsLlmProvider(options),
   "openai-compatible": (options) => new OpenAiCompatibleLlmProvider(options)
 };
 
-const imageProviderFactories: Record<
-  ProviderProtocol,
+const imageProviderFactories: Partial<Record<
+  ProviderAdapterType,
   (options: RuntimeImageProviderOptions) => BinaryImageProvider
-> = {
+>> = {
   openai: (options) => new OpenAiImageProvider(options),
   gemini: (options) => new GeminiImageProvider(options),
-  "openai-compatible": (options) => new OpenAiImageProvider({ ...options, compatible: true })
+  "openai-compatible": (options) => new OpenAiImageProvider({ ...options, compatible: true }),
+  "dashscope-image": (options) => new DashScopeImageProvider(options),
+  "seedream-image": (options) => new OpenAiImageProvider({
+    ...options,
+    compatible: true,
+    generationReferenceField: "image"
+  }),
+  "zhipu-image": (options) => new OpenAiImageProvider({ ...options, compatible: true }),
+  "hunyuan-image": (options) => new HunyuanImageProvider(options),
+  "stability-image": (options) => new StabilityImageProvider(options)
 };
 
 const modelProviderFactories: Partial<Record<
@@ -66,7 +84,9 @@ const modelProviderFactories: Partial<Record<
 >> = {
   meshy: (options) => new MeshyModelProvider(options),
   tripo: (options) => new TripoModelProvider(options),
-  hunyuan: (options) => new HunyuanModelProvider(options)
+  hunyuan: (options) => new HunyuanModelProvider(options),
+  "stability-3d": (options) => new StabilityModelProvider(options),
+  "openai-compatible": (options) => new OpenAiCompatibleModelProvider(options)
 };
 
 export interface RuntimeProviderFactoryOptions {
@@ -110,6 +130,7 @@ export class RuntimeProviderFactory {
     const options = {
       baseUrl: resolved.profile.baseUrl,
       apiKey: resolved.apiKey,
+      secondaryApiKey: resolved.secondaryApiKey,
       model: resolved.model.remoteModelId,
       settings: resolved.model.settings,
       client: this.#llmClient
@@ -125,12 +146,20 @@ export class RuntimeProviderFactory {
     const options = {
       baseUrl: resolved.profile.baseUrl,
       apiKey: resolved.apiKey,
+      secondaryApiKey: resolved.secondaryApiKey,
       model: resolved.model.remoteModelId,
       assetLoader: this.#assetLoader,
       settings: resolved.model.settings,
       client: this.#imageClient
     };
-    return imageProviderFactories[resolved.profile.protocol](options);
+    const factory = imageProviderFactories[resolved.profile.adapterType];
+    if (!factory) {
+      throw new ProviderConnectionError(
+        "INVALID_CONFIGURATION",
+        `Provider adapter does not support image generation: ${resolved.profile.adapterType}.`
+      );
+    }
+    return factory(options);
   }
 
   async createModelProvider(
@@ -195,8 +224,12 @@ export class RuntimeProviderFactory {
     const secondaryApiKey = profile.secondaryApiKeyEnvironmentVariable
       ? await this.#secrets.get(profile.secondaryApiKeyEnvironmentVariable)
       : null;
-    if (profile.protocol !== "openai-compatible" && !apiKey) {
+    const permitsAnonymous = profile.adapterType === "openai-compatible";
+    if (!permitsAnonymous && !apiKey) {
       throw new ProviderConnectionError("MISSING_API_KEY", "Provider API key is not configured.");
+    }
+    if (profile.adapterType === "hunyuan-image" && !secondaryApiKey) {
+      throw new ProviderConnectionError("MISSING_API_KEY", "Tencent Cloud SecretKey is not configured.");
     }
     return { profile, model, apiKey, secondaryApiKey };
   }

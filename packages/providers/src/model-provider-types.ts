@@ -2,6 +2,7 @@ import type {
   ModelGenerationRequest,
   ModelOutputFormat
 } from "@lyra/contracts";
+import { isTextToModelGenerationRequest } from "@lyra/contracts";
 
 export interface ModelProviderResult {
   status: "pending" | "running" | "succeeded" | "failed";
@@ -56,10 +57,20 @@ export function requireModelInput(request: ModelGenerationRequest): {
   assetId: string;
   projectId: string;
 } {
+  if (isTextToModelGenerationRequest(request)) {
+    throw new Error("This provider operation requires an image input.");
+  }
   return {
     assetId: requireText(request.inputImageAssetId, "Model input image is required."),
     projectId: requireText(request.projectId, "Model project is required.")
   };
+}
+
+export function requireModelPrompt(request: ModelGenerationRequest): string {
+  if (!isTextToModelGenerationRequest(request)) {
+    throw new Error("This provider operation requires a text prompt.");
+  }
+  return requireText(request.prompt, "Model prompt is required.");
 }
 
 export function readBoolean(

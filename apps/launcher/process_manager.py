@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import contextlib
 import ctypes
+import datetime as dt
+import ipaddress
 import json
 import os
 import queue
+import re
 import signal
 import socket
 import subprocess
@@ -18,6 +21,61 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from .paths import LauncherPaths
+
+
+def detect_lan_ipv4() -> str | None:
+    """Return the IPv4 address used by the default network route."""
+    configured = os.environ.get("LYRA_LAN_IP", "").strip()
+    if _is_lan_ipv4(configured):
+        return configured
+
+    route_probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        route_probe.connect(("192.0.2.1", 9))
+        candidate = route_probe.getsockname()[0]
+        if _is_lan_ipv4(candidate):
+            return candidate
+    except OSError:
+        pass
+    finally:
+        route_probe.close()
+
+    try:
+        candidates = {
+            item[4][0]
+            for item in socket.getaddrinfo(
+                socket.gethostname(),
+                None,
+                family=socket.AF_INET,
+                type=socket.SOCK_STREAM,
+            )
+        }
+    except OSError:
+        return None
+    valid = sorted(
+        (value for value in candidates if _is_lan_ipv4(value)),
+        key=_lan_ip_priority,
+    )
+    return valid[0] if valid else None
+
+
+def _is_lan_ipv4(value: str) -> bool:
+    try:
+        address = ipaddress.IPv4Address(value)
+    except ipaddress.AddressValueError:
+        return False
+    return address.is_private and not address.is_loopback and not address.is_link_local
+
+
+def _lan_ip_priority(value: str) -> tuple[int, int]:
+    address = ipaddress.IPv4Address(value)
+    if value.startswith("192.168."):
+        group = 0
+    elif value.startswith("10."):
+        group = 1
+    else:
+        group = 2
+    return group, int(address)
 
 
 @dataclass(frozen=True)
@@ -59,18 +117,25 @@ class ProcessManager:
     def __init__(
         self,
         paths: LauncherPaths,
-        host: str = "127.0.0.1",
+        host: str = "0.0.0.0",
         port: int = 3000,
+        probe_host: str = "127.0.0.1",
+        lan_ip: str | None = None,
         startup_timeout: float = 30.0,
         stop_timeout: float = 8.0,
     ) -> None:
         if not host.strip():
             raise ValueError("Host is required.")
+        if not probe_host.strip():
+            raise ValueError("Probe host is required.")
         if port < 1 or port > 65535:
             raise ValueError("Port must be between 1 and 65535.")
         self.paths = paths
-        self.host = host.strip()
+        self.bind_host = host.strip()
+        self.host = self.bind_host
+        self.probe_host = probe_host.strip()
         self.port = port
+        self.lan_ip = lan_ip or detect_lan_ipv4()
         self.startup_timeout = startup_timeout
         self.stop_timeout = stop_timeout
         self._thread_lock = threading.RLock()
@@ -79,15 +144,25 @@ class ProcessManager:
 
     @property
     def browser_url(self) -> str:
-        return f"http://{self.host}:{self.port}/"
+        return f"http://{self.probe_host}:{self.port}/"
+
+    @property
+    def local_url(self) -> str:
+        return self.browser_url
+
+    @property
+    def lan_url(self) -> str | None:
+        if self.bind_host in {"127.0.0.1", "localhost", "::1"}:
+            return None
+        return f"http://{self.lan_ip}:{self.port}/" if self.lan_ip else None
 
     @property
     def health_url(self) -> str:
-        return f"http://{self.host}:{self.port}/api/v1/health/ready"
+        return f"http://{self.probe_host}:{self.port}/api/v1/health/ready"
 
     @property
     def live_url(self) -> str:
-        return f"http://{self.host}:{self.port}/api/v1/health/live"
+        return f"http://{self.probe_host}:{self.port}/api/v1/health/live"
 
     def get_status(self) -> dict[str, ServiceStatus]:
         with self._thread_lock:
@@ -186,8 +261,15 @@ class ProcessManager:
         environment.update(
             {
                 "LYRA_DEPLOYMENT_MODE": "desktop",
+                "LYRA_APP_VERSION": self.paths.application_version,
+                "LYRA_WORKER_VERSION": self.paths.application_version,
+                "LYRA_APP_BASE_DIR": str(self.paths.base_dir),
+                "LYRA_UPDATE_HELPER_COMMAND": json.dumps(
+                    self.paths.update_helper_command,
+                    ensure_ascii=False,
+                ),
                 "LYRA_DATA_DIR": str(self.paths.data_dir),
-                "LYRA_HOST": self.host,
+                "LYRA_HOST": self.bind_host,
                 "LYRA_PORT": str(self.port),
                 "LYRA_WEB_DIST": str(self.paths.web_root),
                 "LYRA_STOP_FILE": str(stop_file),
@@ -195,6 +277,8 @@ class ProcessManager:
                 "NODE_ENV": "production",
             }
         )
+        if self.paths.update_manifest_url:
+            environment["LYRA_UPDATE_MANIFEST_URL"] = self.paths.update_manifest_url
         log_path = self.paths.log_file(role)
         log_path.parent.mkdir(parents=True, exist_ok=True)
         creation_flags = 0
@@ -271,7 +355,7 @@ class ProcessManager:
         probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
             probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 0)
-            probe.bind((self.host, self.port))
+            probe.bind((self.bind_host, self.port))
             return False
         except OSError:
             return True
@@ -391,7 +475,7 @@ class LogTailer:
         if not data:
             return
         for line in data.decode("utf-8", errors="replace").splitlines():
-            message = f"[{role.upper()}] {line}"
+            message = format_service_log_line(role, line)
             try:
                 self.messages.put_nowait(message)
             except queue.Full:
@@ -400,6 +484,25 @@ class LogTailer:
                     self.messages.put_nowait(message)
                 except queue.Empty:
                     pass
+
+
+_ISO_LOG_PREFIX = re.compile(
+    r"^\[(?P<timestamp>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)\]\s*(?P<message>.*)$"
+)
+
+
+def format_service_log_line(role: str, line: str) -> str:
+    """Use one local timestamp and one service label in the launcher log."""
+    match = _ISO_LOG_PREFIX.match(line)
+    if match:
+        timestamp = dt.datetime.fromisoformat(
+            match.group("timestamp").replace("Z", "+00:00")
+        ).astimezone()
+        message = match.group("message")
+    else:
+        timestamp = dt.datetime.now().astimezone()
+        message = line
+    return f"[{timestamp:%H:%M:%S}] [{role.upper()}] {message}"
 
 
 def process_matches(record: ProcessRecord) -> bool:

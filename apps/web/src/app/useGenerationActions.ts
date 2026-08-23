@@ -17,20 +17,21 @@ import {
   type ProviderCatalog
 } from "../lib/api-client.js";
 
-interface ModelGenerationInput {
-  imageAssetId: string;
+type ModelGenerationInput = {
   textureImageAssetId?: string;
   modelId: string;
   outputFormats: ModelOutputFormat[];
   parameters: Record<string, unknown>;
-}
+} & (
+  | { inputMode: "image"; imageAssetId: string }
+  | { inputMode: "text"; prompt: string }
+);
 
 interface UseGenerationActionsOptions {
   api: ApiClient;
   catalog: ProviderCatalog;
   projectId: string;
   selectedImageModel: ProviderModelSnapshot | undefined;
-  ensureCurrentConversation: () => Promise<string>;
   setAttachments: Dispatch<SetStateAction<AssetSnapshot[]>>;
   refreshProject: (projectId: string) => Promise<void>;
   onNotice: (text: string) => void;
@@ -40,23 +41,9 @@ interface UseGenerationActionsOptions {
 export function useGenerationActions(
   options: UseGenerationActionsOptions
 ) {
-  const [taskEditor, setTaskEditor] = useState<{
-    job: JobSnapshot | null;
-  } | null>(null);
-  const [taskEditorBusy, setTaskEditorBusy] = useState(false);
+  const [editingImageJob, setEditingImageJob] = useState<JobSnapshot | null>(null);
+  const [imageSubmitting, setImageSubmitting] = useState(false);
   const [modelSubmitting, setModelSubmitting] = useState(false);
-
-  async function openNewTask() {
-    try {
-      if (!options.selectedImageModel) {
-        throw new Error("请先在设置中配置可用的图片模型。");
-      }
-      await options.ensureCurrentConversation();
-      setTaskEditor({ job: null });
-    } catch (error) {
-      options.onError(error);
-    }
-  }
 
   async function submitConfiguredTask(input: ManualImageTaskInput) {
     if (!options.projectId) return;
@@ -69,11 +56,9 @@ export function useGenerationActions(
       options.onError(new Error("选择的图片模型不可用。"));
       return;
     }
-    setTaskEditorBusy(true);
+    setImageSubmitting(true);
     try {
-      const conversationId = await options.ensureCurrentConversation();
       await options.api.createGeneration(options.projectId, {
-        conversationId,
         prompt: input.prompt,
         attachments: toOrderedAttachments(input.attachments),
         providerProfileId: selectedModel.providerProfileId,
@@ -83,13 +68,14 @@ export function useGenerationActions(
           ? {}
           : { aspectRatio: input.aspectRatio }
       });
-      setTaskEditor(null);
+      setEditingImageJob(null);
       options.setAttachments([]);
       await options.refreshProject(options.projectId);
     } catch (error) {
       options.onError(error);
+      throw error;
     } finally {
-      setTaskEditorBusy(false);
+      setImageSubmitting(false);
     }
   }
 
@@ -105,8 +91,7 @@ export function useGenerationActions(
     }
     setModelSubmitting(true);
     try {
-      await options.api.createModelGeneration(options.projectId, {
-        imageAssetId: input.imageAssetId,
+      const common = {
         ...(input.textureImageAssetId
           ? { textureImageAssetId: input.textureImageAssetId }
           : {}),
@@ -114,7 +99,13 @@ export function useGenerationActions(
         providerModelId: selectedModel.id,
         outputFormats: input.outputFormats,
         parameters: input.parameters
-      });
+      };
+      await options.api.createModelGeneration(
+        options.projectId,
+        input.inputMode === "image"
+          ? { ...common, inputMode: "image", imageAssetId: input.imageAssetId }
+          : { ...common, inputMode: "text", prompt: input.prompt }
+      );
       options.onNotice("建模任务已提交。");
       await options.refreshProject(options.projectId);
     } catch (error) {
@@ -126,11 +117,10 @@ export function useGenerationActions(
   }
 
   return {
-    taskEditor,
-    setTaskEditor,
-    taskEditorBusy,
+    editingImageJob,
+    setEditingImageJob,
+    imageSubmitting,
     modelSubmitting,
-    openNewTask,
     submitConfiguredTask,
     submitModelGeneration
   };

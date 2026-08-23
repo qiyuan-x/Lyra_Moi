@@ -3,9 +3,13 @@ import type {
   JobSnapshot,
   ManualModelGenerationRequestBody,
   ModelGenerationRequest,
-  ModelOutputFormat
+  ModelOutputFormat,
+  ProviderAdapterType
 } from "@lyra/contracts";
-import { parseManualModelGenerationRequest } from "@lyra/contracts";
+import {
+  isMeshyGenerationModel,
+  parseManualModelGenerationRequest
+} from "@lyra/contracts";
 import type {
   AssetRepository,
   JobRepository,
@@ -55,9 +59,18 @@ export class ModelGenerationService {
     if (!project || project.deletedAt !== null) {
       throw new Error(`Project not found: ${projectId}`);
     }
-    const image = this.#assets.requireStored(input.imageAssetId);
-    if (image.projectId !== normalizedProjectId || image.kind !== "image") {
+    const image = input.inputMode === "image"
+      ? this.#assets.requireStored(input.imageAssetId)
+      : null;
+    if (
+      image &&
+      (image.projectId !== normalizedProjectId || image.kind !== "image")
+    ) {
       throw new Error("Model input must be an image in the selected project.");
+    }
+    const prompt = input.inputMode === "text" ? input.prompt.trim() : null;
+    if (input.inputMode === "text" && !prompt) {
+      throw new Error("Text-to-model prompt is required.");
     }
     const textureImage = input.textureImageAssetId
       ? this.#assets.requireStored(input.textureImageAssetId)
@@ -79,26 +92,43 @@ export class ModelGenerationService {
     ) {
       throw new Error("Selected model provider is not available.");
     }
-    if (textureImage && profile.adapterType !== "meshy") {
+    if (input.inputMode === "text" && profile.adapterType === "stability-3d") {
+      throw new Error("The selected Stability AI 3D model requires an image input.");
+    }
+    if (
+      textureImage &&
+      !isMeshyGenerationModel(profile.adapterType, model.remoteModelId)
+    ) {
       throw new Error("Only Meshy supports a separate texture reference image.");
     }
     if (textureImage && input.parameters.texture === false) {
       throw new Error("Texture generation must be enabled to use a texture reference image.");
     }
-    const request: ModelGenerationRequest = {
+    const commonRequest = {
       projectId: normalizedProjectId,
-      inputImageAssetId: image.id,
       ...(textureImage ? { textureImageAssetId: textureImage.id } : {}),
       providerProfileId: profile.id,
       providerModelId: model.id,
       outputFormats: normalizeOutputFormats(
         profile.adapterType,
+        model.remoteModelId,
         input.outputFormats,
         input.parameters
       ),
       parameters: structuredClone(input.parameters),
       source: options.source ?? "manual"
     };
+    const request: ModelGenerationRequest = input.inputMode === "text"
+      ? {
+          ...commonRequest,
+          inputMode: "text",
+          prompt: prompt!
+        }
+      : {
+          ...commonRequest,
+          inputMode: "image",
+          inputImageAssetId: image!.id
+        };
     return this.#jobs.create({
       request,
       kind: "model.generate",
@@ -106,18 +136,21 @@ export class ModelGenerationService {
       agentRunId: options.agentRunId ?? null,
       agentStepId: options.agentStepId ?? null,
       requestMessageId: options.requestMessageId ?? null,
-      title: `${image.name} · 生成 3D 模型`
+      title: input.inputMode === "text"
+        ? `${prompt!.slice(0, 40)} · 文字生成 3D 模型`
+        : `${image!.name} · 生成 3D 模型`
     });
   }
 }
 
 function normalizeOutputFormats(
-  adapterType: string,
+  adapterType: ProviderAdapterType,
+  remoteModelId: string,
   formats: readonly ModelOutputFormat[],
   parameters: Record<string, unknown>
 ): ModelOutputFormat[] {
   const requested = [...new Set(formats)];
-  if (adapterType === "meshy") {
+  if (isMeshyGenerationModel(adapterType, remoteModelId)) {
     return [...new Set<ModelOutputFormat>(["glb", ...requested])];
   }
   if (adapterType === "tripo") {
@@ -148,6 +181,18 @@ function normalizeOutputFormats(
       throw new Error("混元不支持所选输出格式。");
     }
     return parameters.generateType === "Geometry" ? ["glb"] : ["glb", "obj"];
+  }
+  if (adapterType === "stability-3d") {
+    if (requested.some((format) => format !== "glb")) {
+      throw new Error("Stability AI 3D 仅支持 GLB 输出。");
+    }
+    return ["glb"];
+  }
+  if (adapterType === "openai-compatible") {
+    if (requested.some((format) => format !== "glb")) {
+      throw new Error("OpenAI 兼容 3D API 当前仅支持 GLB 输出。");
+    }
+    return ["glb"];
   }
   throw new Error("Selected model provider is not supported.");
 }

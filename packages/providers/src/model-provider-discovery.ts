@@ -28,6 +28,7 @@ export class MeshyModelDiscoveryAdapter implements ProviderDiscoveryAdapter {
     );
     return [
       discovered("latest", "Meshy Latest"),
+      discovered("meshy-7", "Meshy 7"),
       discovered("meshy-6", "Meshy 6"),
       discovered("meshy-5", "Meshy 5"),
       discovered("meshy-t2", "Meshy Smart Topology T2"),
@@ -101,6 +102,28 @@ export class HunyuanModelDiscoveryAdapter implements ProviderDiscoveryAdapter {
       );
     }
     return hunyuanModels();
+  }
+}
+
+export class StabilityModelDiscoveryAdapter implements ProviderDiscoveryAdapter {
+  readonly adapterType = "stability-3d" as const;
+  readonly #client: ProviderHttpClient;
+
+  constructor(client: ProviderHttpClient) {
+    this.#client = client;
+  }
+
+  async discoverModels(input: ProviderDiscoveryInput): Promise<DiscoveredProviderModel[]> {
+    const apiKey = requireText(input.apiKey, "Stability API key is required.");
+    await this.#client.getJson(
+      `${input.profile.baseUrl}/v1/user/account`,
+      { Accept: "application/json", Authorization: `Bearer ${apiKey}` },
+      input.signal
+    );
+    return [
+      discovered("spar3d", "Stable Point Aware 3D"),
+      discovered("stable-fast-3d", "Stable Fast 3D")
+    ];
   }
 }
 

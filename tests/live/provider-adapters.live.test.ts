@@ -5,7 +5,8 @@ import {
   GeminiInteractionsLlmProvider,
   OpenAiCompatibleLlmProvider,
   OpenAiImageProvider,
-  OpenAiResponsesLlmProvider
+  OpenAiResponsesLlmProvider,
+  createHttpProviderRegistry
 } from "@lyra/providers";
 
 const enabled = process.env.LYRA_RUN_LIVE_PROVIDER_TESTS === "1";
@@ -16,6 +17,41 @@ const unusedAssetLoader: ProviderAssetLoader = {
 };
 
 describe.skipIf(!enabled)("live provider adapters", () => {
+  it.skipIf(!hasEnvironment("LYRA_LIVE_FROST_API_KEY"))(
+    "discovers the configured FrostAPI AI3D models",
+    async () => {
+      const baseUrl = environment(
+        "LYRA_LIVE_FROST_BASE_URL",
+        "https://api.linfrsot.cloud"
+      );
+      const registry = createHttpProviderRegistry();
+      const models = await registry.discoverModels({
+        profile: {
+          id: "frost-live",
+          serviceType: "model",
+          name: "FrostAPI",
+          protocol: "openai-compatible",
+          adapterType: "openai-compatible",
+          baseUrl,
+          apiKeyEnvironmentVariable: "LYRA_LIVE_FROST_API_KEY",
+          secondaryApiKeyEnvironmentVariable: null,
+          settings: {},
+          enabled: true,
+          createdAt: new Date(0).toISOString(),
+          updatedAt: new Date(0).toISOString(),
+          deletedAt: null
+        },
+        apiKey: environment("LYRA_LIVE_FROST_API_KEY"),
+        secondaryApiKey: null,
+        signal: AbortSignal.timeout(30_000)
+      });
+      expect(models.map((model) => model.remoteModelId)).toEqual([
+        "meshy-6",
+        "meshy-7"
+      ]);
+    }
+  );
+
   it.skipIf(!hasEnvironment("LYRA_LIVE_OPENAI_API_KEY", "LYRA_LIVE_OPENAI_LLM_MODEL"))(
     "calls the configured OpenAI LLM",
     async () => {

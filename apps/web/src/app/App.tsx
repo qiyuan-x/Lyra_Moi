@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import type {
   AgentRunSnapshot,
   AgentStepSnapshot,
@@ -10,11 +10,13 @@ import type {
   PromptTemplateSnapshot
 } from "@lyra/contracts";
 import { AssetLibraryPage } from "../components/AssetLibraryPage.js";
+import { CommunityPage } from "../components/CommunityPage.js";
 import { Icon } from "../components/Icon.js";
 import { NoticeCenter, type NoticeItem, type NoticeType } from "../components/NoticeCenter.js";
 import { ModelingPage } from "../components/ModelingPage.js";
 import { ProjectManagerDialog } from "../components/ProjectManagerDialog.js";
 import {
+  findEnabledModel,
   isDefaultServiceReady,
   listEnabledModels,
   providerModelDisplayName,
@@ -22,15 +24,19 @@ import {
 } from "../features/providers/catalog-selectors.js";
 import { PromptLibraryPage } from "../components/PromptLibraryPage.js";
 import { SettingsPage } from "../components/SettingsPage.js";
-import { TaskDrawer } from "../components/TaskDrawer.js";
-import { TaskEditor } from "../components/TaskEditor.js";
 import { AppSidebar } from "./AppSidebar.js";
 import { AppTopbar } from "./AppTopbar.js";
-import { GenerationWorkspace } from "./GenerationWorkspace.js";
+import { ConversationWorkspace } from "./ConversationWorkspace.js";
+import { ImageGenerationPage } from "./ImageGenerationPage.js";
 import type { Page } from "./app-navigation.js";
 import { useAgentActions } from "./useAgentActions.js";
 import { useWorkspaceRefresh } from "./useWorkspaceRefresh.js";
-import { useAssetWorkspace } from "./useAssetWorkspace.js";
+import {
+  addUniqueAsset,
+  appendUniqueAssets,
+  toggleSelectedAsset,
+  useAssetWorkspace
+} from "./useAssetWorkspace.js";
 import { useConversationWorkspace } from "./useConversationWorkspace.js";
 import { useGenerationActions } from "./useGenerationActions.js";
 import { useJobActions } from "./useJobActions.js";
@@ -52,10 +58,15 @@ import {
 } from "../lib/appearance.js";
 
 const api = new ApiClient();
+const PoseStudioPage = lazy(async () => {
+  const module = await import("../features/pose-studio/PoseStudioPage.js");
+  return { default: module.PoseStudioPage };
+});
 
 export function App() {
   const [page, setPage] = useState<Page>("generation");
   const [appearanceMode, setAppearanceMode] = useState<AppearanceMode>(readAppearanceMode);
+  const [communityUrl, setCommunityUrl] = useState("");
   const [projects, setProjects] = useState<ProjectSnapshot[]>([]);
   const [projectId, setProjectId] = useState("");
   const [catalog, setCatalog] = useState<ProviderCatalog>({ profiles: [], models: [], defaults: { llm: null, image: null, model: null } });
@@ -65,23 +76,26 @@ export function App() {
   const [jobs, setJobs] = useState<JobSnapshot[]>([]);
   const [conversations, setConversations] = useState<ConversationSnapshot[]>([]);
   const [conversationId, setConversationId] = useState("");
+  const [conversationDraftActive, setConversationDraftActive] = useState(false);
   const [messages, setMessages] = useState<MessageSnapshot[]>([]);
   const [runs, setRuns] = useState<AgentRunSnapshot[]>([]);
   const [stepsByRun, setStepsByRun] = useState<Map<string, AgentStepSnapshot[]>>(new Map());
-  const [modelId, setModelId] = useState("");
-  const [modelProviderModelId, setModelProviderModelId] = useState("");
+  const [manualAttachments, setManualAttachments] = useState<AssetSnapshot[]>([]);
+  const [requestedModelAssetId, setRequestedModelAssetId] = useState("");
+  const [modelId, setModelId] = useState(
+    () => localStorage.getItem("lyra.selectedImageModelId") ?? ""
+  );
+  const [modelProviderModelId, setModelProviderModelId] = useState(
+    () => localStorage.getItem("lyra.selectedModelModelId") ?? ""
+  );
   const [initializing, setInitializing] = useState(true);
   const [accessRequired, setAccessRequired] = useState(false);
   const [accessError, setAccessError] = useState("");
-  const [taskDrawerOpen, setTaskDrawerOpen] = useState(false);
   const [projectManagerMode, setProjectManagerMode] =
     useState<"manage" | "create" | null>(null);
   const [assetRailCollapsed, setAssetRailCollapsed] = useState(() => localStorage.getItem("lyra.assetRailCollapsed") === "true");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(
     () => localStorage.getItem("lyra.mainSidebarCollapsed") === "true"
-  );
-  const [optimizeImagePrompt, setOptimizeImagePrompt] = useState(
-    () => localStorage.getItem("lyra.agentOptimizeImagePrompt") !== "false"
   );
   const [agentPanelWidth, setAgentPanelWidth] = useState(400);
   const [preview, setPreview] = useState<{ assetId: string; name: string } | null>(null);
@@ -98,10 +112,6 @@ export function App() {
     return () => media.removeEventListener("change", apply);
   }, [appearanceMode]);
 
-  const sortedJobs = useMemo(
-    () => [...jobs].sort((left, right) => right.createdAt.localeCompare(left.createdAt)),
-    [jobs]
-  );
   const generationJobByAssetId = useMemo(() => {
     const result = new Map<string, JobSnapshot>();
     for (const job of jobs) {
@@ -122,12 +132,23 @@ export function App() {
   const previewGenerationJob = preview
     ? generationJobByAssetId.get(preview.assetId)
     : undefined;
-  const workspaceJobs = useMemo(() => {
-    const scopedJobs = jobs.filter((job) => job.conversationId === conversationId);
+  const conversationJobs = useMemo(() => {
+    const scopedJobs = jobs.filter(
+      (job) => job.conversationId === conversationId
+    );
     return [...scopedJobs].sort((left, right) => left.createdAt.localeCompare(right.createdAt));
   }, [conversationId, jobs]);
-  const activeJobCount = jobs.filter((job) => job.status === "queued" || job.status === "running").length;
-  const selectedImageModel = catalog.models.find((model) => model.id === modelId);
+  const manualImageJobs = useMemo(
+    () => jobs
+      .filter((job) => job.kind === "image.generate" && job.source === "manual")
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt)),
+    [jobs]
+  );
+  const manualAttachmentOrder = useMemo(
+    () => new Map(manualAttachments.map((asset, index) => [asset.id, index + 1])),
+    [manualAttachments]
+  );
+  const selectedImageModel = findEnabledModel(catalog, "image", modelId);
   const enabledImageModels = useMemo(
     () => listEnabledModels(catalog, "image"),
     [catalog]
@@ -161,6 +182,36 @@ export function App() {
     () => listEnabledModels(catalog, "model"),
     [catalog]
   );
+  const selectedModelModel = findEnabledModel(
+    catalog,
+    "model",
+    modelProviderModelId
+  );
+  const enabledModelProviders = useMemo(
+    () => catalog.profiles.filter((profile) =>
+      profile.serviceType === "model" &&
+      profile.enabled &&
+      enabledModelModels.some(
+        (model) => model.providerProfileId === profile.id
+      )
+    ),
+    [catalog.profiles, enabledModelModels]
+  );
+  const modelProviderOptions = useMemo(
+    () => enabledModelProviders.map((profile) => ({
+      id: profile.id,
+      name: profile.name
+    })),
+    [enabledModelProviders]
+  );
+  const modelModelOptions = useMemo(
+    () => enabledModelModels.map((model) => ({
+      id: model.id,
+      providerId: model.providerProfileId,
+      name: providerModelDisplayName(model)
+    })),
+    [enabledModelModels]
+  );
   const defaultLlmModel = catalog.models.find(
     (model) => model.id === catalog.defaults.llm
   );
@@ -186,6 +237,7 @@ export function App() {
     api,
     projectId,
     conversationId,
+    conversationDraftActive,
     setAssets,
     setModelAssets,
     setJobs,
@@ -195,7 +247,7 @@ export function App() {
     setRuns,
     setStepsByRun,
     reportError
-  }), [conversationId, projectId, reportError]);
+  }), [conversationDraftActive, conversationId, projectId, reportError]);
   const { refreshProject, refreshConversation } = useWorkspaceRefresh(workspaceRefreshOptions);
   const {
     attachments,
@@ -206,17 +258,25 @@ export function App() {
     toggleAttachment,
     attachGenerated,
     toggleGeneratedAttachment,
+    uploadAssets,
     upload,
     updateAsset,
-    deleteAsset
+    deleteAsset,
+    deleteAssets
   } = useAssetWorkspace({
     api,
     projectId,
     assets,
     setAssets,
+    setModelAssets,
     onNotice: (text) => pushNotice("success", text),
     onError: reportError
   });
+
+  async function deleteModelAssets(assetIds: string[]) {
+    await deleteAssets(assetIds);
+    pushNotice("success", "模型已删除");
+  }
   const {
     prompt,
     setPrompt,
@@ -224,7 +284,9 @@ export function App() {
     clearPrompt,
     createPromptTemplate,
     updatePromptTemplate,
-    deletePromptTemplate
+    deletePromptTemplate,
+    setPromptPreview,
+    deletePromptPreview
   } = usePromptWorkspace({
     api,
     setPrompts,
@@ -234,7 +296,7 @@ export function App() {
     projectBusy,
     createProject,
     updateProject,
-    archiveProject
+    deleteProject
   } = useProjectActions({
     api,
     projects,
@@ -248,8 +310,7 @@ export function App() {
   const {
     cancelJob,
     retryJob,
-    dismissJob,
-    clearFailedJobs
+    dismissJob
   } = useJobActions({
     api,
     projectId,
@@ -261,7 +322,7 @@ export function App() {
   const {
     conversationBusy,
     ensureCurrentConversation,
-    createNewConversation,
+    startNewConversation,
     renameConversation,
     deleteConversation
   } = useConversationWorkspace({
@@ -270,6 +331,7 @@ export function App() {
     conversationId,
     setConversations,
     setConversationId,
+    setConversationDraftActive,
     setMessages,
     setRuns,
     setStepsByRun,
@@ -287,8 +349,8 @@ export function App() {
     conversationId,
     prompt,
     attachments,
-    optimizeImagePrompt,
     selectedImageModel,
+    selectedModelModel,
     agentReady,
     ensureCurrentConversation,
     clearComposer,
@@ -304,12 +366,20 @@ export function App() {
     },
     onError: reportError
   });
+
+  const selectConversation = useCallback((nextConversationId: string) => {
+    setConversationDraftActive(false);
+    setConversationId(nextConversationId);
+  }, []);
+
+  useEffect(() => {
+    setConversationDraftActive(false);
+  }, [projectId]);
   const {
-    taskEditor,
-    setTaskEditor,
-    taskEditorBusy,
+    editingImageJob,
+    setEditingImageJob,
+    imageSubmitting,
     modelSubmitting,
-    openNewTask,
     submitConfiguredTask,
     submitModelGeneration
   } = useGenerationActions({
@@ -317,8 +387,7 @@ export function App() {
     catalog,
     projectId,
     selectedImageModel,
-    ensureCurrentConversation,
-    setAttachments,
+    setAttachments: setManualAttachments,
     refreshProject,
     onNotice: (text) => pushNotice("success", text),
     onError: reportError
@@ -326,14 +395,16 @@ export function App() {
 
   const initializeApplication = useCallback(async () => {
     try {
-      const [nextProjects, nextCatalog, nextPrompts] = await Promise.all([
+      const [nextProjects, nextCatalog, nextPrompts, community] = await Promise.all([
         api.listProjects(),
         api.listProviders(),
-        api.listPrompts()
+        api.listPrompts(),
+        api.getCommunitySettings()
       ]);
       setProjects(nextProjects);
       setCatalog(nextCatalog);
       setPrompts(nextPrompts);
+      setCommunityUrl(community.settings.url);
       setProjectId(nextProjects[0]?.id ?? "");
       setAccessRequired(false);
     } catch (error) {
@@ -354,9 +425,11 @@ export function App() {
 
   useEffect(() => {
     if (!projectId) return;
-    setTaskEditor(null);
+    setEditingImageJob(null);
     setPreview(null);
     setModelAssets([]);
+    setManualAttachments([]);
+    setRequestedModelAssetId("");
     void refreshProject(projectId).catch(reportError);
   }, [projectId, refreshProject, reportError]);
 
@@ -381,8 +454,14 @@ export function App() {
   }, [catalog.defaults.model, enabledModelModels]);
 
   useEffect(() => {
-    localStorage.setItem("lyra.agentOptimizeImagePrompt", String(optimizeImagePrompt));
-  }, [optimizeImagePrompt]);
+    if (modelId) localStorage.setItem("lyra.selectedImageModelId", modelId);
+  }, [modelId]);
+
+  useEffect(() => {
+    if (modelProviderModelId) {
+      localStorage.setItem("lyra.selectedModelModelId", modelProviderModelId);
+    }
+  }, [modelProviderModelId]);
 
   useEffect(() => {
     if (!preview) return;
@@ -422,6 +501,35 @@ export function App() {
     setAttachments([]);
   }
 
+  function toggleManualAttachment(asset: AssetSnapshot) {
+    setManualAttachments((current) => toggleSelectedAsset(current, asset));
+  }
+
+  async function toggleManualGeneratedAttachment(assetId: string) {
+    let asset = assetsById.get(assetId);
+    if (!asset) {
+      asset = await api.getAsset(assetId);
+      setAssets((current) => [asset!, ...current.filter((item) => item.id !== asset!.id)]);
+    }
+    setManualAttachments((current) => toggleSelectedAsset(current, asset!));
+  }
+
+  async function uploadManualImages(files: File[]) {
+    const uploaded = await uploadAssets(files);
+    setManualAttachments((current) => appendUniqueAssets(current, uploaded));
+  }
+
+  function editManualImageJob(job: JobSnapshot) {
+    setEditingImageJob(job);
+    setManualAttachments(
+      job.inputs.flatMap((input) => {
+        const asset = assetsById.get(input.assetId);
+        return asset ? [asset] : [];
+      })
+    );
+    setPage("generation");
+  }
+
   function openPreview(assetId: string, fallbackName = "图片预览") {
     setPreview({ assetId, name: assetsById.get(assetId)?.name ?? fallbackName });
   }
@@ -450,10 +558,25 @@ export function App() {
   return (
     <div className="app-shell">
       <AppSidebar
+        api={api}
         page={page}
         collapsed={sidebarCollapsed}
-        onPageChange={setPage}
+        conversations={conversations}
+        conversationId={conversationId}
+        conversationDraftActive={conversationDraftActive}
+        conversationBusy={conversationBusy}
+        onPageChange={(nextPage) => {
+          if (nextPage === "model") setRequestedModelAssetId("");
+          setPage(nextPage);
+        }}
         onToggleCollapsed={toggleSidebar}
+        onCreateConversation={() => {
+          clearComposer();
+          startNewConversation();
+        }}
+        onConversationSelect={selectConversation}
+        onConversationRename={renameConversation}
+        onConversationDelete={deleteConversation}
       />
 
       <main className="app-main">
@@ -472,10 +595,48 @@ export function App() {
             <h1>尚未创建项目</h1>
             <p>请先通过初始化流程创建默认项目。</p>
           </section>
+        ) : page === "community" ? (
+          <CommunityPage
+            url={communityUrl}
+            onOpenSettings={() => setPage("settings")}
+          />
         ) : page === "generation" ? (
-          <GenerationWorkspace
-            optimizeImagePrompt={optimizeImagePrompt}
-            onOptimizeImagePromptChange={setOptimizeImagePrompt}
+          <ImageGenerationPage
+            key={projectId}
+            projectId={projectId}
+            imageModelId={modelId}
+            imageProviders={imageProviderOptions}
+            imageModels={imageModelOptions}
+            onImageModelChange={setModelId}
+            editingJob={editingImageJob}
+            promptTemplates={prompts}
+            submitting={imageSubmitting}
+            attachments={manualAttachments}
+            onAttachmentsChange={setManualAttachments}
+            onCancelEdit={() => setEditingImageJob(null)}
+            onSubmit={submitConfiguredTask}
+            onUpload={uploadManualImages}
+            onUploadClick={() => uploadInputRef.current?.click()}
+            assetRailCollapsed={assetRailCollapsed}
+            assets={assets}
+            generationModelByAssetId={generationModelByAssetId}
+            assetsById={assetsById}
+            attachmentOrder={manualAttachmentOrder}
+            jobs={manualImageJobs}
+            contentUrl={(assetId) => api.assetContentUrl(assetId)}
+            thumbnailUrl={(assetId) => api.assetThumbnailUrl(assetId)}
+            onToggleAttachment={toggleManualAttachment}
+            onToggleGeneratedAttachment={toggleManualGeneratedAttachment}
+            onToggleAssetRail={toggleAssetRail}
+            onPreview={openPreview}
+            onRetryJob={retryJob}
+            onDismissJob={dismissJob}
+            onEditJob={editManualImageJob}
+            onError={reportError}
+          />
+        ) : page === "conversation" ? (
+          <ConversationWorkspace
+            key={projectId}
             imageModelId={modelId}
             imageProviders={imageProviderOptions}
             imageModels={imageModelOptions}
@@ -483,30 +644,36 @@ export function App() {
             conversations={conversations}
             conversationId={conversationId}
             conversationBusy={conversationBusy}
-            activeJobCount={activeJobCount}
-            onCreateConversation={() => void createNewConversation()}
-            onCreateTask={() => void openNewTask()}
-            onOpenTasks={() => setTaskDrawerOpen(true)}
-            onConversationSelect={setConversationId}
+            onCreateConversation={() => {
+              clearComposer();
+              startNewConversation();
+            }}
+            onConversationSelect={selectConversation}
             onConversationRename={renameConversation}
             onConversationDelete={deleteConversation}
-            assetRailCollapsed={assetRailCollapsed}
+            modelModelId={modelProviderModelId}
+            modelProviders={modelProviderOptions}
+            modelModels={modelModelOptions}
+            onModelModelChange={setModelProviderModelId}
             assets={assets}
-            generationModelByAssetId={generationModelByAssetId}
+            modelAssets={modelAssets}
             assetsById={assetsById}
             attachments={attachments}
             attachmentOrder={attachmentOrder}
-            jobs={workspaceJobs}
+            jobs={conversationJobs}
             contentUrl={(assetId) => api.assetContentUrl(assetId)}
             thumbnailUrl={(assetId) => api.assetThumbnailUrl(assetId)}
             onToggleAttachment={toggleAttachment}
             onToggleGeneratedAttachment={toggleGeneratedAttachment}
-            onToggleAssetRail={toggleAssetRail}
             onPreview={openPreview}
             onUploadClick={() => uploadInputRef.current?.click()}
             onRetryJob={retryJob}
             onDismissJob={dismissJob}
-            onEditJob={(job) => setTaskEditor({ job })}
+            onEditJob={editManualImageJob}
+            onViewModel={(assetId) => {
+              setRequestedModelAssetId(assetId);
+              setPage("model");
+            }}
             agentPanelWidth={agentPanelWidth}
             onAgentPanelResize={startAgentPanelResize}
             messages={messages}
@@ -535,13 +702,24 @@ export function App() {
         ) : page === "assets" ? (
           <AssetLibraryPage
             assets={assets}
+            modelAssets={modelAssets}
+            jobs={jobs}
             generationModelByAssetId={generationModelByAssetId}
             thumbnailUrl={(assetId) => api.assetThumbnailUrl(assetId)}
-            onAttach={(asset) => { addAttachment(asset); setPage("generation"); }}
+            contentUrl={(assetId) => api.assetContentUrl(assetId)}
+            onAttach={(asset) => {
+              setManualAttachments((current) => addUniqueAsset(current, asset));
+              setPage("generation");
+            }}
             onPreview={(asset) => openPreview(asset.id, asset.name)}
+            onViewModel={(assetId) => {
+              setRequestedModelAssetId(assetId);
+              setPage("model");
+            }}
             onUpload={() => uploadInputRef.current?.click()}
             onUpdate={updateAsset}
             onDelete={deleteAsset}
+            onDeleteModel={deleteModelAssets}
           />
         ) : page === "model" ? (
           <ModelingPage
@@ -552,23 +730,44 @@ export function App() {
             profiles={catalog.profiles}
             modelAssets={modelAssets}
             jobs={jobs}
+            initialModelAssetId={requestedModelAssetId}
             defaultModelId={modelProviderModelId}
             busy={modelSubmitting}
             thumbnailUrl={(assetId) => api.assetThumbnailUrl(assetId)}
             contentUrl={(assetId) => api.assetContentUrl(assetId)}
+            onUpload={uploadAssets}
             onDefaultModelChange={setModelProviderModelId}
             onGenerate={submitModelGeneration}
             onCancel={cancelJob}
             onRetry={retryJob}
             onDismiss={dismissJob}
+            onDeleteModel={deleteModelAssets}
             onOpenSettings={() => setPage("settings")}
           />
+        ) : page === "pose" ? (
+          <Suspense fallback={<div className="boot-state"><span className="spinner" />正在加载动作编辑器</div>}>
+            <PoseStudioPage
+              key={projectId}
+              projectId={projectId}
+              onSaveScreenshot={async (file) => {
+                await uploadAssets([file]);
+                pushNotice("success", "动作截图已保存到当前项目素材库");
+              }}
+            />
+          </Suspense>
         ) : page === "prompts" ? (
           <PromptLibraryPage
             prompts={prompts}
+            generatedImages={assets.filter((asset) =>
+              asset.kind === "image" && asset.source === "generated")}
+            thumbnailUrl={(assetId) => api.assetThumbnailUrl(assetId)}
+            contentUrl={(assetId) => api.assetContentUrl(assetId)}
+            previewUrl={(promptId) => api.promptPreviewUrl(promptId)}
             onCreate={createPromptTemplate}
             onUpdate={updatePromptTemplate}
             onDelete={deletePromptTemplate}
+            onSetPreview={setPromptPreview}
+            onDeletePreview={deletePromptPreview}
           />
         ) : page === "settings" ? (
           <SettingsPage
@@ -577,6 +776,7 @@ export function App() {
             appearanceMode={appearanceMode}
             onChanged={setCatalog}
             onError={reportError}
+            onCommunityChanged={setCommunityUrl}
             onAppearanceChange={(mode) => {
               saveAppearanceMode(mode);
               setAppearanceMode(mode);
@@ -594,19 +794,18 @@ export function App() {
         accept="image/*"
         multiple
         onChange={(event) => {
-          if (event.target.files) void upload(Array.from(event.target.files));
+          if (event.target.files) {
+            const files = Array.from(event.target.files);
+            if (page === "generation") {
+              void uploadManualImages(files);
+            } else if (page === "conversation") {
+              void upload(files);
+            } else {
+              void uploadAssets(files).catch(() => undefined);
+            }
+          }
           event.target.value = "";
         }}
-      />
-
-      <TaskDrawer
-        open={taskDrawerOpen}
-        jobs={sortedJobs}
-        onClose={() => setTaskDrawerOpen(false)}
-        onCancel={cancelJob}
-        onRetry={retryJob}
-        onDismiss={dismissJob}
-        onClearFailed={clearFailedJobs}
       />
 
       {projectManagerMode && (
@@ -622,25 +821,7 @@ export function App() {
           }}
           onCreate={createProject}
           onUpdate={updateProject}
-          onArchive={archiveProject}
-        />
-      )}
-
-      {taskEditor && (
-        <TaskEditor
-          job={taskEditor.job}
-          assets={assets}
-          initialAttachments={attachments}
-          promptTemplates={prompts}
-          providers={imageProviderOptions}
-          models={imageModelOptions}
-          defaultModelId={modelId}
-          busy={taskEditorBusy}
-          thumbnailUrl={(assetId) => api.assetThumbnailUrl(assetId)}
-          onClose={() => setTaskEditor(null)}
-          onPreview={(asset) => openPreview(asset.id, asset.name)}
-          onUploadClick={() => uploadInputRef.current?.click()}
-          onSubmit={submitConfiguredTask}
+          onDelete={deleteProject}
         />
       )}
 
@@ -659,7 +840,17 @@ export function App() {
                   <small>{new Date(previewGenerationJob.createdAt).toLocaleString("zh-CN")}</small>
                 </div>
               )}
-              <button type="button" className="button button-primary" onClick={() => void attachGenerated(preview.assetId).then(() => setPreview(null)).catch(reportError)}>引用到输入框</button>
+              <button
+                type="button"
+                className="button button-primary"
+                onClick={() => void (
+                  page === "generation"
+                    ? toggleManualGeneratedAttachment(preview.assetId)
+                    : attachGenerated(preview.assetId)
+                ).then(() => setPreview(null)).catch(reportError)}
+              >
+                {page === "generation" ? "用于图片生成" : "引用到对话"}
+              </button>
             </footer>
           </div>
         </div>

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { AssetSnapshot } from "@lyra/contracts";
 import type { ModelStats } from "./model-viewer-types.js";
 import { Icon } from "../Icon.js";
@@ -58,12 +59,28 @@ export function ModelViewerHeader(props: ModelViewerHeaderProps) {
 }
 
 export function ViewerStatistics(props: { stats: ModelStats }) {
+  const [expanded, setExpanded] = useState(
+    () => !(typeof window !== "undefined" && window.matchMedia?.("(max-width: 40rem)").matches)
+  );
   return (
-    <dl className="model-viewer-statistics-card">
-      <div><dt>拓扑</dt><dd>三角面</dd></div>
-      <div><dt>面数</dt><dd>{formatCount(props.stats.faces)}</dd></div>
-      <div><dt>顶点数</dt><dd>{formatCount(props.stats.vertices)}</dd></div>
-    </dl>
+    <section className={`model-viewer-statistics-card${expanded ? " expanded" : " collapsed"}`}>
+      <button
+        type="button"
+        aria-expanded={expanded}
+        aria-label={expanded ? "收起模型信息" : "展开模型信息"}
+        onClick={() => setExpanded((value) => !value)}
+      >
+        <span>模型信息</span>
+        <Icon name="chevron" size={14} />
+      </button>
+      {expanded && (
+        <dl>
+          <div><dt>拓扑</dt><dd>三角面</dd></div>
+          <div><dt>面数</dt><dd>{formatCount(props.stats.faces)}</dd></div>
+          <div><dt>顶点数</dt><dd>{formatCount(props.stats.vertices)}</dd></div>
+        </dl>
+      )}
+    </section>
   );
 }
 

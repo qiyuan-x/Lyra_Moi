@@ -6,12 +6,16 @@ export type ModelPageConfig = {
 };
 
 export type PersistedModelingState = {
+  inputMode: "image" | "text";
+  prompt: string;
   selectedImageId: string;
   selectedTextureImageId: string;
   modelConfigs: Record<string, ModelPageConfig>;
 };
 
 export const emptyPersistedModelingState: PersistedModelingState = {
+  inputMode: "image",
+  prompt: "",
   selectedImageId: "",
   selectedTextureImageId: "",
   modelConfigs: {}
@@ -26,6 +30,8 @@ export function readPersistedModelingState(
     );
     if (!isRecord(value)) return cloneEmptyState();
     return {
+      inputMode: value.inputMode === "text" ? "text" : "image",
+      prompt: readText(value.prompt),
       selectedImageId:
         readText(value.selectedImageId) ||
         readLegacySelection(value.selectedImageBySource, "generated"),

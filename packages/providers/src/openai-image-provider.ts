@@ -11,6 +11,7 @@ export interface OpenAiImageProviderOptions {
   assetLoader: ProviderAssetLoader;
   settings?: Record<string, unknown>;
   compatible?: boolean;
+  generationReferenceField?: "image";
   client?: ProviderHttpClient;
 }
 
@@ -21,6 +22,7 @@ export class OpenAiImageProvider implements BinaryImageProvider {
   readonly #assetLoader: ProviderAssetLoader;
   readonly #settings: Record<string, unknown>;
   readonly #compatible: boolean;
+  readonly #generationReferenceField: "image" | null;
   readonly #client: ProviderHttpClient;
 
   constructor(options: OpenAiImageProviderOptions) {
@@ -33,6 +35,7 @@ export class OpenAiImageProvider implements BinaryImageProvider {
     this.#assetLoader = options.assetLoader;
     this.#settings = structuredClone(options.settings ?? {});
     this.#compatible = options.compatible === true;
+    this.#generationReferenceField = options.generationReferenceField ?? null;
     this.#client = options.client ?? new ProviderHttpClient();
   }
 
@@ -44,7 +47,7 @@ export class OpenAiImageProvider implements BinaryImageProvider {
     if (this.#apiKey) headers.Authorization = `Bearer ${this.#apiKey}`;
     const parameters = normalizeImageParameters({ ...this.#settings, ...request.parameters });
     try {
-      const body = request.attachments.length
+      const body = request.attachments.length && !this.#generationReferenceField
         ? await this.#edit(request, parameters, headers, signal)
         : await this.#generate(request, parameters, headers, signal);
       return await parseOpenAiImages(
@@ -108,12 +111,22 @@ export class OpenAiImageProvider implements BinaryImageProvider {
     return output;
   }
 
-  #generate(
+  async #generate(
     request: GenerationRequest,
     parameters: Record<string, string | number>,
     headers: Record<string, string>,
     signal?: AbortSignal
   ): Promise<unknown> {
+    const referenceImages: string[] = [];
+    if (this.#generationReferenceField) {
+      for (const attachment of request.attachments) {
+        signal?.throwIfAborted();
+        const image = await this.#assetLoader.loadImage(attachment.assetId, request.projectId);
+        referenceImages.push(
+          `data:${image.mimeType};base64,${Buffer.from(image.data).toString("base64")}`
+        );
+      }
+    }
     return this.#client.postJson(
       `${this.#baseUrl}/images/generations`,
       headers,
@@ -121,6 +134,9 @@ export class OpenAiImageProvider implements BinaryImageProvider {
         model: this.#model,
         prompt: request.prompt,
         n: request.count,
+        ...(referenceImages.length
+          ? { image: referenceImages.length === 1 ? referenceImages[0] : referenceImages }
+          : {}),
         ...parameters
       },
       signal

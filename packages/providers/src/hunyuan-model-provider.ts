@@ -2,6 +2,7 @@ import type {
   ModelGenerationRequest,
   ModelOutputFormat
 } from "@lyra/contracts";
+import { isTextToModelGenerationRequest } from "@lyra/contracts";
 import { ProviderConnectionError } from "./provider-errors.js";
 import { ProviderHttpClient } from "./provider-http-client.js";
 import {
@@ -10,6 +11,7 @@ import {
   readEnum,
   readNullableInteger,
   requireModelInput,
+  requireModelPrompt,
   requireRecord,
   requireText,
   type BinaryModelProvider,
@@ -115,16 +117,15 @@ export class HunyuanModelProvider implements BinaryModelProvider {
   }
 
   async submit(request: ModelGenerationRequest, signal?: AbortSignal): Promise<string> {
-    const input = requireModelInput(request);
-    const image = await this.#assetLoader.loadModelInput(input.assetId, input.projectId);
     const parameters = parseHunyuanParameters(request, this.#model);
+    const inputBody = isTextToModelGenerationRequest(request)
+      ? { Prompt: requireModelPrompt(request) }
+      : await this.#loadImageInput(request);
     const result = await this.#api.submit(
       {
         ...this.#settings,
         Model: this.#model,
-        ImageUrl: {
-          Url: `data:${image.mimeType};base64,${image.data.toString("base64")}`
-        },
+        ...inputBody,
         GenerateType: parameters.generateType,
         EnablePBR: parameters.pbr,
         ...(parameters.targetFaceCount === null || parameters.generateType === "LowPoly"
@@ -138,6 +139,18 @@ export class HunyuanModelProvider implements BinaryModelProvider {
       signal
     );
     return requireText(result.JobId, "Hunyuan did not return a task ID.");
+  }
+
+  async #loadImageInput(
+    request: ModelGenerationRequest
+  ): Promise<Record<string, unknown>> {
+    const input = requireModelInput(request);
+    const image = await this.#assetLoader.loadModelInput(input.assetId, input.projectId);
+    return {
+      ImageUrl: {
+        Url: `data:${image.mimeType};base64,${image.data.toString("base64")}`
+      }
+    };
   }
 
   async query(externalTaskId: string, signal?: AbortSignal): Promise<ModelProviderResult> {

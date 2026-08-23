@@ -40,7 +40,7 @@ export const manualModelGenerationRequestSchema = {
   additionalProperties: false,
   required: [
     "projectId",
-    "imageAssetId",
+    "inputMode",
     "providerProfileId",
     "providerModelId",
     "outputFormats",
@@ -48,7 +48,9 @@ export const manualModelGenerationRequestSchema = {
   ],
   properties: {
     projectId: { type: "string", minLength: 1 },
+    inputMode: { enum: ["image", "text"] },
     imageAssetId: { type: "string", minLength: 1 },
+    prompt: { type: "string", minLength: 1, maxLength: 1024 },
     textureImageAssetId: { type: "string", minLength: 1 },
     providerProfileId: { type: "string", minLength: 1 },
     providerModelId: { type: "string", minLength: 1 },
@@ -59,7 +61,17 @@ export const manualModelGenerationRequestSchema = {
       items: { enum: ["glb", "obj", "fbx", "stl", "usdz", "3mf"] }
     },
     parameters: { type: "object", additionalProperties: true }
-  }
+  },
+  oneOf: [
+    {
+      properties: { inputMode: { const: "image" } },
+      required: ["imageAssetId"]
+    },
+    {
+      properties: { inputMode: { const: "text" } },
+      required: ["prompt"]
+    }
+  ]
 } as const satisfies JsonSchema;
 
 export const sendAgentMessageRequestSchema = {
@@ -77,7 +89,9 @@ export const sendAgentMessageRequestSchema = {
         llmProviderProfileId: { type: "string", minLength: 1 },
         llmModelId: { type: "string", minLength: 1 },
         defaultImageProviderProfileId: { type: "string", minLength: 1 },
-        defaultImageModelId: { type: "string", minLength: 1 }
+        defaultImageModelId: { type: "string", minLength: 1 },
+        defaultModelProviderProfileId: { type: "string", minLength: 1 },
+        defaultModelId: { type: "string", minLength: 1 }
       }
     }
   }
@@ -101,9 +115,13 @@ export const createProviderProfileRequestSchema = {
   properties: {
     serviceType: { enum: ["llm", "image", "model"] },
     name: { type: "string", minLength: 1 },
-    protocol: { enum: ["openai", "gemini", "openai-compatible"] },
+    protocol: { enum: ["openai", "anthropic", "gemini", "openai-compatible"] },
     adapterType: {
-      enum: ["openai", "gemini", "openai-compatible", "meshy", "tripo", "hunyuan"]
+      enum: [
+        "openai", "anthropic", "gemini", "openai-compatible",
+        "dashscope-image", "seedream-image", "zhipu-image", "hunyuan-image",
+        "stability-image", "meshy", "tripo", "hunyuan", "stability-3d"
+      ]
     },
     baseUrl: { type: "string" },
     settings: { type: "object", additionalProperties: true },
@@ -119,9 +137,13 @@ export const updateProviderProfileRequestSchema = {
   minProperties: 1,
   properties: {
     name: { type: "string", minLength: 1 },
-    protocol: { enum: ["openai", "gemini", "openai-compatible"] },
+    protocol: { enum: ["openai", "anthropic", "gemini", "openai-compatible"] },
     adapterType: {
-      enum: ["openai", "gemini", "openai-compatible", "meshy", "tripo", "hunyuan"]
+      enum: [
+        "openai", "anthropic", "gemini", "openai-compatible",
+        "dashscope-image", "seedream-image", "zhipu-image", "hunyuan-image",
+        "stability-image", "meshy", "tripo", "hunyuan", "stability-3d"
+      ]
     },
     baseUrl: { type: "string" },
     settings: { type: "object", additionalProperties: true },

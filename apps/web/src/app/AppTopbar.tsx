@@ -14,20 +14,10 @@ interface AppTopbarProps {
 }
 
 export function AppTopbar(props: AppTopbarProps) {
-  const selectedProject = props.projects.find(
-    (project) => project.id === props.projectId
-  );
+  const pageLabel = navigation.find((item) => item.page === props.page)?.label;
   return (
     <header className="topbar">
-      <div>
-        <strong>
-          {navigation.find((item) => item.page === props.page)?.label}
-        </strong>
-        {selectedProject && (
-          <span title={selectedProject.name}>{selectedProject.name}</span>
-        )}
-      </div>
-      <div className="topbar-actions">
+      <div className="topbar-project">
         <ProjectSwitcher
           projects={props.projects}
           currentId={props.projectId}
@@ -36,6 +26,8 @@ export function AppTopbar(props: AppTopbarProps) {
           onManage={props.onProjectManage}
         />
       </div>
+      <strong className="topbar-page-title">{pageLabel}</strong>
+      <div className="topbar-end" aria-hidden="true" />
     </header>
   );
 }

@@ -280,17 +280,17 @@ HTTP body、分页查询、响应写入和服务依赖检查集中在
 
 ### 7.4 Provider Registry
 
-第一阶段实现：
+当前供应商按能力注册独立适配器：
 
-- `OpenAiAdapter`
-- `GeminiAdapter`
-- `OpenAiCompatibleAdapter`
+- LLM：OpenAI、Anthropic、Gemini、OpenAI Compatible
+- 生图：OpenAI、Gemini、DashScope、Seedream、智谱、腾讯混元、Stability AI
+- 建模：OpenAI 兼容 3D（FrostAPI 为默认预设）、Meshy、Tripo、腾讯混元、Stability AI 3D
 
-一个连接可配置多个 `llm`、`image` 和预留 `model` 模型。本地服务通过本地 Base URL 配置。
+供应商名称是可编辑的展示字段，运行时使用稳定的适配器类型路由。LLM、生图和建模连接、密钥、模型互相隔离；本地服务通过 OpenAI Compatible 和本地 Base URL 配置。
 
 M2 只实现连接配置和模型发现；远端返回的模型 ID 不自动分类，由用户保存模型时明确选择服务类型。API Key 只保存在运行目录的 `config/.env`，SQLite 只保存环境变量名。
 
-M6 的运行时路由按任务快照中的连接 ID 和模型 ID 动态解析：OpenAI LLM 使用 Responses API，OpenAI Compatible LLM 使用 Chat Completions，Gemini LLM 使用 Interactions API；图片分别使用 OpenAI Images API 和 Gemini Interactions API。图片 Worker 读取有序素材二进制，LLM 仍只收到用户文本和素材元数据。统一 HTTP 客户端负责超时、取消、响应大小限制、URL 下载和稳定错误码。
+运行时按任务快照中的连接 ID、模型 ID 和适配器类型动态解析。图片 Worker 读取有序素材二进制，LLM 只收到用户文本和素材元数据。统一 HTTP 客户端负责超时、取消、响应大小限制、URL 下载和稳定错误码。
 
 Gemini 工具调用把 `interaction_id` 保存到 Agent 检查点，恢复时通过 `previous_interaction_id` 回传工具结果。这样 Worker 重启后仍能继续当前工具轮次。具体参数和测试方式见 `docs/provider-adapters.md`。
 
@@ -359,7 +359,7 @@ Lyra/
 - 素材上传按真实文件内容校验格式、MIME、尺寸和大小，上传文件名不能包含路径。
 - 素材列表只读取独立 WebP 缩略图，原图和缩略图都通过受控素材 ID 接口读取并返回 ETag。
 - 素材接口不返回 Blob 键、数据根目录或绝对路径。
-- 桌面模式只监听 `127.0.0.1`。
+- 桌面模式监听 `0.0.0.0`，启动器分别展示本机地址和局域网地址。
 - 服务器模式需要访问令牌或受认证的反向代理。
 - Agent 工具不能直接读取任意文件路径或密钥。
 
@@ -401,12 +401,17 @@ Lyra/
 ```text
 图片生成
 AI 建模
+其他功能
+└─ 动作参考
+对话
 素材库
 提示词库
 设置
 ```
 
-图片生成内部统一承载 Agent 和手动任务。任务不占用主导航，在右上角状态按钮和抽屉中展示。AI 建模使用独立页面，以项目图片为输入，提交后台任务并查看项目级 GLB 结果。
+图片生成只负责手动生图；AI 建模只负责图片或文字生成模型；对话负责 Agent 编排。三者共用同一套后端任务、供应商和素材服务，不共用页面状态。
+
+“其他功能”是可折叠工具分组。动作参考当前内置 UE5 Manny 与 Quinn，模型加载后先应用标准 T Pose，再统一对齐世界原点和地面。`PoseEditorAdapter` 独立管理 Three.js、模型切换、八面体骨骼、W/R/S 变换、摄像机预览、方位坐标轴和截图；React 页面只管理动作模板、手势模板与显示设置。动作模板存储骨骼相对静止姿势的变换，因此可在 Manny 与 Quinn 之间复用。后续增加自定义角色时只扩展模型清单和骨骼映射，不修改截图保存与模板管理。
 
 供应商连接按能力硬隔离：LLM、AI 生图、AI 建模分别保存连接和密钥，模型不能跨能力挂载。图片 Worker 与 Model Worker 分开领取任务，远程建模任务 ID 持久化后可在服务重启后继续查询。当前 Agent 状态通过 SSE 实时更新，助手正文在 LLM 请求完成后一次写入，不是 token 级流式输出。
 

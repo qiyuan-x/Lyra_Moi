@@ -46,6 +46,7 @@ export function usePromptWorkspace(options: UsePromptWorkspaceOptions) {
     try {
       const created = await options.api.createPrompt(value);
       options.setPrompts((current) => [created, ...current]);
+      return created;
     } catch (error) {
       options.onError(error);
       throw error;
@@ -61,6 +62,7 @@ export function usePromptWorkspace(options: UsePromptWorkspaceOptions) {
       options.setPrompts((current) =>
         current.map((item) => item.id === updated.id ? updated : item)
       );
+      return updated;
     } catch (error) {
       options.onError(error);
       throw error;
@@ -79,6 +81,32 @@ export function usePromptWorkspace(options: UsePromptWorkspaceOptions) {
     }
   }
 
+  async function setPromptPreview(promptId: string, file: Blob) {
+    try {
+      const updated = await options.api.setPromptPreview(promptId, file);
+      options.setPrompts((current) =>
+        current.map((item) => item.id === updated.id ? updated : item)
+      );
+      return updated;
+    } catch (error) {
+      options.onError(error);
+      throw error;
+    }
+  }
+
+  async function deletePromptPreview(promptId: string) {
+    try {
+      const updated = await options.api.deletePromptPreview(promptId);
+      options.setPrompts((current) =>
+        current.map((item) => item.id === updated.id ? updated : item)
+      );
+      return updated;
+    } catch (error) {
+      options.onError(error);
+      throw error;
+    }
+  }
+
   return {
     prompt,
     setPrompt,
@@ -86,6 +114,8 @@ export function usePromptWorkspace(options: UsePromptWorkspaceOptions) {
     clearPrompt,
     createPromptTemplate,
     updatePromptTemplate,
-    deletePromptTemplate
+    deletePromptTemplate,
+    setPromptPreview,
+    deletePromptPreview
   };
 }

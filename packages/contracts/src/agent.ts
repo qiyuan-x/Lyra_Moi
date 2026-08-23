@@ -82,6 +82,8 @@ export interface SendAgentMessageRequestBody {
     llmModelId?: EntityId;
     defaultImageProviderProfileId?: EntityId;
     defaultImageModelId?: EntityId;
+    defaultModelProviderProfileId?: EntityId;
+    defaultModelId?: EntityId;
   };
 }
 

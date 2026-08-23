@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  MeshyModelDiscoveryAdapter,
   ProviderConnectionError,
+  ProviderHttpClient,
   createHttpProviderRegistry,
   filterDiscoveredModels,
   isImageGenerationModelId,
@@ -12,6 +14,71 @@ import {
 import type { StoredProviderProfile } from "@lyra/storage";
 
 describe("HTTP provider model discovery", () => {
+  it("discovers OpenAI-compatible 3D models through the models endpoint", async () => {
+    let headers = new Headers();
+    let url = "";
+    const registry = createHttpProviderRegistry({
+      fetchImplementation: async (input, init) => {
+        url = String(input);
+        headers = new Headers(init?.headers);
+        return Response.json({
+          data: [
+            { id: "meshy-6", object: "model", owned_by: "meshy" },
+            { id: "meshy-7", object: "model", owned_by: "meshy" }
+          ]
+        });
+      }
+    });
+    const models = await registry.discoverModels({
+      profile: {
+        ...profile("openai-compatible", "https://api.frost.test"),
+        serviceType: "model",
+        adapterType: "openai-compatible"
+      },
+      apiKey: "frost-secret",
+      signal: undefined
+    });
+
+    expect(url).toBe("https://api.frost.test/v1/models");
+    expect(headers.get("authorization")).toBe("Bearer frost-secret");
+    expect(models).toEqual([
+      {
+        remoteModelId: "meshy-6",
+        displayName: "meshy-6",
+        metadata: { ownedBy: "meshy" }
+      },
+      {
+        remoteModelId: "meshy-7",
+        displayName: "meshy-7",
+        metadata: { ownedBy: "meshy" }
+      }
+    ]);
+  });
+
+  it("discovers the current Meshy model lineup", async () => {
+    const adapter = new MeshyModelDiscoveryAdapter(new ProviderHttpClient({
+      fetchImplementation: async () => Response.json({ data: [] })
+    }));
+    const models = await adapter.discoverModels({
+      profile: {
+        ...profile("openai-compatible", "https://api.meshy.ai"),
+        serviceType: "model",
+        adapterType: "meshy"
+      },
+      apiKey: "meshy-secret",
+      signal: undefined
+    });
+
+    expect(models.map((model) => model.remoteModelId)).toEqual([
+      "latest",
+      "meshy-7",
+      "meshy-6",
+      "meshy-5",
+      "meshy-t2",
+      "meshy-t1"
+    ]);
+  });
+
   it("keeps image models out of LLM connections and LLM models out of image connections", () => {
     const models = [
       { remoteModelId: "gpt-5.6", displayName: "GPT 5.6", metadata: {} },
@@ -60,6 +127,65 @@ describe("HTTP provider model discovery", () => {
       Authorization: "Bearer openai-secret"
     });
     expect(models.map((model) => model.remoteModelId)).toEqual(["model-a", "model-b"]);
+  });
+
+  it("uses the native Anthropic models endpoint and API key header", async () => {
+    let request: { url: string; init: RequestInit | undefined } | null = null;
+    const registry = createHttpProviderRegistry({
+      fetchImplementation: async (input, init) => {
+        request = { url: String(input), init };
+        return Response.json({
+          data: [{ id: "claude-test", display_name: "Claude Test" }]
+        });
+      }
+    });
+    const anthropic = {
+      ...profile("anthropic", "https://api.anthropic.test/v1"),
+      adapterType: "anthropic" as const
+    };
+
+    const models = await registry.discoverModels({
+      profile: anthropic,
+      apiKey: "anthropic-secret",
+      secondaryApiKey: null,
+      signal: undefined
+    });
+
+    expect(request!.url).toBe("https://api.anthropic.test/v1/models");
+    expect(request!.init?.headers).toMatchObject({
+      "x-api-key": "anthropic-secret",
+      "anthropic-version": "2023-06-01"
+    });
+    expect(models).toEqual([{
+      remoteModelId: "claude-test",
+      displayName: "Claude Test",
+      metadata: {}
+    }]);
+  });
+
+  it("uses DashScope compatibility discovery without changing its native image URL", async () => {
+    let url = "";
+    const registry = createHttpProviderRegistry({
+      fetchImplementation: async (input) => {
+        url = String(input);
+        return Response.json({ data: [] });
+      }
+    });
+    const dashscope = {
+      ...profile("openai-compatible", "https://dashscope.aliyuncs.com/api/v1"),
+      serviceType: "image" as const,
+      adapterType: "dashscope-image" as const
+    };
+
+    const models = await registry.discoverModels({
+      profile: dashscope,
+      apiKey: "dashscope-secret",
+      secondaryApiKey: null,
+      signal: undefined
+    });
+
+    expect(url).toBe("https://dashscope.aliyuncs.com/compatible-mode/v1/models");
+    expect(models.map((model) => model.remoteModelId)).toContain("qwen-image-3.0-pro");
   });
 
   it("paginates Gemini models and uses the API key header", async () => {
@@ -157,6 +283,12 @@ describe("HTTP provider model discovery", () => {
     expect(normalizeBaseUrl("openai-compatible", "http://localhost:8080")).toBe(
       "http://localhost:8080/v1"
     );
+    expect(normalizeBaseUrl(
+      "openai-compatible",
+      "https://api.stability.ai",
+      "image",
+      "stability-image"
+    )).toBe("https://api.stability.ai");
     expect(() =>
       normalizeBaseUrl("openai-compatible", "http://user:password@localhost/v1")
     ).toThrow("cannot contain credentials");
@@ -188,8 +320,11 @@ function profile(
     serviceType: "llm",
     name: protocol,
     protocol,
+    adapterType: protocol,
     baseUrl,
     apiKeyEnvironmentVariable: "LYRA_PROVIDER_TEST_API_KEY",
+    secondaryApiKeyEnvironmentVariable: null,
+    settings: {},
     enabled: true,
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",

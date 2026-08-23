@@ -1,4 +1,5 @@
 import type { AddressInfo } from "node:net";
+import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -25,6 +26,7 @@ import {
   ImmutableBlobStore,
   JobRepository,
   ProjectDirectoryStore,
+  PromptPreviewStore,
   ProjectRepository,
   PromptTemplateRepository,
   ProviderRepository,
@@ -108,6 +110,20 @@ describe("workspace HTTP routes", () => {
       });
       const promptId = readNestedString(createdPrompt.body, "prompt", "id");
       expect(await patchJson(fixture.baseUrl, `/api/v1/prompts/${promptId}`, { favorite: true })).toMatchObject({ status: 200, body: { prompt: { favorite: true } } });
+      const previewForm = new FormData();
+      previewForm.append("file", new Blob([PNG_1X1], { type: "image/png" }), "preview.png");
+      const previewUpdate = await fetch(
+        `${fixture.baseUrl}/api/v1/prompts/${promptId}/preview`,
+        { method: "PUT", body: previewForm }
+      );
+      expect(previewUpdate.status).toBe(200);
+      await expect(previewUpdate.json()).resolves.toMatchObject({
+        prompt: { id: promptId, previewMimeType: "image/png" }
+      });
+      const previewContent = await fetch(`${fixture.baseUrl}/api/v1/prompts/${promptId}/preview`);
+      expect(previewContent.status).toBe(200);
+      expect(previewContent.headers.get("content-type")).toBe("image/png");
+      expect(Buffer.from(await previewContent.arrayBuffer())).toEqual(PNG_1X1);
       expect((await deleteJson(fixture.baseUrl, `/api/v1/prompts/${promptId}`)).status).toBe(200);
       expect(await patchJson(fixture.baseUrl, "/api/v1/prompts/builtin-three-view", { favorite: true })).toMatchObject({
         status: 200,
@@ -173,10 +189,50 @@ describe("workspace HTTP routes", () => {
         `/api/v1/conversations/${managedConversationId}`,
         { title: "重命名的对话" }
       )).toMatchObject({ status: 200, body: { conversation: { title: "重命名的对话" } } });
-      expect((await deleteJson(
+      const preservedGeneration = await postJson(
+        fixture.baseUrl,
+        `/api/v1/projects/${fixture.seed.projectId}/generations`,
+        {
+          conversationId: managedConversationId,
+          prompt: "保留资源后删除对话",
+          attachments: [{ assetId: uploaded.asset.id, label: "图一", position: 1 }],
+          providerProfileId: fixture.seed.providerProfileId,
+          providerModelId: fixture.seed.imageModelId,
+          count: 1,
+          parameters: { aspectRatio: "1:1" }
+        }
+      );
+      const preservedJobId = readNestedString(
+        preservedGeneration.body,
+        "job",
+        "id"
+      );
+      await postJson(fixture.baseUrl, `/api/v1/jobs/${preservedJobId}/cancel`);
+      expect(await deleteJson(
         fixture.baseUrl,
         `/api/v1/conversations/${managedConversationId}`
-      )).status).toBe(200);
+      )).toMatchObject({
+        status: 200,
+        body: { conversation: { id: managedConversationId } }
+      });
+      expect(JSON.stringify((await getJson(
+        fixture.baseUrl,
+        `/api/v1/projects/${fixture.seed.projectId}/conversations`
+      )).body)).not.toContain(managedConversationId);
+      expect(fixture.conversations.findById(managedConversationId, true)).toBeNull();
+      expect(fixture.jobs.findById(preservedJobId)).toMatchObject({
+        id: preservedJobId,
+        conversationId: null,
+        inputs: [{ assetId: uploaded.asset.id }]
+      });
+      expect(fixture.assets.findById(uploaded.asset.id)).not.toBeNull();
+      await deleteJson(fixture.baseUrl, `/api/v1/jobs/${preservedJobId}`);
+      expect(fixture.jobs.findById(preservedJobId)).toMatchObject({
+        id: preservedJobId,
+        dismissedAt: expect.any(String)
+      });
+      expect(fixture.database.connection.prepare("PRAGMA foreign_key_check").all())
+        .toEqual([]);
 
       const agentResponse = await postJson(
         fixture.baseUrl,
@@ -347,6 +403,64 @@ describe("workspace HTTP routes", () => {
       await fixture.close();
     }
   });
+
+  it("permanently deletes a project and its isolated data", async () => {
+    const fixture = await createFixture();
+    try {
+      const createdProject = await postJson(fixture.baseUrl, "/api/v1/projects", {
+        name: "待删除项目",
+        description: "验证永久删除"
+      });
+      const projectId = readNestedString(createdProject.body, "project", "id");
+      const projectDirectory = join(fixture.layout.projects, projectId);
+      expect(existsSync(projectDirectory)).toBe(true);
+
+      const createdConversation = await postJson(
+        fixture.baseUrl,
+        `/api/v1/projects/${projectId}/conversations`,
+        { title: "待删除对话" }
+      );
+      const conversationId = readNestedString(
+        createdConversation.body,
+        "conversation",
+        "id"
+      );
+      const form = new FormData();
+      form.append("file", new Blob([PNG_1X1], { type: "image/png" }), "delete-me.png");
+      const uploadResponse = await fetch(
+        `${fixture.baseUrl}/api/v1/projects/${projectId}/assets`,
+        { method: "POST", body: form }
+      );
+      expect(uploadResponse.status).toBe(201);
+      const uploaded = await uploadResponse.json() as { asset: { id: string } };
+
+      const generation = await postJson(
+        fixture.baseUrl,
+        `/api/v1/projects/${projectId}/generations`,
+        {
+          conversationId,
+          prompt: "创建一个待删除任务",
+          attachments: [{ assetId: uploaded.asset.id, label: "图一", position: 1 }],
+          providerProfileId: fixture.seed.providerProfileId,
+          providerModelId: fixture.seed.imageModelId,
+          count: 1,
+          parameters: { aspectRatio: "1:1" }
+        }
+      );
+      const jobId = readNestedString(generation.body, "job", "id");
+      expect((await postJson(fixture.baseUrl, `/api/v1/jobs/${jobId}/cancel`)).status).toBe(202);
+
+      expect((await deleteJson(fixture.baseUrl, `/api/v1/projects/${projectId}`)).status).toBe(200);
+      expect(fixture.projects.findById(projectId)).toBeNull();
+      expect(existsSync(projectDirectory)).toBe(false);
+      expect(readCount(fixture.database.connection, "conversations", projectId)).toBe(0);
+      expect(readCount(fixture.database.connection, "assets", projectId)).toBe(0);
+      expect(readCount(fixture.database.connection, "jobs", projectId)).toBe(0);
+      expect(readCount(fixture.database.connection, "runtime_events", projectId)).toBe(0);
+    } finally {
+      await fixture.close();
+    }
+  });
 });
 
 async function createFixture() {
@@ -406,7 +520,10 @@ async function createFixture() {
       secrets: new EnvironmentFileSecretStore(layout.environmentFile),
       registry: new ProviderRegistry()
     }),
-    prompts: new PromptTemplateService({ prompts })
+    prompts: new PromptTemplateService({
+      prompts,
+      previews: new PromptPreviewStore(layout.promptPreviews)
+    })
   });
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
@@ -416,6 +533,12 @@ async function createFixture() {
   return {
     seed,
     steps,
+    layout,
+    database,
+    projects,
+    conversations,
+    assets,
+    jobs,
     baseUrl: `http://127.0.0.1:${address.port}`,
     async close() {
       await new Promise<void>((resolve) => server.close(() => resolve()));
@@ -466,6 +589,20 @@ function readNestedString(value: unknown, parent: string, key: string): string {
     throw new Error(`Response is missing ${parent}.${key}.`);
   }
   return value[parent][key];
+}
+
+function readCount(
+  connection: { prepare(sql: string): { get(...values: unknown[]): unknown } },
+  table: "conversations" | "assets" | "jobs" | "runtime_events",
+  projectId: string
+): number {
+  const row = connection
+    .prepare(`SELECT COUNT(*) AS count FROM ${table} WHERE project_id = ?`)
+    .get(projectId);
+  if (!isRecord(row) || typeof row.count !== "number") {
+    throw new Error(`Could not count ${table}.`);
+  }
+  return row.count;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

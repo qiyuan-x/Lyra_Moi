@@ -1,11 +1,21 @@
 import type { EntityId, UtcDateTime } from "./common.js";
 
-export type ProviderProtocol = "openai" | "gemini" | "openai-compatible";
+export type ProviderProtocol =
+  | "openai"
+  | "anthropic"
+  | "gemini"
+  | "openai-compatible";
 export type ProviderAdapterType =
   | ProviderProtocol
+  | "dashscope-image"
+  | "seedream-image"
+  | "zhipu-image"
+  | "hunyuan-image"
+  | "stability-image"
   | "meshy"
   | "tripo"
-  | "hunyuan";
+  | "hunyuan"
+  | "stability-3d";
 export type ProviderServiceType = "llm" | "image" | "model";
 
 export interface ProviderProfileSnapshot {

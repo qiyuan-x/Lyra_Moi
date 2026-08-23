@@ -11,3 +11,15 @@ export interface AgentPromptSettingsSnapshot {
   settings: AgentPromptSettings;
   defaults: AgentPromptSettings;
 }
+
+export interface AgentRuntimeSettings {
+  maxToolCalls: number;
+}
+
+export type UpdateAgentRuntimeSettingsRequestBody =
+  Partial<AgentRuntimeSettings>;
+
+export interface AgentRuntimeSettingsSnapshot {
+  settings: AgentRuntimeSettings;
+  defaults: AgentRuntimeSettings;
+}

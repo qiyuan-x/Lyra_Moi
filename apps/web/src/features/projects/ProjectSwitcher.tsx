@@ -77,12 +77,13 @@ export function ProjectSwitcher(props: ProjectSwitcherProps) {
       )}
       <button
         type="button"
-        className="icon-button"
-        aria-label="管理项目"
-        title="管理项目"
+        className="button button-secondary project-settings-button"
+        aria-label="项目设置"
+        title="项目设置"
         onClick={props.onManage}
       >
-        <Icon name="more" size={18} />
+        <Icon name="settings" size={15} />
+        <span>项目设置</span>
       </button>
     </div>
   );

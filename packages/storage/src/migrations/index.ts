@@ -12,6 +12,11 @@ import { modelGenerationMigration } from "./010-model-generation.js";
 import { globalPromptsMigration } from "./011-global-prompts.js";
 import { multipleEnabledProvidersMigration } from "./012-multiple-enabled-providers.js";
 import { jobProviderSnapshotsMigration } from "./013-job-provider-snapshots.js";
+import { agentModelSelectionMigration } from "./014-agent-model-selection.js";
+import { restoreHiddenConversationsMigration } from "./015-restore-hidden-conversations.js";
+import { openAiCompatibleModelAdapterMigration } from "./016-openai-compatible-model-adapter.js";
+import { removeCompatibleModelIdMigration } from "./017-remove-compatible-model-id.js";
+import { promptTemplatePreviewsMigration } from "./018-prompt-template-previews.js";
 
 export const lyraMigrations: readonly DatabaseMigration[] = [
   initialSchemaMigration,
@@ -26,5 +31,10 @@ export const lyraMigrations: readonly DatabaseMigration[] = [
   modelGenerationMigration,
   globalPromptsMigration,
   multipleEnabledProvidersMigration,
-  jobProviderSnapshotsMigration
+  jobProviderSnapshotsMigration,
+  agentModelSelectionMigration,
+  restoreHiddenConversationsMigration,
+  openAiCompatibleModelAdapterMigration,
+  removeCompatibleModelIdMigration,
+  promptTemplatePreviewsMigration
 ];

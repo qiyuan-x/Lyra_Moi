@@ -5,14 +5,21 @@ import {
 } from "../http-helpers.js";
 import type { BusinessRouteHandler } from "./business-route-types.js";
 
-const ROUTE = "/api/v1/settings/agent-prompts";
+const PROMPT_ROUTE = "/api/v1/settings/agent-prompts";
+const RUNTIME_ROUTE = "/api/v1/settings/agent-runtime";
 
 export const handleAgentSettingsRoutes: BusinessRouteHandler =
   async ({ request, response, url, options, requestId }) => {
-    if (url.pathname !== ROUTE) return false;
+    if (url.pathname !== PROMPT_ROUTE && url.pathname !== RUNTIME_ROUTE) {
+      return false;
+    }
     const service = requireService(
-      options.agentPromptSettings,
-      "Agent prompt settings"
+      url.pathname === PROMPT_ROUTE
+        ? options.agentPromptSettings
+        : options.agentRuntimeSettings,
+      url.pathname === PROMPT_ROUTE
+        ? "Agent prompt settings"
+        : "Agent runtime settings"
     );
 
     if (request.method === "GET") {
