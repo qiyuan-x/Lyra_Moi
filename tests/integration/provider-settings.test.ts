@@ -81,7 +81,10 @@ describe("ProviderSettingsService", () => {
       });
       expect(second.hasApiKey).toBe(false);
       expect(compatible.baseUrl).toBe("http://127.0.0.1:9000/v1");
-      expect(await service.listProfiles()).toHaveLength(3);
+      const createdProfileIds = new Set([first.id, second.id, compatible.id]);
+      expect(
+        (await service.listProfiles()).filter((profile) => createdProfileIds.has(profile.id))
+      ).toHaveLength(3);
       expect(JSON.stringify(first)).not.toContain(secret);
       expect(JSON.stringify(first)).not.toContain("apiKeyEnvironmentVariable");
 
@@ -164,7 +167,9 @@ describe("ProviderSettingsService", () => {
         .filter((profile) => profile.serviceType === "llm" && profile.enabled);
       expect(enabledLlmProfiles.map((profile) => profile.id)).toEqual([first.id, second.id]);
       await service.deleteProfile(first.id);
-      expect(await service.listProfiles()).toHaveLength(2);
+      expect(
+        (await service.listProfiles()).filter((profile) => createdProfileIds.has(profile.id))
+      ).toHaveLength(2);
       expect(await secrets.has(providers.findProfile(first.id, true)!.apiKeyEnvironmentVariable)).toBe(
         false
       );

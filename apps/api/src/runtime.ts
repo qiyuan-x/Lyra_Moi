@@ -107,7 +107,7 @@ export async function createApiRuntime(options: CreateApiRuntimeOptions = {}): P
     const agentRuntimeSettings = new AgentRuntimeSettingsService(settings);
     const communitySettings = new CommunitySettingsService(settings);
     const applicationUpdates = new ApplicationUpdateService({
-      currentVersion: options.appVersion?.trim() || "0.0.4",
+      currentVersion: options.appVersion?.trim() || "0.0.5",
       baseDirectory: options.applicationBaseDirectory?.trim() || process.cwd(),
       stateFile: resolve(layout.run, "application-update-state.json"),
       requestFile: resolve(layout.run, "application-update-request.json"),
@@ -172,7 +172,7 @@ export async function createApiRuntime(options: CreateApiRuntimeOptions = {}): P
       communitySettings,
       applicationUpdates,
       readiness: () => {
-        const workerVersion = options.workerVersion?.trim() || options.appVersion?.trim() || "0.0.4";
+        const workerVersion = options.workerVersion?.trim() || options.appVersion?.trim() || "0.0.5";
         const heartbeatCutoff = new Date(Date.now() - 5_000).toISOString();
         const webReady =
           !options.webRoot?.trim() || existsSync(resolve(options.webRoot, "index.html"));

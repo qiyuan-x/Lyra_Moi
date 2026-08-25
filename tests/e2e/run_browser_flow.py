@@ -754,32 +754,25 @@ def configure_provider_from_ui(browser: Any, base_url: str, provider_url: str) -
     expect_equal(page.get_by_role("button", name="关闭设置", exact=True).count(), 0, "settings close button")
     expect_equal(
         page.locator(".settings-provider-table > article").count(),
-        11,
-        "LLM provider preset count",
+        3,
+        "starter LLM provider list",
     )
-    provider_rows = page.locator(".settings-provider-table > article")
-    first_menu = provider_rows.nth(0).locator(".settings-provider-menu-trigger")
-    second_menu = provider_rows.nth(1).locator(".settings-provider-menu-trigger")
-    first_menu.click()
     expect_equal(
-        page.locator(".settings-provider-menu > div").count(),
-        1,
-        "single provider menu after first click",
+        page.locator(".settings-provider-table > article .settings-provider-name strong").all_text_contents(),
+        ["OpenAI", "Gemini", "FrostAPI"],
+        "starter LLM provider order",
     )
-    second_menu.click()
-    expect_equal(first_menu.get_attribute("aria-expanded"), "false", "previous provider menu closed")
-    expect_equal(
-        page.locator(".settings-provider-menu > div").count(),
-        1,
-        "single provider menu after switching",
-    )
+    starter_openai = page.locator(".settings-provider-table > article").first
+    starter_openai.locator(".settings-provider-menu-trigger").click()
+    starter_openai.get_by_role("button", name="删除供应商", exact=True).wait_for()
     page.locator(".settings-overview-heading h2").click()
-    expect_equal(
-        page.locator(".settings-provider-menu > div").count(),
-        0,
-        "provider menu closes on outside click",
-    )
     page.get_by_role("button", name="添加供应商", exact=True).click()
+    expect_equal(
+        page.locator(".provider-picker-item").count(),
+        9,
+        "remaining LLM provider choices",
+    )
+    page.locator(".provider-picker-item", has_text="自定义连接").click()
     page.get_by_label("供应商名称", exact=True).fill("E2E LLM")
     page.get_by_label("基础 URL", exact=True).fill(provider_url)
     page.locator(".settings-api-key-field input").fill("e2e-secret")
@@ -816,10 +809,11 @@ def configure_provider_from_ui(browser: Any, base_url: str, provider_url: str) -
     page.get_by_role("button", name="AI 生图设置", exact=True).click()
     expect_equal(
         page.locator(".settings-provider-table > article").count(),
-        8,
-        "image provider preset count",
+        3,
+        "starter image provider list",
     )
     page.get_by_role("button", name="添加供应商", exact=True).click()
+    page.locator(".provider-picker-item", has_text="自定义连接").click()
     page.get_by_label("供应商名称", exact=True).fill("E2E Image")
     page.get_by_label("基础 URL", exact=True).fill(provider_url)
     page.locator(".settings-api-key-field input").fill("e2e-secret")
@@ -873,7 +867,10 @@ def configure_provider_from_ui(browser: Any, base_url: str, provider_url: str) -
     )
 
     catalog = request_json(f"{base_url}/api/v1/providers")
-    profiles = catalog["profiles"]
+    profiles = [
+        profile for profile in catalog["profiles"]
+        if profile["name"] in ("E2E LLM", "E2E Image")
+    ]
     expect_equal(len(profiles), 2, "configured provider count")
     expect_equal(
         {profile["serviceType"] for profile in profiles},
@@ -888,19 +885,21 @@ def configure_provider_from_ui(browser: Any, base_url: str, provider_url: str) -
     page.get_by_role("button", name="AI 建模设置", exact=True).click()
     expect_equal(
         page.locator(".settings-provider-table > article").count(),
-        5,
-        "model provider preset count",
+        1,
+        "starter model provider list",
     )
-    model_provider_text = page.locator(".settings-provider-table").inner_text()
+    page.get_by_role("button", name="添加供应商", exact=True).click()
+    model_provider_text = (
+        page.locator(".settings-provider-table").inner_text()
+        + page.locator(".provider-picker-list").inner_text()
+    )
     for provider_name in ("FrostAPI 3D", "Meshy", "混元", "Tripo", "Stability AI 3D"):
         if provider_name not in model_provider_text:
             raise AssertionError(f"missing model provider preset: {provider_name}")
-    tripo_row = page.locator(
-        ".settings-provider-name strong",
+    page.locator(
+        ".provider-picker-item",
         has_text="Tripo",
-    ).locator("xpath=ancestor::article")
-    tripo_row.locator(".settings-provider-menu-trigger").click()
-    tripo_row.get_by_role("button", name="配置", exact=True).click()
+    ).click()
     page.get_by_label("基础 URL", exact=True).fill(provider_url)
     page.locator(".settings-api-key-field input").fill("e2e-secret")
     page.get_by_role("button", name="连通性测试并更新模型", exact=True).click()
@@ -920,7 +919,8 @@ def configure_provider_from_ui(browser: Any, base_url: str, provider_url: str) -
     )
     catalog = request_json(f"{base_url}/api/v1/providers")
     model_profiles = [
-        profile for profile in catalog["profiles"] if profile["serviceType"] == "model"
+        profile for profile in catalog["profiles"]
+        if profile["serviceType"] == "model" and profile["enabled"]
     ]
     model_models = [
         model for model in catalog["models"] if model["serviceType"] == "model"

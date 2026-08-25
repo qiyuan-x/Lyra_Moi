@@ -345,6 +345,10 @@ export class PoseEditorAdapter {
     this.orbit.update();
   }
 
+  resetCamera() {
+    this.frameModel();
+  }
+
   async capture(options: PoseCaptureOptions): Promise<Blob> {
     if (!this.ready) throw new Error("小白人模型尚未加载完成。");
     const [ratioWidth, ratioHeight] = captureRatios[options.aspectRatio];

@@ -15,6 +15,7 @@ import { Icon } from "../../components/Icon.js";
 import { PromptTemplatePicker } from "../../components/PromptTemplatePicker.js";
 import {
   IMAGE_RESOLUTIONS,
+  imageResolutionLabel,
   isImageResolution,
   type ImageResolution
 } from "./image-resolution.js";
@@ -209,7 +210,7 @@ export function ImageGenerationPanel(props: ImageGenerationPanelProps) {
             >
               {IMAGE_RESOLUTIONS.map((value) => (
                 <option value={value} key={value}>
-                  {value === "auto" ? "模型默认" : value}
+                  {imageResolutionLabel(value)}
                 </option>
               ))}
             </select>

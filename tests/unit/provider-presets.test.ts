@@ -4,6 +4,7 @@ import {
   adapterLabel,
   findPresetProfile,
   findProfilePreset,
+  isStarterProviderProfile,
   providerPresets
 } from "../../apps/web/src/features/settings/provider-presets.js";
 
@@ -32,6 +33,15 @@ describe("provider presets", () => {
     });
 
     expect(findProfilePreset(renamed)?.id).toBe("deepseek");
+  });
+
+  it("identifies starter profiles independently from provider identity", () => {
+    expect(isStarterProviderProfile(profile({
+      settings: { __lyra: { providerKind: "openai", starter: true } }
+    }))).toBe(true);
+    expect(isStarterProviderProfile(profile({
+      settings: { __lyra: { providerKind: "openai" } }
+    }))).toBe(false);
   });
 
   it("keeps generic OpenAI-compatible connections in the manual add flow", () => {

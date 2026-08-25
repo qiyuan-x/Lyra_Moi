@@ -17,6 +17,7 @@ import { restoreHiddenConversationsMigration } from "./015-restore-hidden-conver
 import { openAiCompatibleModelAdapterMigration } from "./016-openai-compatible-model-adapter.js";
 import { removeCompatibleModelIdMigration } from "./017-remove-compatible-model-id.js";
 import { promptTemplatePreviewsMigration } from "./018-prompt-template-previews.js";
+import { starterProviderProfilesMigration } from "./019-starter-provider-profiles.js";
 
 export const lyraMigrations: readonly DatabaseMigration[] = [
   initialSchemaMigration,
@@ -36,5 +37,6 @@ export const lyraMigrations: readonly DatabaseMigration[] = [
   restoreHiddenConversationsMigration,
   openAiCompatibleModelAdapterMigration,
   removeCompatibleModelIdMigration,
-  promptTemplatePreviewsMigration
+  promptTemplatePreviewsMigration,
+  starterProviderProfilesMigration
 ];

@@ -74,6 +74,10 @@ export class OpenAiImageProvider implements BinaryImageProvider {
     headers: Record<string, string>,
     signal?: AbortSignal
   ): Promise<GeneratedImageBinary[]> {
+    const imageConfig = normalizeChatImageConfig({
+      ...this.#settings,
+      ...request.parameters
+    });
     const content: Array<Record<string, unknown>> = [
       { type: "text", text: request.prompt }
     ];
@@ -100,6 +104,7 @@ export class OpenAiImageProvider implements BinaryImageProvider {
           model: this.#model,
           messages: [{ role: "user", content }],
           modalities: ["text", "image"],
+          ...(imageConfig ? { image_config: imageConfig } : {}),
           stream: false
         },
         signal
@@ -210,6 +215,22 @@ async function parseOpenAiImages(
     );
   }
   return images;
+}
+
+function normalizeChatImageConfig(
+  value: Record<string, unknown>
+): Record<string, string> | null {
+  const result: Record<string, string> = {};
+  const resolution = normalizeResolution(value.resolution);
+  if (resolution) result.image_size = resolution;
+  const aspectRatio = value.aspectRatio ?? value.aspect_ratio;
+  if (aspectRatio !== undefined && aspectRatio !== "auto") {
+    if (typeof aspectRatio !== "string" || !aspectRatio.trim()) {
+      invalidSetting("aspectRatio");
+    }
+    result.aspect_ratio = aspectRatio.trim();
+  }
+  return Object.keys(result).length ? result : null;
 }
 
 function normalizeImageParameters(value: Record<string, unknown>): Record<string, string | number> {

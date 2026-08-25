@@ -80,13 +80,29 @@ describe("workspace HTTP routes", () => {
 
       const providers = await getJson(fixture.baseUrl, "/api/v1/providers");
       expect(providers.status).toBe(200);
+      if (!isRecord(providers.body) || !Array.isArray(providers.body.profiles)) {
+        throw new Error("Provider response is invalid.");
+      }
       expect(providers.body).toMatchObject({
-        profiles: [
-          { id: fixture.seed.providerProfileId, serviceType: "image", hasApiKey: false },
-          { id: fixture.seed.llmProviderProfileId, serviceType: "llm", hasApiKey: false }
-        ],
         defaults: { llm: fixture.seed.llmModelId, image: fixture.seed.imageModelId, model: null }
       });
+      expect(providers.body.profiles.filter((profile) =>
+        isRecord(profile) && (
+          profile.id === fixture.seed.providerProfileId ||
+          profile.id === fixture.seed.llmProviderProfileId
+        )
+      )).toEqual([
+        expect.objectContaining({
+          id: fixture.seed.providerProfileId,
+          serviceType: "image",
+          hasApiKey: false
+        }),
+        expect.objectContaining({
+          id: fixture.seed.llmProviderProfileId,
+          serviceType: "llm",
+          hasApiKey: false
+        })
+      ]);
 
       const promptList = await getJson(fixture.baseUrl, "/api/v1/prompts");
       expect(promptList.status).toBe(200);

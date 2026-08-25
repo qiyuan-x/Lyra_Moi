@@ -29,7 +29,7 @@ describe("SQLite migrations", () => {
     const database = new LyraDatabase(join(parent, "database", "lyra.sqlite3"));
 
     try {
-      expect(applyMigrations(database.connection, lyraMigrations)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]);
+      expect(applyMigrations(database.connection, lyraMigrations)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]);
       expect(applyMigrations(database.connection, lyraMigrations)).toEqual([]);
       expect(() => assertMigrationsCurrent(database.connection, lyraMigrations)).not.toThrow();
 
@@ -123,6 +123,19 @@ describe("SQLite migrations", () => {
       ).toMatchObject({ count: 3 });
       expect(
         database.connection.prepare(`
+          SELECT service_type, COUNT(*) AS count
+          FROM provider_profiles
+          WHERE json_extract(settings_json, '$.__lyra.starter') = 1
+          GROUP BY service_type
+          ORDER BY service_type
+        `).all()
+      ).toEqual([
+        { service_type: "image", count: 3 },
+        { service_type: "llm", count: 3 },
+        { service_type: "model", count: 1 }
+      ]);
+      expect(
+        database.connection.prepare(`
           SELECT name
           FROM pragma_table_info('prompt_templates')
           ORDER BY cid
@@ -199,7 +212,7 @@ describe("SQLite migrations", () => {
         ) VALUES (?, ?, 'llm', ?, ?, 1, 0, '{}', ?, ?)
       `).run("deepseek-model", "deepseek-profile", "deepseek-chat", "DeepSeek Chat", now, now);
 
-      expect(applyMigrations(database.connection, lyraMigrations)).toEqual([5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]);
+      expect(applyMigrations(database.connection, lyraMigrations)).toEqual([5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]);
       expect(
         database.connection.prepare("SELECT protocol, service_type, base_url FROM provider_profiles WHERE id = ?").get("deepseek-profile")
       ).toMatchObject({
@@ -244,7 +257,7 @@ describe("SQLite migrations", () => {
         now
       );
 
-      expect(applyMigrations(database.connection, lyraMigrations)).toEqual([11, 12, 13, 14, 15, 16, 17, 18]);
+      expect(applyMigrations(database.connection, lyraMigrations)).toEqual([11, 12, 13, 14, 15, 16, 17, 18, 19]);
       expect(
         database.connection.prepare(`
           SELECT id, name, category, note, favorite
@@ -305,7 +318,7 @@ describe("SQLite migrations", () => {
         )
       `).run(project.id, profile.id, model.id, now, now);
 
-      expect(applyMigrations(database.connection, lyraMigrations)).toEqual([13, 14, 15, 16, 17, 18]);
+      expect(applyMigrations(database.connection, lyraMigrations)).toEqual([13, 14, 15, 16, 17, 18, 19]);
       expect(database.connection.prepare(`
         SELECT provider_name_snapshot, remote_model_id_snapshot
         FROM jobs
@@ -351,7 +364,7 @@ describe("SQLite migrations", () => {
         SET settings_json = json_set(settings_json, '$.modelId', 'meshy-t2')
         WHERE id = 'frost-model-profile'
       `).run();
-      expect(applyMigrations(database.connection, lyraMigrations)).toEqual([17, 18]);
+      expect(applyMigrations(database.connection, lyraMigrations)).toEqual([17, 18, 19]);
       const migrated = database.connection.prepare(`
         SELECT adapter_type, settings_json
         FROM provider_profiles

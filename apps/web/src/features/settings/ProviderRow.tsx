@@ -14,12 +14,12 @@ interface ProviderRowProps {
   onMenuToggle: () => void;
   onToggle: () => void;
   onOpen: () => void;
-  onDelete: (() => void) | undefined;
+  onDelete: () => void;
 }
 
 export function ProviderRow(props: ProviderRowProps) {
   return (
-    <article className={props.configured ? "configured" : ""}>
+    <article className="configured">
       <div className="settings-provider-name">
         <span className={`preset-mark preset-${props.presetId}`}>{props.shortName}</span>
         <div>
@@ -54,15 +54,13 @@ export function ProviderRow(props: ProviderRowProps) {
             <button type="button" onClick={props.onOpen}>
               {props.configured ? "修改配置" : "配置"}
             </button>
-            {props.onDelete && (
-              <button
-                type="button"
-                className="danger-menu-item"
-                onClick={props.onDelete}
-              >
-                删除供应商
-              </button>
-            )}
+            <button
+              type="button"
+              className="danger-menu-item"
+              onClick={props.onDelete}
+            >
+              删除供应商
+            </button>
           </div>
         )}
       </div>

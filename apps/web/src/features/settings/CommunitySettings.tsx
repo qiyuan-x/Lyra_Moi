@@ -64,7 +64,6 @@ export function CommunitySettings(props: CommunitySettingsProps) {
         <header>
           <div>
             <strong>社区入口</strong>
-            <span>网址保存在 Lyra 本地，不保存社区账号或社区数据。</span>
           </div>
           <span className={`community-save-state state-${saveState}`}>
             {saveStateLabel(saveState)}

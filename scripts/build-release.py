@@ -19,10 +19,10 @@ APP_DIR = RELEASE_DIR / "app"
 UPDATE_MANIFEST_URL = "https://linfrsot.cloud/lyra/updates/latest.json"
 UPDATE_PACKAGE_BASE_URL = "https://linfrsot.cloud/lyra/updates/packages"
 RELEASE_NOTES = (
-    "完善 Windows 启动器自动检查、一键升级、失败恢复和版本回退。",
-    "新增内嵌社区、动作参考编辑器和动作模板效果图导入导出。",
-    "提示词模板支持选择、显示和打包效果图。",
-    "更新 AI 建模供应商配置及 Meshy、OpenAI 兼容接口。",
+    "图片生成统一支持自动、1K、2K 和 4K 分辨率设置。",
+    "动作参考复位时同时恢复默认动作和镜头。",
+    "统一供应商的添加、配置、启停和删除操作。",
+    "默认提供 OpenAI、Gemini、FrostAPI 配置入口。",
 )
 sys.path.insert(0, str(ROOT))
 

@@ -215,7 +215,8 @@ describe("image provider adapters", () => {
     });
 
     const images = await provider.generate(request({
-      attachments: [{ assetId: "reference", position: 1, label: "图一" }]
+      attachments: [{ assetId: "reference", position: 1, label: "图一" }],
+      parameters: { aspectRatio: "16:9", resolution: "2K" }
     }));
 
     expect(urls).toEqual([
@@ -225,6 +226,7 @@ describe("image provider adapters", () => {
     expect(chatBody).toMatchObject({
       model: "gemini-3.1-flash-image",
       modalities: ["text", "image"],
+      image_config: { aspect_ratio: "16:9", image_size: "2K" },
       stream: false
     });
     const messages = chatBody!.messages as Array<Record<string, unknown>>;

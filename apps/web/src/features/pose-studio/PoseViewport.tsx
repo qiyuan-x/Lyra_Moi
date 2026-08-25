@@ -17,6 +17,7 @@ import type {
 export interface PoseViewportHandle {
   capture: (options: PoseCaptureOptions) => Promise<Blob>;
   capturePose: (pose: PoseSnapshot, options: PoseCaptureOptions) => Promise<Blob>;
+  reset: (pose: PoseSnapshot) => void;
   setCameraView: (view: "front" | "back" | "left" | "right" | "perspective") => void;
 }
 
@@ -121,6 +122,12 @@ export const PoseViewport = forwardRef<PoseViewportHandle, PoseViewportProps>(
         const adapter = adapterRef.current;
         if (!adapter) return Promise.reject(new Error("动作编辑器尚未就绪。"));
         return adapter.capturePose(pose, options);
+      },
+      reset: (pose) => {
+        const adapter = adapterRef.current;
+        if (!adapter) return;
+        adapter.setPose(pose);
+        adapter.resetCamera();
       },
       setCameraView: (view) => adapterRef.current?.setCameraView(view)
     }), []);

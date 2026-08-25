@@ -153,6 +153,18 @@ export function findProfilePreset(
     .find((item) => findPresetProfile(item, [profile])?.id === profile.id) ?? null;
 }
 
+export function isStarterProviderProfile(
+  profile: ProviderProfileSnapshot
+): boolean {
+  const internal = profile.settings.__lyra;
+  return Boolean(
+    internal &&
+    typeof internal === "object" &&
+    !Array.isArray(internal) &&
+    (internal as Record<string, unknown>).starter === true
+  );
+}
+
 export function adapterLabel(adapterType: ProviderAdapterType): string {
   const labels: Partial<Record<ProviderAdapterType, string>> = {
     "dashscope-image": "DashScope 图像 API",

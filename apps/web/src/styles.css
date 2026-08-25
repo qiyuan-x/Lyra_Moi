@@ -1138,6 +1138,16 @@ img { display: block; max-width: 100%; }
 .settings-provider-name strong { color: var(--text); font-size: var(--font-body); }
 .settings-provider-name small { color: var(--muted); font-size: var(--font-caption); font-weight: 400; }
 .settings-add-provider { margin-top: .8rem; }
+.settings-provider-empty { margin: 0; padding: 1.2rem; color: var(--muted); font-size: var(--font-small); text-align: center; }
+.provider-picker-modal { width: min(34rem, 94vw); }
+.provider-picker-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.provider-picker-item { display: grid; min-width: 0; min-height: 4.2rem; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: .7rem; padding: .7rem; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: .55rem; text-align: left; }
+.provider-picker-item:hover { background: var(--surface-soft); border-color: var(--border-strong); }
+.provider-picker-item > span:nth-child(2) { display: grid; min-width: 0; gap: .15rem; }
+.provider-picker-item strong, .provider-picker-item small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.provider-picker-item strong { font-size: var(--font-body); }
+.provider-picker-item small { color: var(--muted); font-size: var(--font-caption); }
+.provider-picker-item > svg { color: var(--muted); }
 .settings-detail-heading { display: flex; align-items: center; gap: .6rem; padding: .2rem 0 .9rem; border-bottom: 1px solid var(--border-strong); }
 .settings-detail-heading > .icon-button svg { transform: rotate(180deg); }
 .settings-detail-section { margin-top: 1rem; border: 1px solid var(--border); border-radius: .65rem; }
@@ -1764,6 +1774,7 @@ img { display: block; max-width: 100%; }
   .prompt-list-row:has(.prompt-row-preview) .prompt-row-preview { width: 4.25rem; height: 3.5rem; }
   .prompt-list-row:has(.prompt-row-preview) .prompt-row-actions { grid-column: 3; }
   .form-grid { grid-template-columns: 1fr; }
+  .provider-picker-list { grid-template-columns: 1fr; }
   .form-wide { grid-column: auto; }
   .settings-service-tabs { overflow-x: auto; }
   .settings-service-tabs button { min-width: 7.2rem; }

@@ -168,6 +168,12 @@ export function PoseStudioPage(props: PoseStudioPageProps) {
     commitPose(next);
   }
 
+  function resetPoseAndCamera() {
+    const neutralPose = createNeutralPose();
+    commitPose(neutralPose);
+    viewportRef.current?.reset(neutralPose);
+  }
+
   function saveCustomTemplate() {
     const name = templateName.trim();
     if (!name) return;
@@ -249,7 +255,7 @@ export function PoseStudioPage(props: PoseStudioPageProps) {
           <button type="button" className="button button-secondary" disabled={!history.length} onClick={undo}>撤销</button>
           <button type="button" className="button button-secondary" disabled={!future.length} onClick={redo}>重做</button>
           <button type="button" className="button button-secondary" onClick={() => commitPose(mirrorPose(pose))}>镜像</button>
-          <button type="button" className="button button-secondary" onClick={() => commitPose(createNeutralPose())}>复位</button>
+          <button type="button" className="button button-secondary" onClick={resetPoseAndCamera}>复位</button>
           <button type="button" className="button button-primary" disabled={saving || !modelReady} onClick={() => void saveScreenshot()}>
             <Icon name="image" size={17} />
             {saving ? "正在保存" : "保存截图"}

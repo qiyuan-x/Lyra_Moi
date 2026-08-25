@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import type {
   ProviderConnectionTestResult,
   ProviderModelSnapshot,
@@ -23,13 +23,14 @@ import {
   type ProviderFormValue
 } from "../features/settings/ProviderConnectionSection.js";
 import { ProviderRow } from "../features/settings/ProviderRow.js";
+import { ProviderPickerDialog } from "../features/settings/ProviderPickerDialog.js";
 import { ProviderModelSelects } from "../features/providers/ProviderModelSelects.js";
 import { providerModelDisplayName } from "../features/providers/catalog-selectors.js";
 import {
   adapterLabel,
   countServiceModels,
-  findPresetProfile,
   findProfilePreset,
+  isStarterProviderProfile,
   providerPresets,
   serviceSettings,
   type ProviderPreset
@@ -64,6 +65,7 @@ export function SettingsPage(props: SettingsPageProps) {
   const [deletingModel, setDeletingModel] = useState<ProviderModelSnapshot | null>(null);
   const [connectionFeedback, setConnectionFeedback] = useState<ConnectionStatus | null>(null);
   const [openProviderMenuId, setOpenProviderMenuId] = useState<string | null>(null);
+  const [providerPickerOpen, setProviderPickerOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const activePresets = providerPresets[serviceType];
   const scopedProfiles = props.catalog.profiles.filter(
@@ -96,15 +98,24 @@ export function SettingsPage(props: SettingsPageProps) {
         (model) => model.providerProfileId === profile.id
       )
   );
-  const presetProfiles = useMemo(
-    () => new Map(activePresets.map((preset) => [preset.id, findPresetProfile(preset, scopedProfiles)])),
-    [activePresets, scopedProfiles]
+  const configuredPresetIds = new Set(scopedProfiles.flatMap((profile) => {
+    const preset = findProfilePreset(profile);
+    return preset ? [preset.id] : [];
+  }));
+  const availablePresets = activePresets.filter(
+    (preset) => !configuredPresetIds.has(preset.id)
   );
-  const presetProfileIds = useMemo(
-    () => new Set(Array.from(presetProfiles.values()).flatMap((profile) => profile ? [profile.id] : [])),
-    [presetProfiles]
-  );
-  const customProfiles = scopedProfiles.filter((profile) => !presetProfileIds.has(profile.id));
+  const orderedProfiles = [...scopedProfiles].sort((left, right) => {
+    const leftPreset = findProfilePreset(left);
+    const rightPreset = findProfilePreset(right);
+    const leftIndex = leftPreset
+      ? activePresets.findIndex((preset) => preset.id === leftPreset.id)
+      : activePresets.length;
+    const rightIndex = rightPreset
+      ? activePresets.findIndex((preset) => preset.id === rightPreset.id)
+      : activePresets.length;
+    return leftIndex - rightIndex || left.createdAt.localeCompare(right.createdAt);
+  });
 
   useEffect(() => {
     if (
@@ -156,12 +167,13 @@ export function SettingsPage(props: SettingsPageProps) {
     setDetailTarget(null);
     setConnectionFeedback(null);
     setOpenProviderMenuId(null);
+    setProviderPickerOpen(false);
   }
 
   function openPreset(preset: ProviderPreset) {
     setOpenProviderMenuId(null);
-    const profile = presetProfiles.get(preset.id) ?? null;
-    setDetailTarget({ profile, preset });
+    setProviderPickerOpen(false);
+    setDetailTarget({ profile: null, preset });
     setConnectionFeedback(null);
   }
 
@@ -171,9 +183,9 @@ export function SettingsPage(props: SettingsPageProps) {
     setConnectionFeedback(null);
   }
 
-  function toggleProfile(profile: ProviderProfileSnapshot | undefined, preset: ProviderPreset | null) {
-    if (!profile) {
-      setDetailTarget({ profile: null, preset });
+  function toggleProfile(profile: ProviderProfileSnapshot) {
+    if (isStarterProviderProfile(profile) && !profile.hasApiKey) {
+      openDetail(profile);
       return;
     }
     void run(async () => {
@@ -281,6 +293,7 @@ export function SettingsPage(props: SettingsPageProps) {
               setDetailTarget(null);
               setConnectionFeedback(null);
               setOpenProviderMenuId(null);
+              setProviderPickerOpen(false);
             }}
           >
             社区设置
@@ -294,6 +307,7 @@ export function SettingsPage(props: SettingsPageProps) {
               setDetailTarget(null);
               setConnectionFeedback(null);
               setOpenProviderMenuId(null);
+              setProviderPickerOpen(false);
             }}
           >
             Agent 设置
@@ -307,6 +321,7 @@ export function SettingsPage(props: SettingsPageProps) {
               setDetailTarget(null);
               setConnectionFeedback(null);
               setOpenProviderMenuId(null);
+              setProviderPickerOpen(false);
             }}
           >
             显示设置
@@ -373,65 +388,44 @@ export function SettingsPage(props: SettingsPageProps) {
                 <header>
                   <span>模型服务商</span><span>接口类型</span><span>模型</span><span>是否启用</span><span>操作</span>
                 </header>
-                {activePresets.map((preset) => {
-                  const profile = presetProfiles.get(preset.id);
+                {orderedProfiles.map((profile) => {
+                  const preset = findProfilePreset(profile);
+                  const configured = !isStarterProviderProfile(profile) || profile.hasApiKey;
                   return (
                     <ProviderRow
-                      key={preset.id}
-                      menuOpen={openProviderMenuId === `${serviceType}:${preset.id}`}
-                      name={profile?.name ?? preset.name}
-                      shortName={preset.shortName}
-                      presetId={preset.id}
-                      interfaceLabel={adapterLabel(profile?.adapterType ?? preset.adapterType)}
-                      enabled={profile?.enabled ?? false}
-                      configured={Boolean(profile)}
-                      modelCount={profile ? countServiceModels(profile.id, serviceType, props.catalog.models) : 0}
+                      key={profile.id}
+                      menuOpen={openProviderMenuId === `${serviceType}:${profile.id}`}
+                      name={profile.name}
+                      shortName={preset?.shortName ?? "API"}
+                      presetId={preset?.id ?? "custom"}
+                      interfaceLabel={adapterLabel(profile.adapterType)}
+                      enabled={profile.enabled}
+                      configured={configured}
+                      modelCount={countServiceModels(profile.id, serviceType, props.catalog.models)}
                       busy={busy}
                       onMenuToggle={() => setOpenProviderMenuId((current) =>
-                        current === `${serviceType}:${preset.id}` ? null : `${serviceType}:${preset.id}`
+                        current === `${serviceType}:${profile.id}` ? null : `${serviceType}:${profile.id}`
                       )}
-                      onToggle={() => toggleProfile(profile, preset)}
-                      onOpen={() => openPreset(preset)}
-                      onDelete={profile ? () => {
+                      onToggle={() => toggleProfile(profile)}
+                      onOpen={() => openDetail(profile)}
+                      onDelete={() => {
                         setOpenProviderMenuId(null);
                         setDeletingProvider(profile);
-                      } : undefined}
+                      }}
                     />
                   );
                 })}
-                {customProfiles.map((profile) => (
-                  <ProviderRow
-                    key={profile.id}
-                    menuOpen={openProviderMenuId === `${serviceType}:${profile.id}`}
-                    name={profile.name}
-                    shortName="API"
-                    presetId="custom"
-                    interfaceLabel={adapterLabel(profile.adapterType)}
-                    enabled={profile.enabled}
-                    configured
-                    modelCount={countServiceModels(profile.id, serviceType, props.catalog.models)}
-                    busy={busy}
-                    onMenuToggle={() => setOpenProviderMenuId((current) =>
-                      current === `${serviceType}:${profile.id}` ? null : `${serviceType}:${profile.id}`
-                    )}
-                    onToggle={() => toggleProfile(profile, null)}
-                    onOpen={() => openDetail(profile)}
-                    onDelete={() => {
-                      setOpenProviderMenuId(null);
-                      setDeletingProvider(profile);
-                    }}
-                  />
-                ))}
+                {!scopedProfiles.length && (
+                  <p className="settings-provider-empty">尚未添加供应商。</p>
+                )}
               </section>
-              {serviceType !== "model" && (
-                <button
-                  type="button"
-                  className="button button-secondary settings-add-provider"
-                  onClick={() => setDetailTarget({ profile: null, preset: null })}
-                >
-                  <Icon name="plus" size={15} />添加供应商
-                </button>
-              )}
+              <button
+                type="button"
+                className="button button-secondary settings-add-provider"
+                onClick={() => setProviderPickerOpen(true)}
+              >
+                <Icon name="plus" size={15} />添加供应商
+              </button>
             </>
           ) : (
             <>
@@ -507,6 +501,19 @@ export function SettingsPage(props: SettingsPageProps) {
         </div>
 
       </div>
+
+      {providerPickerOpen && (
+        <ProviderPickerDialog
+          presets={availablePresets}
+          onClose={() => setProviderPickerOpen(false)}
+          onSelectPreset={openPreset}
+          onSelectCustom={() => {
+            setProviderPickerOpen(false);
+            setDetailTarget({ profile: null, preset: null });
+            setConnectionFeedback(null);
+          }}
+        />
+      )}
 
       {modelDialog && (
         <ModelDialog
