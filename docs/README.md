@@ -9,6 +9,7 @@
 - [API 契约](./api-contract.md)
 - [开发计划](./development-plan.md)
 - [图片生成工作区](./image-generation-workflow.md)
+- [发布约定](./release-process.md)
 
 ## 当前范围
 
