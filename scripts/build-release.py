@@ -23,6 +23,8 @@ RELEASE_NOTES = (
     "动作参考复位时同时恢复默认动作和镜头。",
     "统一供应商的添加、配置、启停和删除操作。",
     "默认提供 OpenAI、Gemini、FrostAPI 配置入口。",
+    "图片预览支持缩放、拖动和视图复位。",
+    "移除右上角操作反馈弹窗。",
 )
 sys.path.insert(0, str(ROOT))
 
@@ -178,7 +180,7 @@ def _write_release_manifest() -> None:
         "builtAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "updateManifestUrl": UPDATE_MANIFEST_URL,
     }
-    (RELEASE_DIR / "release.json").write_text(
+    (APP_DIR / "release.json").write_text(
         json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
@@ -193,7 +195,7 @@ def _build_update_archive() -> None:
         compression=zipfile.ZIP_DEFLATED,
         compresslevel=9,
     ) as bundle:
-        bundle.write(RELEASE_DIR / "release.json", "release.json")
+        bundle.write(APP_DIR / "release.json", "release.json")
         bundle.write(RELEASE_DIR / "LyraLauncher.exe", "LyraLauncher.exe")
         for source in sorted(APP_DIR.rglob("*")):
             if source.is_file():
@@ -214,7 +216,7 @@ def _build_update_archive() -> None:
         json.dumps(metadata, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
-    release = json.loads((RELEASE_DIR / "release.json").read_text(encoding="utf-8"))
+    release = json.loads((APP_DIR / "release.json").read_text(encoding="utf-8"))
     latest = {
         "schemaVersion": 1,
         "version": version,
@@ -243,7 +245,7 @@ def _build_portable_archive() -> None:
         compression=zipfile.ZIP_DEFLATED,
         compresslevel=9,
     ) as bundle:
-        for relative in (Path("LyraLauncher.exe"), Path("release.json")):
+        for relative in (Path("LyraLauncher.exe"),):
             bundle.write(RELEASE_DIR / relative, relative.as_posix())
         bundle.writestr("data/.gitkeep", "")
         for directory in (APP_DIR, RELEASE_DIR / "runtime"):

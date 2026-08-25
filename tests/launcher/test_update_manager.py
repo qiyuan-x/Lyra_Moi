@@ -140,13 +140,31 @@ class DesktopUpdateInstallerTests(unittest.TestCase):
 
             self.assertEqual((root / "app" / "api" / "run.js").read_text(), "new-api")
             self.assertEqual((root / "data" / "database" / "lyra.sqlite3").read_text(), "user-data")
-            self.assertEqual(json.loads((root / "release.json").read_text())["version"], "0.0.3")
+            self.assertEqual(
+                json.loads((root / "app" / "release.json").read_text())["version"],
+                "0.0.3",
+            )
+            self.assertFalse((root / "release.json").exists())
             self.assertEqual(manager.stop_count, 1)
             self.assertEqual(manager.start_count, 1)
             state = json.loads((root / "data" / "run" / "application-update-state.json").read_text(encoding="utf-8"))
             self.assertEqual(state["snapshot"]["status"], "completed")
             self.assertEqual(state["snapshot"]["currentVersion"], "0.0.3")
             self.assertFalse(request.exists())
+
+    def test_accepts_a_legacy_archive_with_only_a_root_manifest(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="lyra-updater-legacy-archive-") as temporary:
+            root = Path(temporary)
+            paths = self._prepare_release(root)
+            archive = self._create_archive(root, "0.0.3", include_app_manifest=False)
+            manager = FakeProcessManager(root)
+            request = self._create_request(root, archive, "0.0.3")
+
+            DesktopUpdateInstaller(paths, lambda _paths, _port: manager).apply(request)
+
+            self.assertEqual(paths.application_version, "0.0.3")
+            self.assertTrue(paths.release_manifest.is_file())
+            self.assertFalse(paths.legacy_release_manifest.exists())
 
     def test_rejects_a_bad_checksum_before_stopping_services(self) -> None:
         with tempfile.TemporaryDirectory(prefix="lyra-updater-checksum-") as temporary:
@@ -177,7 +195,11 @@ class DesktopUpdateInstallerTests(unittest.TestCase):
 
             self.assertEqual((root / "app" / "api" / "run.js").read_text(), "old-api")
             self.assertEqual((root / "data" / "database" / "lyra.sqlite3").read_text(), "user-data")
-            self.assertEqual(json.loads((root / "release.json").read_text())["version"], "0.0.2")
+            self.assertEqual(
+                json.loads((root / "app" / "release.json").read_text())["version"],
+                "0.0.2",
+            )
+            self.assertFalse((root / "release.json").exists())
             self.assertEqual(manager.start_count, 2)
             state = json.loads((root / "data" / "run" / "application-update-state.json").read_text(encoding="utf-8"))
             self.assertEqual(state["snapshot"]["status"], "failed")
@@ -198,6 +220,17 @@ class DesktopUpdateInstallerTests(unittest.TestCase):
 
             self.assertFalse((root.parent / "outside.txt").exists())
             self.assertEqual(manager.stop_count, 0)
+
+    def test_moves_the_legacy_root_manifest_into_the_app_directory(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="lyra-release-manifest-") as temporary:
+            root = Path(temporary)
+            paths = self._prepare_release(root)
+
+            paths.migrate_legacy_release_manifest()
+
+            self.assertEqual(paths.application_version, "0.0.2")
+            self.assertTrue((root / "app" / "release.json").is_file())
+            self.assertFalse((root / "release.json").exists())
 
     @staticmethod
     def _prepare_release(root: Path) -> LauncherPaths:
@@ -223,10 +256,18 @@ class DesktopUpdateInstallerTests(unittest.TestCase):
         )
 
     @staticmethod
-    def _create_archive(root: Path, version: str) -> Path:
+    def _create_archive(
+        root: Path,
+        version: str,
+        *,
+        include_app_manifest: bool = True,
+    ) -> Path:
         archive = root / f"update-{version}.zip"
         with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
-            bundle.writestr("release.json", json.dumps({"schemaVersion": 1, "version": version}))
+            manifest = json.dumps({"schemaVersion": 1, "version": version})
+            bundle.writestr("release.json", manifest)
+            if include_app_manifest:
+                bundle.writestr("app/release.json", manifest)
             bundle.writestr("app/api/run.js", "new-api")
             bundle.writestr("app/worker/run.js", "new-worker")
             bundle.writestr("app/worker/resources/agent-system-v1.txt", "new-prompt")

@@ -20,8 +20,20 @@ class LauncherPaths:
     system_prompt: Path
 
     @property
+    def release_manifest(self) -> Path:
+        return self.base_dir / "app" / "release.json"
+
+    @property
+    def legacy_release_manifest(self) -> Path:
+        return self.base_dir / "release.json"
+
+    @property
     def application_version(self) -> str:
-        for manifest in (self.base_dir / "release.json", self.base_dir / "package.json"):
+        for manifest in (
+            self.release_manifest,
+            self.legacy_release_manifest,
+            self.base_dir / "package.json",
+        ):
             try:
                 value = json.loads(manifest.read_text(encoding="utf-8"))
                 version = value.get("version") if isinstance(value, dict) else None
@@ -29,19 +41,35 @@ class LauncherPaths:
                     return version.strip()
             except (OSError, ValueError):
                 pass
-        return "0.0.5"
+        return "0.0.6"
 
     @property
     def update_manifest_url(self) -> str | None:
         configured = os.environ.get("LYRA_UPDATE_MANIFEST_URL", "").strip()
         if configured:
             return configured
+        for manifest in (self.release_manifest, self.legacy_release_manifest):
+            try:
+                value = json.loads(manifest.read_text(encoding="utf-8"))
+                url = value.get("updateManifestUrl") if isinstance(value, dict) else None
+                if isinstance(url, str) and url.strip():
+                    return url.strip()
+            except (OSError, ValueError):
+                pass
+        return None
+
+    def migrate_legacy_release_manifest(self) -> None:
+        legacy = self.legacy_release_manifest
+        target = self.release_manifest
+        if not legacy.is_file() or not (self.base_dir / "app").is_dir():
+            return
         try:
-            value = json.loads((self.base_dir / "release.json").read_text(encoding="utf-8"))
-            url = value.get("updateManifestUrl") if isinstance(value, dict) else None
-            return url.strip() if isinstance(url, str) and url.strip() else None
-        except (OSError, ValueError):
-            return None
+            if not target.is_file():
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(legacy, target)
+            legacy.unlink(missing_ok=True)
+        except OSError:
+            pass
 
     @property
     def update_helper_command(self) -> list[str]:
@@ -80,7 +108,7 @@ class LauncherPaths:
             system_prompt = root / "resources" / "prompts" / "agent-system-v1.txt"
 
         node_executable = _resolve_node(root)
-        return cls(
+        paths = cls(
             base_dir=root,
             data_dir=root / "data",
             node_executable=node_executable,
@@ -89,6 +117,8 @@ class LauncherPaths:
             web_root=web_root,
             system_prompt=system_prompt,
         )
+        paths.migrate_legacy_release_manifest()
+        return paths
 
     @property
     def run_dir(self) -> Path:

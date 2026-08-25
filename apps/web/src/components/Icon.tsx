@@ -11,6 +11,7 @@ export type IconName =
   | "prompt"
   | "settings"
   | "plus"
+  | "minus"
   | "send"
   | "close"
   | "retry"
@@ -39,6 +40,7 @@ const paths: Record<IconName, React.ReactNode> = {
   prompt: <><path d="M4 5h16v12H8l-4 4z"/><path d="M8 9h8M8 13h5"/></>,
   settings: <><circle cx="12" cy="12" r="3"/><path d="M19 13.5v-3l-2-.7-.7-1.7.9-1.9-2.1-2.1-1.9.9-1.7-.7-.7-2h-3l-.7 2-1.7.7-1.9-.9-2.1 2.1.9 1.9-.7 1.7-2 .7v3l2 .7.7 1.7-.9 1.9 2.1 2.1 1.9-.9 1.7.7.7 2h3l.7-2 1.7-.7 1.9.9 2.1-2.1-.9-1.9.7-1.7z"/></>,
   plus: <path d="M12 5v14M5 12h14"/>,
+  minus: <path d="M5 12h14"/>,
   send: <><path d="m3 11 18-8-8 18-2-8z"/><path d="m11 13 5-5"/></>,
   close: <path d="m6 6 12 12M18 6 6 18"/>,
   retry: <><path d="M20 11a8 8 0 1 0-2 5.5"/><path d="M20 4v7h-7"/></>,

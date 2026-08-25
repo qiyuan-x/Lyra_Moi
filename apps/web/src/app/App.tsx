@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from "react";
 import type {
   AgentRunSnapshot,
   AgentStepSnapshot,
@@ -12,7 +12,6 @@ import type {
 import { AssetLibraryPage } from "../components/AssetLibraryPage.js";
 import { CommunityPage } from "../components/CommunityPage.js";
 import { Icon } from "../components/Icon.js";
-import { NoticeCenter, type NoticeItem, type NoticeType } from "../components/NoticeCenter.js";
 import { ModelingPage } from "../components/ModelingPage.js";
 import { ProjectManagerDialog } from "../components/ProjectManagerDialog.js";
 import {
@@ -99,8 +98,16 @@ export function App() {
   );
   const [agentPanelWidth, setAgentPanelWidth] = useState(400);
   const [preview, setPreview] = useState<{ assetId: string; name: string } | null>(null);
-  const [notices, setNotices] = useState<NoticeItem[]>([]);
-  const noticeIdRef = useRef(0);
+  const [previewZoom, setPreviewZoom] = useState(1);
+  const [previewOffset, setPreviewOffset] = useState({ x: 0, y: 0 });
+  const [previewDragging, setPreviewDragging] = useState(false);
+  const previewDragRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    offsetX: number;
+    offsetY: number;
+  } | null>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -217,21 +224,8 @@ export function App() {
   );
   const agentReady = isDefaultServiceReady(catalog, "llm");
 
-  const pushNotice = useCallback((type: NoticeType, text: string) => {
-    const item: NoticeItem = { id: ++noticeIdRef.current, type, text };
-    setNotices((current) => [
-      ...current.filter((notice) => notice.type !== type || notice.text !== text),
-      item
-    ].slice(-3));
-  }, []);
-
-  const dismissNotice = useCallback((id: number) => {
-    setNotices((current) => current.filter((notice) => notice.id !== id));
-  }, []);
-
-  const reportError = useCallback((error: unknown) => {
-    pushNotice("error", error instanceof Error ? error.message : "操作失败，请重试。");
-  }, [pushNotice]);
+  const pushNotice = useCallback((_type: string, _text: string) => undefined, []);
+  const reportError = useCallback((_error: unknown) => undefined, []);
 
   const workspaceRefreshOptions = useMemo(() => ({
     api,
@@ -472,6 +466,13 @@ export function App() {
     return () => window.removeEventListener("keydown", close);
   }, [preview]);
 
+  useEffect(() => {
+    setPreviewZoom(1);
+    setPreviewOffset({ x: 0, y: 0 });
+    setPreviewDragging(false);
+    previewDragRef.current = null;
+  }, [preview?.assetId]);
+
   function toggleAssetRail() {
     setAssetRailCollapsed((current) => {
       const next = !current;
@@ -532,6 +533,54 @@ export function App() {
 
   function openPreview(assetId: string, fallbackName = "图片预览") {
     setPreview({ assetId, name: assetsById.get(assetId)?.name ?? fallbackName });
+  }
+
+  function zoomPreview(delta: number) {
+    const next = Math.min(4, Math.max(0.5, Math.round((previewZoom + delta) * 100) / 100));
+    setPreviewZoom(next);
+    if (next <= 1) setPreviewOffset({ x: 0, y: 0 });
+  }
+
+  function resetPreviewView() {
+    setPreviewZoom(1);
+    setPreviewOffset({ x: 0, y: 0 });
+  }
+
+  function handlePreviewWheel(event: ReactWheelEvent<HTMLDivElement>) {
+    event.preventDefault();
+    zoomPreview(event.deltaY < 0 ? 0.15 : -0.15);
+  }
+
+  function handlePreviewPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    if (previewZoom <= 1) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    previewDragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      offsetX: previewOffset.x,
+      offsetY: previewOffset.y
+    };
+    setPreviewDragging(true);
+  }
+
+  function handlePreviewPointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    const drag = previewDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    setPreviewOffset({
+      x: drag.offsetX + event.clientX - drag.startX,
+      y: drag.offsetY + event.clientY - drag.startY
+    });
+  }
+
+  function stopPreviewDragging(event?: ReactPointerEvent<HTMLDivElement>) {
+    const drag = previewDragRef.current;
+    if (event && drag?.pointerId === event.pointerId && event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    previewDragRef.current = null;
+    setPreviewDragging(false);
   }
 
   function toggleSidebar() {
@@ -828,8 +877,30 @@ export function App() {
       {preview && (
         <div className="modal-backdrop" onMouseDown={() => setPreview(null)}>
           <div className="image-modal" role="dialog" aria-modal="true" aria-label={preview.name} onMouseDown={(event) => event.stopPropagation()}>
-            <header><strong>{preview.name}</strong><button type="button" className="icon-button" onClick={() => setPreview(null)}><Icon name="close" size={19} /></button></header>
-            <img src={api.assetContentUrl(preview.assetId)} alt={preview.name} />
+            <header>
+              <strong>{preview.name}</strong>
+              <div className="image-modal-actions">
+                <button type="button" className="icon-button" aria-label="缩小图片" onClick={() => zoomPreview(-0.25)} disabled={previewZoom <= 0.5}><Icon name="minus" size={17} /></button>
+                <button type="button" className="icon-button" aria-label="复位图片视图" onClick={resetPreviewView} disabled={previewZoom === 1 && previewOffset.x === 0 && previewOffset.y === 0}><Icon name="retry" size={17} /></button>
+                <button type="button" className="icon-button" aria-label="放大图片" onClick={() => zoomPreview(0.25)} disabled={previewZoom >= 4}><Icon name="plus" size={17} /></button>
+                <button type="button" className="icon-button" aria-label="关闭图片预览" onClick={() => setPreview(null)}><Icon name="close" size={19} /></button>
+              </div>
+            </header>
+            <div
+              className={`image-modal-viewport${previewZoom > 1 ? " zoomable" : ""}${previewDragging ? " is-dragging" : ""}`}
+              onWheel={handlePreviewWheel}
+              onPointerDown={handlePreviewPointerDown}
+              onPointerMove={handlePreviewPointerMove}
+              onPointerUp={stopPreviewDragging}
+              onPointerCancel={stopPreviewDragging}
+            >
+              <img
+                src={api.assetContentUrl(preview.assetId)}
+                alt={preview.name}
+                draggable={false}
+                style={{ transform: `translate3d(${previewOffset.x}px, ${previewOffset.y}px, 0) scale(${previewZoom})` }}
+              />
+            </div>
             <footer>
               {previewGenerationJob && (
                 <div className="image-provenance">
@@ -856,7 +927,6 @@ export function App() {
         </div>
       )}
 
-      <NoticeCenter items={notices} onDismiss={dismissNotice} />
     </div>
   );
 }

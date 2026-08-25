@@ -206,7 +206,11 @@ class DesktopUpdateInstaller:
             manager.stop_services()
             services_stopped = True
             backup_dir = _create_backup(self.paths, current_version, target_version)
-            previous_release = _read_optional_bytes(self.paths.base_dir / "release.json")
+            previous_release = _read_optional_bytes(self.paths.release_manifest)
+            if previous_release is None:
+                previous_release = _read_optional_bytes(
+                    self.paths.legacy_release_manifest
+                )
             _backup_current_installation(
                 self.paths,
                 backup_dir,
@@ -426,15 +430,17 @@ def _validate_staged_application(
         staging / "app" / "worker" / "run.js",
         staging / "app" / "worker" / "resources" / "agent-system-v1.txt",
         staging / "app" / "web" / "index.html",
-        staging / "release.json",
     ]
     if include_launcher:
         required.append(staging / "LyraLauncher.exe")
     missing = [str(path.relative_to(staging)) for path in required if not path.is_file()]
+    manifest_path = _staged_release_manifest(staging)
+    if manifest_path is None:
+        missing.append("app/release.json")
     if missing:
         raise RuntimeError("安装包缺少运行文件：" + ", ".join(missing))
     try:
-        manifest = json.loads((staging / "release.json").read_text(encoding="utf-8"))
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as error:
         raise RuntimeError("安装包 release.json 无效。") from error
     if not isinstance(manifest, dict) or manifest.get("version") != target_version:
@@ -480,11 +486,15 @@ def _install_staged_application(
     target_version: str,
     include_launcher: bool = False,
 ) -> None:
+    manifest_path = _staged_release_manifest(staging)
+    if manifest_path is None:
+        raise RuntimeError("安装包 release.json 无效。")
+    release = json.loads(manifest_path.read_text(encoding="utf-8"))
     application = paths.base_dir / "app"
     shutil.move(str(staging / "app"), str(application))
-    release = json.loads((staging / "release.json").read_text(encoding="utf-8"))
     release["version"] = target_version
-    _write_json_atomic(paths.base_dir / "release.json", release)
+    _write_json_atomic(paths.release_manifest, release)
+    paths.legacy_release_manifest.unlink(missing_ok=True)
     if include_launcher:
         os.replace(staging / "LyraLauncher.exe", paths.base_dir / "LyraLauncher.exe")
 
@@ -505,12 +515,20 @@ def _rollback_installation(
     if database_backup.exists():
         shutil.copytree(database_backup, database)
     if previous_release is None:
-        (paths.base_dir / "release.json").unlink(missing_ok=True)
+        paths.release_manifest.unlink(missing_ok=True)
     else:
-        _write_bytes_atomic(paths.base_dir / "release.json", previous_release)
+        _write_bytes_atomic(paths.release_manifest, previous_release)
+    paths.legacy_release_manifest.unlink(missing_ok=True)
     launcher_backup = backup_dir / "LyraLauncher.exe"
     if launcher_backup.is_file():
         shutil.copy2(launcher_backup, paths.base_dir / "LyraLauncher.exe")
+
+
+def _staged_release_manifest(staging: Path) -> Path | None:
+    for path in (staging / "app" / "release.json", staging / "release.json"):
+        if path.is_file():
+            return path
+    return None
 
 
 def _parse_update_manifest(value: object) -> DesktopUpdateCandidate:
