@@ -15,7 +15,7 @@ from .paths import LauncherPaths
 from .process_manager import LogTailer, ProcessManager, ServiceStatus
 from .update_manager import DesktopUpdateCheck, DesktopUpdateClient
 
-LYRA_VERSION = "0.0.6"
+LYRA_VERSION = "0.0.7"
 
 COLORS = {
     "background": "#0f172a",

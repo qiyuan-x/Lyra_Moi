@@ -29,7 +29,7 @@ describe("SQLite migrations", () => {
     const database = new LyraDatabase(join(parent, "database", "lyra.sqlite3"));
 
     try {
-      expect(applyMigrations(database.connection, lyraMigrations)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]);
+      expect(applyMigrations(database.connection, lyraMigrations)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21]);
       expect(applyMigrations(database.connection, lyraMigrations)).toEqual([]);
       expect(() => assertMigrationsCurrent(database.connection, lyraMigrations)).not.toThrow();
 
@@ -212,7 +212,7 @@ describe("SQLite migrations", () => {
         ) VALUES (?, ?, 'llm', ?, ?, 1, 0, '{}', ?, ?)
       `).run("deepseek-model", "deepseek-profile", "deepseek-chat", "DeepSeek Chat", now, now);
 
-      expect(applyMigrations(database.connection, lyraMigrations)).toEqual([5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]);
+      expect(applyMigrations(database.connection, lyraMigrations)).toEqual([5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21]);
       expect(
         database.connection.prepare("SELECT protocol, service_type, base_url FROM provider_profiles WHERE id = ?").get("deepseek-profile")
       ).toMatchObject({
@@ -257,7 +257,7 @@ describe("SQLite migrations", () => {
         now
       );
 
-      expect(applyMigrations(database.connection, lyraMigrations)).toEqual([11, 12, 13, 14, 15, 16, 17, 18, 19]);
+      expect(applyMigrations(database.connection, lyraMigrations)).toEqual([11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21]);
       expect(
         database.connection.prepare(`
           SELECT id, name, category, note, favorite
@@ -318,7 +318,7 @@ describe("SQLite migrations", () => {
         )
       `).run(project.id, profile.id, model.id, now, now);
 
-      expect(applyMigrations(database.connection, lyraMigrations)).toEqual([13, 14, 15, 16, 17, 18, 19]);
+      expect(applyMigrations(database.connection, lyraMigrations)).toEqual([13, 14, 15, 16, 17, 18, 19, 20, 21]);
       expect(database.connection.prepare(`
         SELECT provider_name_snapshot, remote_model_id_snapshot
         FROM jobs
@@ -332,7 +332,7 @@ describe("SQLite migrations", () => {
     }
   });
 
-  it("moves FrostAPI 3D profiles to the generic OpenAI-compatible adapter", async () => {
+  it("moves FrostAPI 3D profiles to the dedicated FrostAPI adapter", async () => {
     const parent = await mkdtemp(join(tmpdir(), "lyra-db-model-adapter-"));
     temporaryDirectories.push(parent);
     const database = new LyraDatabase(join(parent, "database", "lyra.sqlite3"));
@@ -364,16 +364,66 @@ describe("SQLite migrations", () => {
         SET settings_json = json_set(settings_json, '$.modelId', 'meshy-t2')
         WHERE id = 'frost-model-profile'
       `).run();
-      expect(applyMigrations(database.connection, lyraMigrations)).toEqual([17, 18, 19]);
+      expect(applyMigrations(database.connection, lyraMigrations)).toEqual([17, 18, 19, 20, 21]);
       const migrated = database.connection.prepare(`
         SELECT adapter_type, settings_json
         FROM provider_profiles
         WHERE id = 'frost-model-profile'
       `).get() as { adapter_type: string; settings_json: string };
-      expect(migrated.adapter_type).toBe("openai-compatible");
+      expect(migrated.adapter_type).toBe("frostapi-3d");
       expect(JSON.parse(migrated.settings_json)).toEqual({
         __lyra: { providerKind: "frostapi" }
       });
+    } finally {
+      database.close();
+    }
+  });
+
+  it("moves existing Hunyuan 3D profiles and model IDs to TokenHub", async () => {
+    const parent = await mkdtemp(join(tmpdir(), "lyra-db-hunyuan-tokenhub-"));
+    temporaryDirectories.push(parent);
+    const database = new LyraDatabase(join(parent, "database", "lyra.sqlite3"));
+
+    try {
+      applyMigrations(database.connection, lyraMigrations.slice(0, 20));
+      const providers = new ProviderRepository(database);
+      const profile = providers.createProfile({
+        id: "hunyuan-model-profile",
+        serviceType: "model",
+        name: "腾讯混元 3D",
+        protocol: "openai-compatible",
+        adapterType: "hunyuan",
+        baseUrl: "https://api.ai3d.cloud.tencent.com",
+        apiKeyEnvironmentVariable: "LYRA_PROVIDER_HUNYUAN_MODEL_API_KEY",
+        settings: {
+          __lyra: { apiKeyWebsite: "https://console.cloud.tencent.com/ai3d/start" }
+        }
+      });
+      providers.createModel(profile.id, {
+        id: "hunyuan-model-31",
+        serviceType: "model",
+        remoteModelId: "3.1",
+        displayName: "混元生 3D 3.1"
+      });
+
+      expect(applyMigrations(database.connection, lyraMigrations)).toEqual([21]);
+      expect(database.connection.prepare(`
+        SELECT base_url, settings_json
+        FROM provider_profiles
+        WHERE id = 'hunyuan-model-profile'
+      `).get()).toEqual({
+        base_url: "https://tokenhub.tencentmaas.com",
+        settings_json: JSON.stringify({
+          __lyra: {
+            apiKeyWebsite: "https://console.cloud.tencent.com/tokenhub/apikey?regionId=1"
+          }
+        })
+      });
+      expect(database.connection.prepare(`
+        SELECT remote_model_id
+        FROM provider_models
+        WHERE provider_profile_id = 'hunyuan-model-profile'
+      `).get()).toEqual({ remote_model_id: "hy-3d-3.1" });
     } finally {
       database.close();
     }

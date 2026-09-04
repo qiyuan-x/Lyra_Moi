@@ -6,7 +6,8 @@ import {
   OpenAiCompatibleLlmProvider,
   OpenAiResponsesLlmProvider,
   ProviderHttpClient,
-  type FetchLike
+  type FetchLike,
+  type LlmProviderAssetLoader
 } from "@lyra/providers";
 
 const tools: AgentToolDefinition[] = [
@@ -21,6 +22,18 @@ const tools: AgentToolDefinition[] = [
     }
   }
 ];
+
+const assetLoader: LlmProviderAssetLoader = {
+  async loadAsset(assetId, projectId) {
+    expect(assetId).toBe("asset-image");
+    expect(projectId).toBe("project-1");
+    return {
+      data: new Uint8Array([1, 2, 3]),
+      mimeType: "image/png",
+      name: "reference.png"
+    };
+  }
+};
 
 describe("LLM provider adapters", () => {
   it("maps Agent tools through the native Anthropic Messages API", async () => {
@@ -135,6 +148,7 @@ describe("LLM provider adapters", () => {
       baseUrl: "http://127.0.0.1:9000/v1",
       apiKey: null,
       model: "local-model",
+      assetLoader,
       client: new ProviderHttpClient({
         fetchImplementation: async (_input, init = {}) => {
           requestBody = JSON.parse(String(init.body)) as Record<string, unknown>;
@@ -145,7 +159,11 @@ describe("LLM provider adapters", () => {
       })
     });
     const messages: AgentMessage[] = [
-      { role: "user", content: "Draw" },
+      {
+        role: "user",
+        content: "Draw",
+        attachments: [{ assetId: "asset-image", label: "图1", position: 1 }]
+      },
       {
         role: "assistant",
         content: "",
@@ -153,11 +171,23 @@ describe("LLM provider adapters", () => {
       },
       { role: "tool", content: "done", toolCallId: "call_local", toolName: "generate_image" }
     ];
-    await expect(provider.complete({ messages, tools, signal: undefined })).resolves.toEqual({
+    await expect(provider.complete({
+      projectId: "project-1",
+      messages,
+      tools,
+      signal: undefined
+    })).resolves.toEqual({
       type: "message",
       text: "local reply"
     });
     expect(requestBody).toMatchObject({ model: "local-model", tool_choice: "auto" });
+    expect((requestBody!.messages as Array<Record<string, unknown>>)[0]).toEqual({
+      role: "user",
+      content: [
+        { type: "image_url", image_url: { url: "data:image/png;base64,AQID" } },
+        { type: "text", text: "Draw" }
+      ]
+    });
     expect((requestBody!.messages as Array<Record<string, unknown>>)[1]).toMatchObject({
       role: "assistant",
       tool_calls: [
@@ -263,5 +293,114 @@ describe("LLM provider adapters", () => {
         }
       ]
     });
+  });
+
+  it("passes image attachments to the OpenAI Responses API without changing the text", async () => {
+    let requestBody: Record<string, unknown> | null = null;
+    const provider = new OpenAiResponsesLlmProvider({
+      baseUrl: "https://api.openai.test/v1",
+      apiKey: "secret",
+      model: "gpt-vision",
+      assetLoader,
+      client: new ProviderHttpClient({
+        fetchImplementation: async (_input, init = {}) => {
+          requestBody = JSON.parse(String(init.body)) as Record<string, unknown>;
+          return Response.json({ output_text: "description", output: [] });
+        }
+      })
+    });
+
+    await provider.complete({
+      projectId: "project-1",
+      messages: [{
+        role: "user",
+        content: "  描述这张图片  ",
+        attachments: [{ assetId: "asset-image", label: "图1", position: 1 }]
+      }],
+      tools: [],
+      signal: undefined
+    });
+
+    expect(requestBody!.input).toEqual([{
+      role: "user",
+      content: [
+        { type: "input_image", image_url: "data:image/png;base64,AQID" },
+        { type: "input_text", text: "  描述这张图片  " }
+      ]
+    }]);
+  });
+
+  it("passes image attachments to the Anthropic Messages API", async () => {
+    let requestBody: Record<string, unknown> | null = null;
+    const provider = new AnthropicLlmProvider({
+      baseUrl: "https://api.anthropic.test/v1",
+      apiKey: "secret",
+      model: "claude-vision",
+      assetLoader,
+      client: new ProviderHttpClient({
+        fetchImplementation: async (_input, init = {}) => {
+          requestBody = JSON.parse(String(init.body)) as Record<string, unknown>;
+          return Response.json({ content: [{ type: "text", text: "description" }] });
+        }
+      })
+    });
+
+    await provider.complete({
+      projectId: "project-1",
+      messages: [{
+        role: "user",
+        content: "描述图片",
+        attachments: [{ assetId: "asset-image", label: "图1", position: 1 }]
+      }],
+      tools: [],
+      signal: undefined
+    });
+
+    expect(requestBody!.messages).toEqual([{
+      role: "user",
+      content: [
+        {
+          type: "image",
+          source: { type: "base64", media_type: "image/png", data: "AQID" }
+        },
+        { type: "text", text: "描述图片" }
+      ]
+    }]);
+  });
+
+  it("passes image attachments to the Gemini Interactions API", async () => {
+    let requestBody: Record<string, unknown> | null = null;
+    const provider = new GeminiInteractionsLlmProvider({
+      baseUrl: "https://generativelanguage.test/v1beta",
+      apiKey: "secret",
+      model: "gemini-vision",
+      assetLoader,
+      client: new ProviderHttpClient({
+        fetchImplementation: async (_input, init = {}) => {
+          requestBody = JSON.parse(String(init.body)) as Record<string, unknown>;
+          return Response.json({
+            id: "interaction-image",
+            status: "completed",
+            steps: [{ type: "model_output", content: [{ type: "text", text: "description" }] }]
+          });
+        }
+      })
+    });
+
+    await provider.complete({
+      projectId: "project-1",
+      messages: [{
+        role: "user",
+        content: "描述图片",
+        attachments: [{ assetId: "asset-image", label: "图1", position: 1 }]
+      }],
+      tools: [],
+      signal: undefined
+    });
+
+    expect(requestBody!.input).toEqual([
+      { type: "image", data: "AQID", mime_type: "image/png" },
+      { type: "text", text: "描述图片" }
+    ]);
   });
 });

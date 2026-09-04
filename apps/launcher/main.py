@@ -10,6 +10,7 @@ from pathlib import Path
 from .app import LYRA_VERSION, LyraLauncher, enable_high_dpi
 from .paths import LauncherPaths
 from .process_manager import ProcessManager
+from .single_instance import SingleInstanceLock, activate_existing_launcher
 from .update_manager import DesktopUpdateInstaller
 
 
@@ -54,9 +55,17 @@ def main() -> int:
         webbrowser.open(manager.browser_url)
         return 0
 
-    enable_high_dpi()
-    application = LyraLauncher(manager)
-    application.mainloop()
+    window_title = f"Lyra 服务启动器 {paths.application_version}"
+    instance_lock = SingleInstanceLock(paths.instance_lock_file)
+    if not instance_lock.acquire():
+        activate_existing_launcher(window_title)
+        return 0
+    try:
+        enable_high_dpi()
+        application = LyraLauncher(manager)
+        application.mainloop()
+    finally:
+        instance_lock.release()
     return 0
 
 

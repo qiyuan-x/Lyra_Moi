@@ -284,7 +284,7 @@ HTTP body、分页查询、响应写入和服务依赖检查集中在
 
 - LLM：OpenAI、Anthropic、Gemini、OpenAI Compatible
 - 生图：OpenAI、Gemini、DashScope、Seedream、智谱、腾讯混元、Stability AI
-- 建模：OpenAI 兼容 3D（FrostAPI 为默认预设）、Meshy、Tripo、腾讯混元、Stability AI 3D
+- 建模：FrostAPI 3D、Meshy、Tripo、腾讯混元、Stability AI 3D。各供应商使用独立请求格式，不建立通用的 OpenAI 兼容 3D 协议。
 
 供应商名称是可编辑的展示字段，运行时使用稳定的适配器类型路由。LLM、生图和建模连接、密钥、模型互相隔离；本地服务通过 OpenAI Compatible 和本地 Base URL 配置。
 

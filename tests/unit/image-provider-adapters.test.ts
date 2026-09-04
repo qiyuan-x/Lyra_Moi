@@ -158,7 +158,28 @@ describe("image provider adapters", () => {
     });
 
     await provider.generate(request({ count: 1, parameters: { aspectRatio: "16:9" } }));
-    expect(requestBody).toMatchObject({ size: "1536x1024" });
+    expect(requestBody).toMatchObject({ size: "1280x720" });
+  });
+
+  it("maps 2K 16:9 to an exact OpenAI image size", async () => {
+    let requestBody: Record<string, unknown> | null = null;
+    const provider = new OpenAiImageProvider({
+      baseUrl: "https://api.openai.test/v1",
+      apiKey: "secret",
+      model: "gpt-image-2",
+      assetLoader: createLoader([]),
+      client: new ProviderHttpClient({
+        fetchImplementation: async (_input, init = {}) => {
+          requestBody = JSON.parse(String(init.body)) as Record<string, unknown>;
+          return Response.json({ data: [{ b64_json: PNG.toString("base64") }] });
+        }
+      })
+    });
+
+    await provider.generate(request({
+      parameters: { aspectRatio: "16:9", resolution: "2K" }
+    }));
+    expect(requestBody).toMatchObject({ size: "2048x1152" });
   });
 
   it("maps the shared resolution and aspect ratio to a GPT Image size", async () => {

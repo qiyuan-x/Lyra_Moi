@@ -86,10 +86,24 @@ export const handleProviderRoutes: BusinessRouteHandler =
 
     const providerAction = matchPath(
       url.pathname,
-      /^\/api\/v1\/providers\/([^/]+)\/(discover|test)$/u
+      /^\/api\/v1\/providers\/([^/]+)\/(discover|test|usage)$/u
     );
-    if (request.method === "POST" && providerAction) {
+    if (providerAction) {
       const providers = requireService(options.providers, "Provider");
+      if (request.method === "GET" && providerAction[1] === "usage") {
+        writeJson(
+          response,
+          200,
+          {
+            usage: await providers.getFrostApiUsage(providerAction[0]!)
+          },
+          requestId
+        );
+        return true;
+      }
+      if (request.method !== "POST" || providerAction[1] === "usage") {
+        return false;
+      }
       if (providerAction[1] === "discover") {
         writeJson(
           response,

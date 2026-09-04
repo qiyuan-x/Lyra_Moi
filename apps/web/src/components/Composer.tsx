@@ -82,7 +82,10 @@ export function Composer(props: ComposerProps) {
         value={props.prompt}
         onChange={(event) => props.onPromptChange(event.target.value)}
         onKeyDown={(event) => {
-          if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) void submit();
+          if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
+          if (event.ctrlKey || event.metaKey) return;
+          event.preventDefault();
+          void submit();
         }}
         onPaste={(event) => {
           const files = Array.from(event.clipboardData.items)
@@ -127,7 +130,7 @@ export function Composer(props: ComposerProps) {
           />
         </div>
         <div className="composer-actions">
-          <span className="key-hint">Ctrl + Enter</span>
+          <span className="key-hint">Enter 发送 · Ctrl + Enter 换行</span>
           <button
             type="submit"
             className="button button-primary"

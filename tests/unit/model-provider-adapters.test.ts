@@ -4,7 +4,7 @@ import type {
   ModelOutputFormat
 } from "@lyra/contracts";
 import {
-  OpenAiCompatibleModelProvider,
+  FrostApiModelProvider,
   HunyuanModelProvider,
   MeshyModelProvider,
   ProviderHttpClient,
@@ -24,10 +24,10 @@ const loader: ModelProviderAssetLoader = {
 };
 
 describe("model provider adapters", () => {
-  it("reuses Meshy settings through an OpenAI-compatible 3D task", async () => {
+  it("reuses Meshy settings through FrostAPI 3D", async () => {
     const calls: Array<{ url: string; headers: Headers; body?: Record<string, unknown> }> = [];
     let pollCount = 0;
-    const provider = new OpenAiCompatibleModelProvider({
+    const provider = new FrostApiModelProvider({
       baseUrl: "https://api.frost.test",
       apiKey: "frost-secret",
       model: "meshy-7",
@@ -79,7 +79,14 @@ describe("model provider adapters", () => {
     const modelRequest: ModelGenerationRequest = {
       ...request(["glb", "obj"], {
         textureResolution: "4k",
-        ultraMode: true
+        ultraMode: true,
+        textureGuideMode: "image",
+        savePreRemeshedModel: true,
+        moderation: true,
+        autoSize: true,
+        originAt: "center",
+        multiViewThumbnails: true,
+        alphaThumbnail: true
       }),
       textureImageAssetId: "texture"
     };
@@ -99,7 +106,13 @@ describe("model provider adapters", () => {
       should_remesh: true,
       topology: "triangle",
       target_polycount: 100_000,
+      save_pre_remeshed_model: true,
       image_enhancement: true,
+      moderation: true,
+      auto_size: true,
+      origin_at: "center",
+      multi_view_thumbnails: true,
+      alpha_thumbnail: true,
       ultra_mode: true
     });
     expect(await provider.query(taskId)).toMatchObject({
@@ -123,10 +136,10 @@ describe("model provider adapters", () => {
     expect(calls.at(-1)?.headers.get("authorization")).toBe("Bearer frost-secret");
   });
 
-  it("submits Meshy text settings and keeps other compatible models GLB-only", async () => {
+  it("submits Meshy text settings and rejects unknown FrostAPI models", async () => {
     let body: Record<string, unknown> | null = null;
     let requestUrl = "";
-    const provider = new OpenAiCompatibleModelProvider({
+    const provider = new FrostApiModelProvider({
       baseUrl: "https://api.frost.test/v1",
       apiKey: "frost-secret",
       model: "meshy-6",
@@ -138,7 +151,10 @@ describe("model provider adapters", () => {
       })
     });
 
-    await expect(provider.submit(textRequest())).resolves.toBe("frost-text-task");
+    await expect(provider.submit(textRequest({
+      textureGuideMode: "text",
+      texturePrompt: "磨砂金属表面"
+    }))).resolves.toBe("frost-text-task");
     expect(requestUrl).toBe("https://api.frost.test/v1/3d/generations");
     expect(body).toMatchObject({
       model: "meshy-6",
@@ -149,17 +165,82 @@ describe("model provider adapters", () => {
       target_formats: ["glb"],
       should_remesh: true,
       target_polycount: 20_000,
+      texture_prompt: "磨砂金属表面",
       remove_lighting: true
     });
 
-    const genericProvider = new OpenAiCompatibleModelProvider({
+    const genericProvider = new FrostApiModelProvider({
       baseUrl: "https://api.frost.test",
       apiKey: "frost-secret",
       model: "generic-3d",
       assetLoader: loader,
       client: httpClient(async () => Response.json({ id: "unused" }))
     });
-    await expect(genericProvider.submit(request(["obj"]))).rejects.toThrow("仅支持 GLB");
+    await expect(genericProvider.submit(request(["obj"]))).rejects.toThrow(
+      "FrostAPI model is not supported"
+    );
+  });
+
+  it("builds Tripo request fields for FrostAPI from the selected Tripo model", async () => {
+    let body: Record<string, unknown> = {};
+    const provider = new FrostApiModelProvider({
+      baseUrl: "https://api.frost.test",
+      apiKey: "frost-secret",
+      model: "v3.1-20260211",
+      assetLoader: loader,
+      client: httpClient(async (_input, init) => {
+        body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return Response.json({ id: "tripo-task" }, { status: 202 });
+      })
+    });
+
+    await expect(provider.submit(request(["glb"], {
+      geometryQuality: "detailed",
+      textureQuality: "extreme",
+      imageAutofix: true,
+      targetFaceCount: 250_000
+    }))).resolves.toBe("tripo-task");
+    expect(body).toMatchObject({
+      model: "v3.1-20260211",
+      type: "image_to_model",
+      model_version: "v3.1-20260211",
+      image_url: `data:image/jpeg;base64,${inputImage.toString("base64")}`,
+      geometry_quality: "detailed",
+      texture_quality: "extreme",
+      enable_image_autofix: true,
+      face_limit: 250_000
+    });
+  });
+
+  it("builds Hunyuan multi-view request fields for FrostAPI", async () => {
+    let body: Record<string, unknown> = {};
+    const provider = new FrostApiModelProvider({
+      baseUrl: "https://api.frost.test",
+      apiKey: "frost-secret",
+      model: "hy-3d-3.1",
+      assetLoader: loader,
+      client: httpClient(async (_input, init) => {
+        body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return Response.json({ id: "hunyuan-task" }, { status: 202 });
+      })
+    });
+
+    await expect(provider.submit(multiViewRequest({
+      generateType: "Normal",
+      pbr: false,
+      targetFaceCount: 500_000
+    }))).resolves.toBe("hunyuan-task");
+    expect(body).toMatchObject({
+      model: "hy-3d-3.1",
+      image_base64: inputImage.toString("base64"),
+      generate_type: "normal",
+      enable_pbr: false,
+      face_count: 500_000,
+      multi_view_images: [
+        { view: "left", image: inputImage.toString("base64") },
+        { view: "right", image: inputImage.toString("base64") }
+      ]
+    });
   });
 
   it("creates a Stability image-to-3D GLB result", async () => {
@@ -265,6 +346,96 @@ describe("model provider adapters", () => {
     expect(downloaded.map((file) => file.format)).toEqual(["glb", "obj"]);
     expect(downloaded[0]?.data).toEqual(glb);
     expect(downloaded[1]?.data).toEqual(obj);
+  });
+
+  it("submits and polls Meshy multi-image tasks through the official endpoint", async () => {
+    const calls: Array<{ url: string; body?: Record<string, unknown> }> = [];
+    const loadedAssetIds: string[] = [];
+    const provider = new MeshyModelProvider({
+      baseUrl: "https://api.meshy.ai",
+      apiKey: "meshy-secret",
+      model: "meshy-7",
+      assetLoader: {
+        async loadModelInput(assetId) {
+          loadedAssetIds.push(assetId);
+          return {
+            data: Buffer.from(assetId, "utf8"),
+            mimeType: "image/jpeg",
+            name: `${assetId}.jpg`
+          };
+        }
+      },
+      settings: { image_urls: ["must-not-be-used"], ultra_mode: true },
+      client: httpClient(async (input, init) => {
+        const url = String(input);
+        const body = typeof init?.body === "string"
+          ? JSON.parse(init.body) as Record<string, unknown>
+          : undefined;
+        calls.push({ url, ...(body ? { body } : {}) });
+        if (url.endsWith("/multi-image-to-3d") && init?.method === "POST") {
+          return Response.json({ result: "meshy-multi-task" });
+        }
+        if (url.endsWith("/multi-image-to-3d/meshy-multi-task")) {
+          return Response.json({
+            status: "SUCCEEDED",
+            progress: 100,
+            model_urls: { glb: "https://assets.example/multi.glb" }
+          });
+        }
+        throw new Error(`Unexpected Meshy request: ${url}`);
+      })
+    });
+
+    const taskId = await provider.submit(multiViewRequest({
+      textureGuideMode: "text",
+      texturePrompt: "painted metal",
+      remesh: true,
+      topology: "quad",
+      targetFaceCount: 30_000,
+      imageEnhancement: false,
+      removeLighting: false,
+      autoSize: true,
+      originAt: "center",
+      multiViewThumbnails: true,
+      alphaThumbnail: true
+    }));
+
+    expect(taskId).toMatch(/^meshy-multiview:/u);
+    expect(loadedAssetIds).toEqual(["front-image", "left-image", "right-image"]);
+    expect(calls[0]).toMatchObject({
+      url: "https://api.meshy.ai/openapi/v1/multi-image-to-3d",
+      body: {
+        image_urls: [
+          `data:image/jpeg;base64,${Buffer.from("front-image").toString("base64")}`,
+          `data:image/jpeg;base64,${Buffer.from("left-image").toString("base64")}`,
+          `data:image/jpeg;base64,${Buffer.from("right-image").toString("base64")}`
+        ],
+        ai_model: "meshy-7",
+        should_texture: true,
+        enable_pbr: true,
+        texture_prompt: "painted metal",
+        should_remesh: true,
+        topology: "quad",
+        target_polycount: 30_000,
+        image_enhancement: false,
+        remove_lighting: false,
+        target_formats: ["glb"],
+        auto_size: true,
+        origin_at: "center",
+        multi_view_thumbnails: true,
+        alpha_thumbnail: true
+      }
+    });
+    expect(calls[0]?.body).not.toHaveProperty("model_type");
+    expect(calls[0]?.body).not.toHaveProperty("ultra_mode");
+
+    expect(await provider.query(taskId)).toMatchObject({
+      status: "succeeded",
+      modelUrls: { glb: "https://assets.example/multi.glb" }
+    });
+    expect(calls[1]?.url).toBe(
+      "https://api.meshy.ai/openapi/v1/multi-image-to-3d/meshy-multi-task"
+    );
   });
 
   it("packages Meshy OBJ outputs with texture URLs into a ZIP", async () => {
@@ -377,6 +548,56 @@ describe("model provider adapters", () => {
     expect((await provider.download(result, modelRequest))[0]?.data).toEqual(glb);
   });
 
+  it("submits Tripo multi-view inputs in front-left-back-right order", async () => {
+    const taskBodies: Record<string, unknown>[] = [];
+    let uploadCount = 0;
+    const provider = new TripoModelProvider({
+      baseUrl: "https://api.tripo3d.ai/v2/openapi",
+      apiKey: "tripo-secret",
+      model: "P1-20260311",
+      assetLoader: loader,
+      client: httpClient(async (input, init) => {
+        const url = String(input);
+        if (url.endsWith("/upload/sts")) {
+          uploadCount += 1;
+          return Response.json({ code: 0, data: { image_token: `token-${uploadCount}` } });
+        }
+        const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        taskBodies.push(body);
+        return Response.json({ code: 0, data: { task_id: "multiview-task" } });
+      })
+    });
+
+    await provider.submit(multiViewRequest({
+      targetFaceCount: 4_000,
+      modelSeed: 12,
+      textureSeed: 34,
+      textureAlignment: "geometry",
+      autoSize: true,
+      exportUv: false,
+      compression: "geometry"
+    }));
+
+    expect(uploadCount).toBe(3);
+    expect(taskBodies[0]).toMatchObject({
+      type: "multiview_to_model",
+      model_version: "P1-20260311",
+      files: [
+        { type: "jpg", file_token: "token-1" },
+        { type: "jpg", file_token: "token-2" },
+        {},
+        { type: "jpg", file_token: "token-3" }
+      ],
+      face_limit: 4_000,
+      model_seed: 12,
+      texture_seed: 34,
+      texture_alignment: "geometry",
+      auto_size: true,
+      export_uv: false,
+      compress: "geometry"
+    });
+  });
+
   it("converts Tripo GLB output into the selected export formats", async () => {
     const calls: Array<{ url: string; body?: Record<string, unknown> }> = [];
     const provider = new TripoModelProvider({
@@ -444,12 +665,78 @@ describe("model provider adapters", () => {
     });
   });
 
+  it("converts Tripo quad FBX output back to GLB for web preview", async () => {
+    const taskBodies: Record<string, unknown>[] = [];
+    const provider = new TripoModelProvider({
+      baseUrl: "https://api.tripo3d.ai/v2/openapi",
+      apiKey: "tripo-secret",
+      model: "v3.1-20260211",
+      assetLoader: loader,
+      client: httpClient(async (input, init) => {
+        const url = String(input);
+        const body = typeof init?.body === "string"
+          ? JSON.parse(init.body) as Record<string, unknown>
+          : undefined;
+        if (body) taskBodies.push(body);
+        if (url.endsWith("/upload/sts")) {
+          return Response.json({ code: 0, data: { image_token: "image-token" } });
+        }
+        if (body?.type === "image_to_model") {
+          return Response.json({ code: 0, data: { task_id: "quad-task" } });
+        }
+        if (url.endsWith("/task/quad-task")) {
+          return Response.json({
+            code: 0,
+            data: {
+              status: "success",
+              progress: 100,
+              output: { model: "https://assets.example/quad.fbx" }
+            }
+          });
+        }
+        if (body?.type === "convert_model") {
+          return Response.json({ code: 0, data: { task_id: "quad-glb-task" } });
+        }
+        return Response.json({
+          code: 0,
+          data: {
+            status: "success",
+            progress: 100,
+            output: { model: "https://assets.example/quad.glb" }
+          }
+        });
+      })
+    });
+
+    const modelRequest = request(["glb"], {
+      quad: true,
+      targetFaceCount: 10_000,
+      geometryQuality: "standard"
+    });
+    const taskId = await provider.submit(modelRequest);
+    const converting = await provider.query(taskId);
+    expect(converting.status).toBe("running");
+    expect(taskBodies).toContainEqual(expect.objectContaining({
+      type: "convert_model",
+      format: "GLB",
+      original_model_task_id: "quad-task"
+    }));
+    const result = await provider.query(converting.nextExternalTaskId!);
+    expect(result).toMatchObject({
+      status: "succeeded",
+      modelUrls: {
+        fbx: "https://assets.example/quad.fbx",
+        glb: "https://assets.example/quad.glb"
+      }
+    });
+  });
+
   it("uses Hunyuan API Key endpoints and reads the GLB result", async () => {
     const calls: Array<{ url: string; headers: Headers; body: Record<string, unknown> }> = [];
     const provider = new HunyuanModelProvider({
-      baseUrl: "https://api.ai3d.cloud.tencent.com",
+      baseUrl: "https://tokenhub.tencentmaas.com",
       apiKey: "sk-hunyuan",
-      model: "3.1",
+      model: "hy-3d-3.1",
       assetLoader: loader,
       settings: {
         __lyra: {
@@ -463,32 +750,39 @@ describe("model provider adapters", () => {
         const headers = new Headers(init?.headers);
         const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
         calls.push({ url, headers, body });
-        if (url.endsWith("/v1/ai3d/submit")) {
-          return Response.json({ JobId: "hunyuan-task", RequestId: "request-1" });
+        if (url.endsWith("/v1/api/3d/submit")) {
+          return Response.json({
+            id: "hunyuan-task",
+            request_id: "request-1",
+            object: "3d_job",
+            status: "queued"
+          });
         }
         return Response.json({
-          Status: "DONE",
-          ResultCreditConsumed: 40,
-          ResultFile3Ds: [
-            { Type: "GLB", Url: "https://assets.example/model.glb" },
-            { Type: "IMAGE", Url: "https://assets.example/model.png" }
+          status: "completed",
+          data: [
+            {
+              type: "glb",
+              url: "https://assets.example/model.glb",
+              preview_image_url: "https://assets.example/model.png"
+            }
           ],
-          RequestId: "request-2"
+          request_id: "request-2"
         });
       })
     });
 
     const modelRequest = request(["glb"]);
     const taskId = await provider.submit(modelRequest);
-    expect(taskId).toBe("hunyuan-task");
-    expect(calls[0]?.url).toBe("https://api.ai3d.cloud.tencent.com/v1/ai3d/submit");
-    expect(calls[0]?.headers.get("authorization")).toBe("sk-hunyuan");
+    expect(taskId).toBe("tokenhub:hunyuan-task");
+    expect(calls[0]?.url).toBe("https://tokenhub.tencentmaas.com/v1/api/3d/submit");
+    expect(calls[0]?.headers.get("authorization")).toBe("Bearer sk-hunyuan");
     expect(calls[0]?.body).toMatchObject({
-      Model: "3.1",
-      ImageUrl: { Url: expect.stringContaining("data:image/jpeg;base64,") },
-      GenerateType: "Normal",
-      EnablePBR: true,
-      FaceCount: 100_000
+      model: "hy-3d-3.1",
+      image_base64: inputImage.toString("base64"),
+      generate_type: "normal",
+      enable_pbr: true,
+      face_count: 100_000
     });
     expect(calls[0]?.body).not.toHaveProperty("__lyra");
     const result = await provider.query(taskId);
@@ -496,9 +790,119 @@ describe("model provider adapters", () => {
       status: "succeeded",
       modelUrls: { glb: "https://assets.example/model.glb" },
       previewUrl: "https://assets.example/model.png",
-      consumedCredits: 40
+      providerState: { requestId: "request-2" }
     });
+    expect(calls[1]?.url).toBe("https://tokenhub.tencentmaas.com/v1/api/3d/query");
+    expect(calls[1]?.body).toEqual({ model: "hy-3d-3.1", id: "hunyuan-task" });
     expect((await provider.download(result, modelRequest))[0]?.data).toEqual(glb);
+  });
+
+  it("automatically falls back to the legacy Hunyuan API for an old API key", async () => {
+    const calls: Array<{ url: string; headers: Headers; body: Record<string, unknown> }> = [];
+    const provider = new HunyuanModelProvider({
+      baseUrl: "https://tokenhub.tencentmaas.com",
+      apiKey: "legacy-hunyuan-key",
+      model: "hy-3d-3.0",
+      assetLoader: loader,
+      client: httpClient(async (input, init) => {
+        const url = String(input);
+        const headers = new Headers(init?.headers);
+        const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        calls.push({ url, headers, body });
+        if (url.endsWith("/v1/api/3d/submit")) {
+          return Response.json(
+            { error: { message: "invalid token" } },
+            { status: 401 }
+          );
+        }
+        if (url.endsWith("/v1/ai3d/submit")) {
+          return Response.json({ JobId: "legacy-task" });
+        }
+        return Response.json({
+          Status: "DONE",
+          ResultFile3Ds: [
+            {
+              Type: "GLB",
+              Url: "https://assets.example/legacy.glb",
+              PreviewImageUrl: "https://assets.example/legacy.png"
+            }
+          ],
+          ResultCreditConsumed: 1,
+          ResultCreditDetails: "legacy-credit"
+        });
+      })
+    });
+
+    const modelRequest = request(["glb"]);
+    const taskId = await provider.submit(modelRequest);
+    expect(taskId).toBe("legacy:legacy-task");
+    expect(calls.map((call) => call.url)).toEqual([
+      "https://tokenhub.tencentmaas.com/v1/api/3d/submit",
+      "https://api.ai3d.cloud.tencent.com/v1/ai3d/submit"
+    ]);
+    expect(calls[1]?.headers.get("authorization")).toBe("legacy-hunyuan-key");
+    expect(calls[1]?.body).toMatchObject({
+      Model: "3.0",
+      ImageUrl: {
+        Url: `data:image/jpeg;base64,${inputImage.toString("base64")}`
+      },
+      GenerateType: "Normal",
+      EnablePBR: true,
+      FaceCount: 100_000
+    });
+
+    const result = await provider.query(taskId);
+    expect(calls[2]?.url).toBe("https://api.ai3d.cloud.tencent.com/v1/ai3d/query");
+    expect(calls[2]?.body).toEqual({ JobId: "legacy-task" });
+    expect(result).toMatchObject({
+      status: "succeeded",
+      modelUrls: { glb: "https://assets.example/legacy.glb" },
+      previewUrl: "https://assets.example/legacy.png",
+      consumedCredits: 1,
+      providerState: { creditDetails: "legacy-credit" }
+    });
+  });
+
+  it("submits Hunyuan 3.1 multi-view images with official view names", async () => {
+    let submitted: Record<string, unknown> | null = null;
+    const provider = new HunyuanModelProvider({
+      baseUrl: "https://tokenhub.tencentmaas.com",
+      apiKey: "sk-hunyuan",
+      model: "hy-3d-3.1",
+      assetLoader: loader,
+      client: httpClient(async (_input, init) => {
+        submitted = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return Response.json({ id: "hunyuan-multiview", status: "queued" });
+      })
+    });
+
+    await provider.submit({
+      ...multiViewRequest({
+        generateType: "Normal",
+        pbr: false,
+        targetFaceCount: 500_000
+      }),
+      multiViewImageAssetIds: {
+        front: "front-image",
+        left: "left-image",
+        back: "back-image",
+        top: "top-image",
+        rightFront: "right-front-image"
+      }
+    });
+
+    expect(submitted).toMatchObject({
+      model: "hy-3d-3.1",
+      generate_type: "normal",
+      enable_pbr: false,
+      image_base64: inputImage.toString("base64"),
+      multi_view_images: [
+        { view: "left", image: inputImage.toString("base64") },
+        { view: "back", image: inputImage.toString("base64") },
+        { view: "top", image: inputImage.toString("base64") },
+        { view: "right_front", image: inputImage.toString("base64") }
+      ]
+    });
   });
 
   it("creates Meshy text-to-model preview tasks", async () => {
@@ -539,6 +943,39 @@ describe("model provider adapters", () => {
     });
   });
 
+  it("uses the Meshy 7 API defaults when optional values are omitted", async () => {
+    let body: Record<string, unknown> | null = null;
+    const provider = new MeshyModelProvider({
+      baseUrl: "https://api.meshy.ai",
+      apiKey: "meshy-secret",
+      model: "meshy-7",
+      assetLoader: loader,
+      client: httpClient(async (_input, init) => {
+        body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return Response.json({ result: "meshy-default-task" });
+      })
+    });
+
+    await provider.submit({
+      ...request(["glb"]),
+      parameters: {}
+    });
+    expect(body).toMatchObject({
+      model_type: "standard",
+      ai_model: "meshy-7",
+      should_texture: true,
+      enable_pbr: false,
+      texture_resolution: "2k",
+      should_remesh: false,
+      image_enhancement: true,
+      moderation: false,
+      auto_size: false,
+      alpha_thumbnail: false
+    });
+    expect(body).not.toHaveProperty("target_polycount");
+    expect(body).not.toHaveProperty("topology");
+  });
+
   it("supports Meshy 7 Ultra Mode for image and text tasks", async () => {
     const bodies: Record<string, unknown>[] = [];
     const provider = new MeshyModelProvider({
@@ -568,6 +1005,33 @@ describe("model provider adapters", () => {
     });
   });
 
+  it("supports Meshy T2 smart topology for text generation", async () => {
+    let body: Record<string, unknown> | null = null;
+    const provider = new MeshyModelProvider({
+      baseUrl: "https://api.meshy.ai",
+      apiKey: "meshy-secret",
+      model: "meshy-t2",
+      assetLoader: loader,
+      client: httpClient(async (_input, init) => {
+        body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return Response.json({ result: "meshy-t2-task" });
+      })
+    });
+
+    await provider.submit(textRequest({
+      texture: false,
+      pbr: false,
+      remesh: false,
+      targetFaceCount: 4_000
+    }));
+    expect(body).toMatchObject({
+      mode: "preview",
+      model_type: "smart-topology",
+      ai_model: "meshy-t2",
+      target_polycount: 4_000
+    });
+  });
+
   it("creates Tripo and Hunyuan text-to-model tasks without uploading an image", async () => {
     const tripoBodies: Record<string, unknown>[] = [];
     const tripo = new TripoModelProvider({
@@ -591,21 +1055,21 @@ describe("model provider adapters", () => {
 
     const hunyuanBodies: Record<string, unknown>[] = [];
     const hunyuan = new HunyuanModelProvider({
-      baseUrl: "https://api.ai3d.cloud.tencent.com",
+      baseUrl: "https://tokenhub.tencentmaas.com",
       apiKey: "hunyuan-secret",
-      model: "3.1",
+      model: "hy-3d-3.1",
       assetLoader: loader,
       client: httpClient(async (_input, init) => {
         hunyuanBodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
-        return Response.json({ JobId: "hunyuan-text-task" });
+        return Response.json({ id: "hunyuan-text-task", status: "queued" });
       })
     });
     await hunyuan.submit(textRequest());
     expect(hunyuanBodies[0]).toMatchObject({
-      Prompt: "a low poly spaceship",
-      Model: "3.1"
+      prompt: "a low poly spaceship",
+      model: "hy-3d-3.1"
     });
-    expect(hunyuanBodies[0]).not.toHaveProperty("ImageUrl");
+    expect(hunyuanBodies[0]).not.toHaveProperty("image_url");
   });
 });
 
@@ -623,6 +1087,7 @@ function request(
     parameters: {
       texture: true,
       pbr: true,
+      remesh: true,
       targetFaceCount: 100_000,
       ...parameterOverrides
     },
@@ -643,7 +1108,31 @@ function textRequest(
     parameters: {
       texture: true,
       pbr: true,
+      remesh: true,
       targetFaceCount: 20_000,
+      ...parameterOverrides
+    },
+    source: "manual"
+  };
+}
+
+function multiViewRequest(
+  parameterOverrides: Record<string, unknown> = {}
+): ModelGenerationRequest {
+  return {
+    projectId: "project",
+    inputMode: "multiview",
+    multiViewImageAssetIds: {
+      front: "front-image",
+      left: "left-image",
+      right: "right-image"
+    },
+    providerProfileId: "profile",
+    providerModelId: "model",
+    outputFormats: ["glb"],
+    parameters: {
+      texture: true,
+      pbr: true,
       ...parameterOverrides
     },
     source: "manual"

@@ -7,11 +7,17 @@ import {
 import type {
   AssetSnapshot,
   JobSnapshot,
+  ModelInputMode,
   ModelOutputFormat,
+  ModelViewType,
+  MultiViewImageAssetIds,
   ProviderModelSnapshot,
   ProviderProfileSnapshot
 } from "@lyra/contracts";
-import { isMeshyGenerationModel } from "@lyra/contracts";
+import {
+  isHunyuan31ModelId,
+  resolveModelGenerationAdapter
+} from "@lyra/contracts";
 import { ModelViewer } from "./ModelViewer.js";
 import { ModelGenerationPanel } from "../features/modeling/ModelGenerationPanel.js";
 import { ModelAssetList } from "../features/modeling/ModelAssetList.js";
@@ -49,6 +55,7 @@ interface ModelingPageProps {
   } & (
     | { inputMode: "image"; imageAssetId: string }
     | { inputMode: "text"; prompt: string }
+    | { inputMode: "multiview"; multiViewImageAssetIds: MultiViewImageAssetIds }
   )) => Promise<void>;
   onCancel: (jobId: string) => Promise<void>;
   onRetry: (jobId: string) => Promise<void>;
@@ -61,7 +68,7 @@ export function ModelingPage(props: ModelingPageProps) {
   const pageStateRef = useRef<PersistedModelingState>(
     readPersistedModelingState(props.projectId)
   );
-  const [inputMode, setInputModeState] = useState<"image" | "text">(
+  const [inputMode, setInputModeState] = useState<ModelInputMode>(
     () => pageStateRef.current.inputMode
   );
   const [prompt, setPromptState] = useState(() => pageStateRef.current.prompt);
@@ -70,6 +77,9 @@ export function ModelingPage(props: ModelingPageProps) {
   );
   const [selectedTextureImageId, setSelectedTextureImageId] = useState(
     () => pageStateRef.current.selectedTextureImageId
+  );
+  const [selectedMultiViewImageIds, setSelectedMultiViewImageIds] = useState(
+    () => pageStateRef.current.selectedMultiViewImageIds
   );
   const [selectedModelAssetId, setSelectedModelAssetId] = useState(
     () => props.initialModelAssetId ?? ""
@@ -99,28 +109,85 @@ export function ModelingPage(props: ModelingPageProps) {
     providerId: model.providerProfileId,
     name: model.displayName
   }));
-  const usesMeshySettings = isMeshyGenerationModel(
+  const generationAdapter = resolveModelGenerationAdapter(
     selectedProvider?.adapterType,
     selectedModel?.remoteModelId ?? ""
   );
+  const usesMeshySettings = generationAdapter === "meshy";
   const supportsTextureImage = usesMeshySettings;
-  const supportsTextInput = selectedProvider?.adapterType !== "stability-3d";
+  const usesTextureImageGuide = supportsTextureImage &&
+    parameters.textureGuideMode === "image";
+  const supportsTextInput = generationAdapter !== "stability-3d";
+  const supportsMeshyMultiView = generationAdapter === "meshy" &&
+    ["latest", "meshy-5", "meshy-6", "meshy-7"].includes(selectedModel?.remoteModelId ?? "");
+  const supportsMultiView = supportsMeshyMultiView ||
+    generationAdapter === "hunyuan" ||
+    (generationAdapter === "tripo" &&
+      !selectedModel?.remoteModelId.startsWith("Turbo-"));
+  const minimumMultiViewImages = supportsMeshyMultiView ? 1 : 2;
+  const multiViewOptions = useMemo(() => {
+    const basic = [
+      { view: "front" as const, label: "正面图", required: true },
+      { view: "left" as const, label: "左面图" },
+      { view: "back" as const, label: "背面图" },
+      { view: "right" as const, label: "右面图" }
+    ];
+    return generationAdapter === "hunyuan" &&
+      isHunyuan31ModelId(selectedModel?.remoteModelId ?? "")
+      ? [
+          ...basic,
+          { view: "top" as const, label: "顶面图" },
+          { view: "bottom" as const, label: "底面图" },
+          { view: "leftFront" as const, label: "左前 45° 图" },
+          { view: "rightFront" as const, label: "右前 45° 图" }
+        ]
+      : basic;
+  }, [generationAdapter, selectedModel?.remoteModelId]);
   const textureEnabled = parameters.texture !== false;
   const selectedInputImage = props.images.find((asset) => asset.id === selectedImageId);
   const selectedTextureImage = props.images.find(
     (asset) => asset.id === selectedTextureImageId
   );
+  const selectedMultiViewImages = useMemo(() => {
+    const selected: Partial<Record<ModelViewType, AssetSnapshot>> = {};
+    const allowedViews = new Set(multiViewOptions.map((option) => option.view));
+    if (selectedInputImage) selected.front = selectedInputImage;
+    for (const [view, assetId] of Object.entries(selectedMultiViewImageIds)) {
+      if (!allowedViews.has(view as ModelViewType)) continue;
+      const asset = props.images.find((candidate) => candidate.id === assetId);
+      if (asset) selected[view as ModelViewType] = asset;
+    }
+    return selected;
+  }, [multiViewOptions, props.images, selectedInputImage, selectedMultiViewImageIds]);
+  const selectedMultiViewCount = Object.keys(selectedMultiViewImages).length;
+  const multiViewInputReady = Boolean(selectedMultiViewImages.front) &&
+    selectedMultiViewCount >= minimumMultiViewImages;
   const glbAssets = [...props.modelAssets]
     .filter((asset) => asset.mimeType === "model/gltf-binary")
     .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
   const selectedModelAsset = glbAssets.find(
     (asset) => asset.id === selectedModelAssetId
   ) ?? glbAssets[0] ?? null;
-  const parameterError = validateModelParameters(
-    selectedProvider?.adapterType,
+  const providerParameterError = validateModelParameters(
+    generationAdapter ?? undefined,
     selectedModel?.remoteModelId ?? "",
     parameters,
     outputFormats
+  );
+  const parameterError = selectedProvider?.adapterType === "frostapi-3d" && !generationAdapter
+    ? "当前 FrostAPI 模型未匹配 Meshy、Tripo、混元或 Stability 3D。"
+    : providerParameterError ?? (
+    inputMode === "multiview" && !multiViewInputReady
+      ? minimumMultiViewImages === 1
+        ? "请选择正面图。"
+        : "多视图生成至少需要正面图和另一张视图。"
+      : usesMeshySettings && textureEnabled && parameters.textureGuideMode === "image" &&
+      !selectedTextureImage
+      ? "请选择纹理输入图。"
+      : usesMeshySettings && textureEnabled && parameters.textureGuideMode === "text" &&
+          !(typeof parameters.texturePrompt === "string" && parameters.texturePrompt.trim())
+        ? "请输入纹理提示词。"
+        : null
   );
 
   function persistPageState() {
@@ -147,10 +214,44 @@ export function ModelingPage(props: ModelingPageProps) {
     selectImage("");
   }
 
-  function setInputMode(value: "image" | "text") {
+  function selectMultiViewImage(view: ModelViewType, value: string) {
+    if (view === "front") {
+      selectImage(value);
+      return;
+    }
+    const next = { ...selectedMultiViewImageIds, [view]: value };
+    setSelectedMultiViewImageIds(next);
+    pageStateRef.current.selectedMultiViewImageIds = next;
+    persistPageState();
+  }
+
+  function clearMultiViewImage(view: ModelViewType) {
+    if (view === "front") {
+      clearInputImage();
+      return;
+    }
+    const next = { ...selectedMultiViewImageIds };
+    delete next[view];
+    setSelectedMultiViewImageIds(next);
+    pageStateRef.current.selectedMultiViewImageIds = next;
+    persistPageState();
+  }
+
+  function clearGenerationInputs() {
+    clearInputImage();
+    clearTextureImage();
+    setSelectedMultiViewImageIds({});
+    pageStateRef.current.selectedMultiViewImageIds = {};
+    persistPageState();
+  }
+
+  function setInputMode(value: ModelInputMode) {
     setInputModeState(value);
     pageStateRef.current.inputMode = value;
     persistPageState();
+    if (value === "multiview" && generationAdapter === "hunyuan") {
+      updateParameters({ ...parameters, generateType: "Normal" });
+    }
   }
 
   function setPrompt(value: string) {
@@ -176,6 +277,17 @@ export function ModelingPage(props: ModelingPageProps) {
   }, [props.images, selectedTextureImageId]);
 
   useEffect(() => {
+    const availableIds = new Set(props.images.map((asset) => asset.id));
+    const next = Object.fromEntries(Object.entries(selectedMultiViewImageIds).filter(
+      ([, assetId]) => availableIds.has(assetId)
+    ));
+    if (Object.keys(next).length === Object.keys(selectedMultiViewImageIds).length) return;
+    setSelectedMultiViewImageIds(next);
+    pageStateRef.current.selectedMultiViewImageIds = next;
+    persistPageState();
+  }, [props.images, selectedMultiViewImageIds]);
+
+  useEffect(() => {
     if (glbAssets.some((asset) => asset.id === selectedModelAssetId)) return;
     if (
       props.initialModelAssetId &&
@@ -195,27 +307,38 @@ export function ModelingPage(props: ModelingPageProps) {
     }
     const existing = modelConfigsRef.current[selectedModel.id];
     if (existing) {
+      const defaults = defaultModelParameters(
+        generationAdapter ?? undefined,
+        selectedModel.remoteModelId
+      );
+      const legacyMeshyConfig = usesMeshySettings &&
+        !("textureGuideMode" in existing.parameters);
       const restoredParameters = usesMeshySettings
-        ? {
-            ...defaultModelParameters(
-              selectedProvider.adapterType,
-              selectedModel.remoteModelId
-            ),
-            ...existing.parameters
-          }
+        ? legacyMeshyConfig
+          ? defaults
+          : { ...defaults, ...existing.parameters }
         : existing.parameters;
+      if (legacyMeshyConfig) {
+        modelConfigsRef.current[selectedModel.id] = {
+          parameters: restoredParameters,
+          outputFormats: ["glb", "obj", "fbx", "stl", "usdz"]
+        };
+        pageStateRef.current.modelConfigs = modelConfigsRef.current;
+        persistPageState();
+      }
       setParameters(structuredClone(restoredParameters));
-      setOutputFormats([...existing.outputFormats]);
+      setOutputFormats(legacyMeshyConfig
+        ? ["glb", "obj", "fbx", "stl", "usdz"]
+        : [...existing.outputFormats]);
       return;
     }
     const defaults = defaultModelParameters(
-      selectedProvider?.adapterType,
+      generationAdapter ?? undefined,
       selectedModel.remoteModelId
     );
-    const formats: ModelOutputFormat[] =
-      selectedProvider.adapterType === "tripo" ||
-      selectedProvider.adapterType === "stability-3d" ||
-      (selectedProvider.adapterType === "openai-compatible" && !usesMeshySettings)
+    const formats: ModelOutputFormat[] = usesMeshySettings
+      ? ["glb", "obj", "fbx", "stl", "usdz"]
+      : generationAdapter === "tripo" || generationAdapter === "stability-3d"
       ? ["glb"]
       : ["glb", "obj"];
     modelConfigsRef.current[selectedModel.id] = {
@@ -226,11 +349,22 @@ export function ModelingPage(props: ModelingPageProps) {
     persistPageState();
     setParameters(structuredClone(defaults));
     setOutputFormats([...formats]);
-  }, [selectedModel?.id, selectedModel?.remoteModelId, selectedProvider?.adapterType, usesMeshySettings]);
+  }, [generationAdapter, selectedModel?.id, selectedModel?.remoteModelId, selectedProvider?.adapterType, usesMeshySettings]);
 
   useEffect(() => {
     if (!supportsTextInput && inputMode === "text") setInputMode("image");
-  }, [inputMode, supportsTextInput]);
+    if (!supportsMultiView && inputMode === "multiview") setInputMode("image");
+  }, [inputMode, supportsMultiView, supportsTextInput]);
+
+  useEffect(() => {
+    if (
+      inputMode === "multiview" &&
+      generationAdapter === "hunyuan" &&
+      parameters.generateType !== "Normal"
+    ) {
+      updateParameters({ ...parameters, generateType: "Normal" });
+    }
+  }, [generationAdapter, inputMode, parameters.generateType]);
 
   function updateParameters(value: Record<string, unknown>) {
     setParameters(value);
@@ -262,17 +396,29 @@ export function ModelingPage(props: ModelingPageProps) {
     if (!props.defaultModelId || !selectedProvider) return;
     if (inputMode === "image" && !selectedImageId) return;
     if (inputMode === "text" && !prompt.trim()) return;
+    if (inputMode === "multiview" && !multiViewInputReady) return;
+    const multiViewImageAssetIds = inputMode === "multiview"
+      ? Object.fromEntries(Object.entries(selectedMultiViewImages).map(
+          ([view, asset]) => [view, asset.id]
+        )) as MultiViewImageAssetIds
+      : null;
     await props.onGenerate({
       ...(inputMode === "image"
         ? { inputMode: "image" as const, imageAssetId: selectedImageId }
-        : { inputMode: "text" as const, prompt: prompt.trim() }),
-      ...(supportsTextureImage && selectedTextureImageId
+        : inputMode === "multiview"
+          ? {
+              inputMode: "multiview" as const,
+              multiViewImageAssetIds: multiViewImageAssetIds!
+            }
+          : { inputMode: "text" as const, prompt: prompt.trim() }),
+      ...(usesTextureImageGuide && selectedTextureImageId
         ? { textureImageAssetId: selectedTextureImageId }
         : {}),
       modelId: props.defaultModelId,
       outputFormats,
       parameters
     });
+    clearGenerationInputs();
   }
 
   return (
@@ -321,9 +467,16 @@ export function ModelingPage(props: ModelingPageProps) {
           <ModelGenerationPanel
             inputMode={inputMode}
             supportsTextInput={supportsTextInput}
+            supportsMultiView={supportsMultiView}
+            minimumMultiViewImages={minimumMultiViewImages}
+            multiViewOptions={multiViewOptions}
             prompt={prompt}
             provider={selectedProvider}
+            generationAdapter={generationAdapter}
             model={selectedModel}
+            models={props.models}
+            providerProfileId={selectedProvider?.id}
+            onModelChange={props.onDefaultModelChange}
             parameters={parameters}
             outputFormats={outputFormats}
             parameterError={parameterError}
@@ -332,16 +485,21 @@ export function ModelingPage(props: ModelingPageProps) {
             images={props.images}
             selectedInputImage={selectedInputImage}
             selectedTextureImage={selectedTextureImage}
-            supportsTextureImage={supportsTextureImage}
-            textureEnabled={textureEnabled}
+            selectedMultiViewImages={selectedMultiViewImages}
             thumbnailUrl={props.thumbnailUrl}
-            inputReady={inputMode === "image" ? Boolean(selectedImageId) : Boolean(prompt.trim())}
+            inputReady={inputMode === "image"
+              ? Boolean(selectedImageId)
+              : inputMode === "multiview"
+                ? multiViewInputReady
+                : Boolean(prompt.trim())}
             onInputModeChange={setInputMode}
             onPromptChange={setPrompt}
             onImageSelect={selectImage}
             onTextureImageSelect={selectTextureImage}
             onClearImage={clearInputImage}
             onClearTextureImage={clearTextureImage}
+            onMultiViewImageSelect={selectMultiViewImage}
+            onClearMultiViewImage={clearMultiViewImage}
             onUpload={props.onUpload}
             onParametersChange={updateParameters}
             onOutputFormatsChange={updateOutputFormats}

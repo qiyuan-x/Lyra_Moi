@@ -2,7 +2,10 @@ import type {
   ModelGenerationRequest,
   ModelOutputFormat
 } from "@lyra/contracts";
-import { isTextToModelGenerationRequest } from "@lyra/contracts";
+import {
+  isMultiViewToModelGenerationRequest,
+  isTextToModelGenerationRequest
+} from "@lyra/contracts";
 
 export interface ModelProviderResult {
   status: "pending" | "running" | "succeeded" | "failed";
@@ -57,7 +60,10 @@ export function requireModelInput(request: ModelGenerationRequest): {
   assetId: string;
   projectId: string;
 } {
-  if (isTextToModelGenerationRequest(request)) {
+  if (
+    isTextToModelGenerationRequest(request) ||
+    isMultiViewToModelGenerationRequest(request)
+  ) {
     throw new Error("This provider operation requires an image input.");
   }
   return {

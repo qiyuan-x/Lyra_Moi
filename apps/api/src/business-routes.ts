@@ -10,6 +10,7 @@ import type {
 } from "./routes/business-route-types.js";
 import { handleJobGenerationRoutes } from "./routes/job-generation-routes.js";
 import { handleProjectConversationRoutes } from "./routes/project-conversation-routes.js";
+import { handleProjectAnimationRoutes } from "./routes/project-animation-routes.js";
 import { handleProviderRoutes } from "./routes/provider-routes.js";
 
 const businessRouteHandlers: BusinessRouteHandler[] = [
@@ -17,6 +18,7 @@ const businessRouteHandlers: BusinessRouteHandler[] = [
   handleAgentSettingsRoutes,
   handleCommunitySettingsRoutes,
   handleProjectConversationRoutes,
+  handleProjectAnimationRoutes,
   handleJobGenerationRoutes,
   handleAssetPromptRoutes,
   handleProviderRoutes

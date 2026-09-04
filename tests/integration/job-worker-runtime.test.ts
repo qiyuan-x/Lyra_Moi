@@ -151,6 +151,20 @@ describe("JobWorkerRuntime", () => {
     }
   });
 
+  it("does not impose a fixed execution timeout on image jobs", async () => {
+    const fixture = await createFixture("no-timeout", { delayMs: 80 }, null);
+    try {
+      const submitted = submitOne(fixture, "wait for provider");
+      fixture.worker.start();
+      expect(await waitForJob(fixture.jobs, submitted.id, "succeeded")).toMatchObject({
+        errorCode: null
+      });
+    } finally {
+      await fixture.worker.stop();
+      fixture.database.close();
+    }
+  });
+
   it("resolves the image provider from each job snapshot", async () => {
     const fixture = await createFixture("resolver", { delayMs: 1 });
     try {
@@ -223,7 +237,7 @@ describe("JobWorkerRuntime", () => {
 async function createFixture(
   suffix: string,
   providerOptions: ConstructorParameters<typeof FakeBinaryImageProvider>[0],
-  executionTimeoutMs = 3_000
+  executionTimeoutMs: number | null = 3_000
 ) {
   const directory = await mkdtemp(join(tmpdir(), `lyra-worker-${suffix}-`));
   temporaryDirectories.push(directory);

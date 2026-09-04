@@ -96,13 +96,18 @@ export function ModelImageInputs(props: ModelImageInputsProps) {
   }
 
   return (
-    <section className="modeling-image-inputs" aria-label="模型输入图片">
+    <section
+      className="modeling-image-inputs"
+      aria-label={props.showModelInput === false ? "纹理输入图片" : "模型输入图片"}
+    >
       <header>
         <strong>{props.showModelInput === false ? "纹理输入图" : "输入图片"}</strong>
         <span>
           {props.showModelInput === false
-            ? "可选，仅 Meshy 支持为文字生成单独提供纹理输入图"
-            : "选择本次建模使用的模型输入图和可选纹理图"}
+            ? "可选，用于引导纹理生成"
+            : props.supportsTextureImage
+              ? "选择本次建模使用的模型输入图和纹理输入图"
+              : "选择本次建模使用的模型输入图"}
         </span>
       </header>
       <div className="modeling-input-fields">

@@ -21,14 +21,25 @@ describe("modeling page state", () => {
 
   it("persists model and texture inputs independently", () => {
     savePersistedModelingState("project-1", {
+      inputMode: "multiview",
+      prompt: "",
       selectedImageId: "generated-model-image",
       selectedTextureImageId: "uploaded-texture-image",
+      selectedMultiViewImageIds: {
+        left: "left-image",
+        back: "back-image"
+      },
       modelConfigs: {}
     });
 
     expect(readPersistedModelingState("project-1")).toMatchObject({
+      inputMode: "multiview",
       selectedImageId: "generated-model-image",
-      selectedTextureImageId: "uploaded-texture-image"
+      selectedTextureImageId: "uploaded-texture-image",
+      selectedMultiViewImageIds: {
+        left: "left-image",
+        back: "back-image"
+      }
     });
   });
 

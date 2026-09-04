@@ -56,6 +56,31 @@ describe("request contract validation", () => {
     expect(parseManualModelGenerationRequest(value)).toEqual(value);
   });
 
+  it("accepts ordered multi-view model inputs with a required front image", () => {
+    const value = {
+      projectId: "project-1",
+      inputMode: "multiview",
+      multiViewImageAssetIds: {
+        front: "front-image",
+        back: "back-image"
+      },
+      providerProfileId: "tripo-profile",
+      providerModelId: "tripo-model",
+      outputFormats: ["glb"],
+      parameters: { texture: true }
+    };
+
+    expect(parseManualModelGenerationRequest(value)).toEqual(value);
+    expect(parseManualModelGenerationRequest({
+      ...value,
+      multiViewImageAssetIds: { front: "front-image" }
+    })).toMatchObject({ multiViewImageAssetIds: { front: "front-image" } });
+    expect(() => parseManualModelGenerationRequest({
+      ...value,
+      multiViewImageAssetIds: { left: "left-image" }
+    })).toThrow(ContractValidationError);
+  });
+
   it("rejects reordered attachments", () => {
     expect(() =>
       parseSendAgentMessageRequest({
@@ -66,6 +91,18 @@ describe("request contract validation", () => {
         ]
       })
     ).toThrow(ContractValidationError);
+  });
+
+  it("accepts an attachment-only Agent message", () => {
+    expect(parseSendAgentMessageRequest({
+      text: "",
+      attachments: [{ assetId: "asset-1", label: "图1", position: 1 }]
+    })).toEqual({
+      text: "",
+      attachments: [{ assetId: "asset-1", label: "图1", position: 1 }]
+    });
+    expect(() => parseSendAgentMessageRequest({ text: "", attachments: [] }))
+      .toThrow("message cannot be empty");
   });
 
   it("requires provider and model selections in pairs", () => {

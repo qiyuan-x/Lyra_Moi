@@ -1,6 +1,9 @@
 import type {
   AssetSnapshot,
+  ModelInputMode,
+  ModelGenerationAdapterType,
   ModelOutputFormat,
+  ModelViewType,
   ProviderModelSnapshot,
   ProviderProfileSnapshot
 } from "@lyra/contracts";
@@ -8,13 +11,24 @@ import { Icon } from "../../components/Icon.js";
 import { modelAdapterLabel } from "./model-provider-config.js";
 import { ModelProviderParameters } from "./ModelProviderParameters.js";
 import { ModelImageInputs } from "./ModelImageInputs.js";
+import {
+  ModelMultiViewInputs,
+  type ModelViewOption
+} from "./ModelMultiViewInputs.js";
 
 interface ModelGenerationPanelProps {
-  inputMode: "image" | "text";
+  inputMode: ModelInputMode;
   supportsTextInput: boolean;
+  supportsMultiView: boolean;
+  minimumMultiViewImages: number;
+  multiViewOptions: ModelViewOption[];
   prompt: string;
   provider: ProviderProfileSnapshot | undefined;
+  generationAdapter: ModelGenerationAdapterType | null;
   model: ProviderModelSnapshot | undefined;
+  models: ProviderModelSnapshot[];
+  providerProfileId: string | undefined;
+  onModelChange: (modelId: string) => void;
   parameters: Record<string, unknown>;
   outputFormats: ModelOutputFormat[];
   parameterError: string | null;
@@ -24,8 +38,7 @@ interface ModelGenerationPanelProps {
   images: AssetSnapshot[];
   selectedInputImage: AssetSnapshot | undefined;
   selectedTextureImage: AssetSnapshot | undefined;
-  supportsTextureImage: boolean;
-  textureEnabled: boolean;
+  selectedMultiViewImages: Partial<Record<ModelViewType, AssetSnapshot>>;
   thumbnailUrl: (assetId: string) => string;
   onParametersChange: (value: Record<string, unknown>) => void;
   onOutputFormatsChange: (value: ModelOutputFormat[]) => void;
@@ -35,12 +48,16 @@ interface ModelGenerationPanelProps {
   onTextureImageSelect: (assetId: string) => void;
   onClearImage: () => void;
   onClearTextureImage: () => void;
+  onMultiViewImageSelect: (view: ModelViewType, assetId: string) => void;
+  onClearMultiViewImage: (view: ModelViewType) => void;
   onUpload: (files: File[]) => Promise<AssetSnapshot[]>;
-  onInputModeChange: (mode: "image" | "text") => void;
+  onInputModeChange: (mode: ModelInputMode) => void;
   onPromptChange: (value: string) => void;
 }
 
 export function ModelGenerationPanel(props: ModelGenerationPanelProps) {
+  const promptLimit = props.generationAdapter === "meshy" ? 600 : 1024;
+  const imageMode = props.inputMode === "image" || props.inputMode === "multiview";
   return (
     <section className="modeling-config">
       <header>
@@ -51,8 +68,8 @@ export function ModelGenerationPanel(props: ModelGenerationPanelProps) {
         <button
           type="button"
           role="tab"
-          aria-selected={props.inputMode === "image"}
-          className={props.inputMode === "image" ? "active" : ""}
+          aria-selected={imageMode}
+          className={imageMode ? "active" : ""}
           onClick={() => props.onInputModeChange("image")}
         >
           图片生成
@@ -69,41 +86,86 @@ export function ModelGenerationPanel(props: ModelGenerationPanelProps) {
           </button>
         )}
       </div>
+      {imageMode && props.supportsMultiView && (
+        <div className="modeling-input-mode modeling-input-mode-secondary" role="tablist" aria-label="图片生成方式">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={props.inputMode === "image"}
+            className={props.inputMode === "image" ? "active" : ""}
+            onClick={() => props.onInputModeChange("image")}
+          >
+            单参考图生成
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={props.inputMode === "multiview"}
+            className={props.inputMode === "multiview" ? "active" : ""}
+            onClick={() => props.onInputModeChange("multiview")}
+          >
+            多参考图生成
+          </button>
+        </div>
+      )}
       {props.inputMode === "text" && (
         <label className="field modeling-text-prompt">
           <span>模型描述 <em>*</em></span>
           <textarea
             rows={5}
-            maxLength={1024}
+            maxLength={promptLimit}
             value={props.prompt}
             placeholder="描述需要生成的 3D 模型"
             onChange={(event) => props.onPromptChange(event.target.value)}
           />
-          <small>{props.prompt.length}/1024</small>
+          <small>{props.prompt.length}/{promptLimit}</small>
         </label>
       )}
-      {(props.inputMode === "image" || props.supportsTextureImage) && (
+      {props.inputMode === "image" && (
         <ModelImageInputs
-          showModelInput={props.inputMode === "image"}
+          showModelInput
           images={props.images}
           selectedInputImage={props.selectedInputImage}
-          selectedTextureImage={props.selectedTextureImage}
-          supportsTextureImage={props.supportsTextureImage}
-          textureEnabled={props.textureEnabled}
+          selectedTextureImage={undefined}
+          supportsTextureImage={false}
+          textureEnabled={false}
           thumbnailUrl={props.thumbnailUrl}
           onImageSelect={props.onImageSelect}
-          onTextureImageSelect={props.onTextureImageSelect}
+          onTextureImageSelect={() => undefined}
           onClearImage={props.onClearImage}
-          onClearTextureImage={props.onClearTextureImage}
+          onClearTextureImage={() => undefined}
+          onUpload={props.onUpload}
+        />
+      )}
+      {props.inputMode === "multiview" && (
+        <ModelMultiViewInputs
+          views={props.multiViewOptions}
+          minimumImages={props.minimumMultiViewImages}
+          images={props.images}
+          selected={props.selectedMultiViewImages}
+          thumbnailUrl={props.thumbnailUrl}
+          onSelect={props.onMultiViewImageSelect}
+          onClear={props.onClearMultiViewImage}
           onUpload={props.onUpload}
         />
       )}
       {props.provider && props.model && (
         <ModelProviderParameters
-          adapter={props.provider.adapterType}
+          adapter={props.generationAdapter}
+          providerAdapter={props.provider.adapterType}
           remoteModelId={props.model.remoteModelId}
+          inputMode={props.inputMode}
           parameters={props.parameters}
           outputFormats={props.outputFormats}
+          models={props.models}
+          providerProfileId={props.providerProfileId}
+          images={props.images}
+          selectedTextureImage={props.selectedTextureImage}
+          thumbnailUrl={props.thumbnailUrl}
+          onModelChange={props.onModelChange}
+          onTextureImageSelect={props.onTextureImageSelect}
+          onClearTextureImage={props.onClearTextureImage}
+          onUpload={props.onUpload}
           onParametersChange={props.onParametersChange}
           onOutputFormatsChange={props.onOutputFormatsChange}
         />

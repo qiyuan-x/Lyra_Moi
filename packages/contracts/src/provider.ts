@@ -15,7 +15,8 @@ export type ProviderAdapterType =
   | "meshy"
   | "tripo"
   | "hunyuan"
-  | "stability-3d";
+  | "stability-3d"
+  | "frostapi-3d";
 export type ProviderServiceType = "llm" | "image" | "model";
 
 export interface ProviderProfileSnapshot {
@@ -101,6 +102,24 @@ export interface ProviderConnectionTestResult {
   elapsedMs: number;
   models: DiscoveredProviderModel[];
 }
+
+export type FrostApiUsageSnapshot =
+  | {
+      mode: "unrestricted";
+      planName: string;
+      balance: number;
+      remaining: number;
+      unit: string;
+    }
+  | {
+      mode: "quota_limited";
+      quota: {
+        limit: number;
+        used: number;
+        remaining: number;
+        unit: string;
+      };
+    };
 
 export interface ApplicationDefaultModels {
   llm: EntityId | null;

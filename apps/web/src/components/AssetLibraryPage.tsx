@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useMemo, useState, type DragEvent, type FormEvent } from "react";
 import type { AssetSnapshot, JobSnapshot } from "@lyra/contracts";
 import { Icon } from "./Icon.js";
 import { ConfirmDialog } from "./ConfirmDialog.js";
@@ -20,6 +20,7 @@ interface AssetLibraryPageProps {
   onPreview: (asset: AssetSnapshot) => void;
   onViewModel: (assetId: string) => void;
   onUpload: () => void;
+  onUploadFiles: (files: File[]) => Promise<unknown>;
   onUpdate: (assetId: string, input: { name: string; tags: string[] }) => Promise<void>;
   onDelete: (assetId: string) => Promise<void>;
   onDeleteModel: (assetIds: string[]) => Promise<void>;
@@ -32,6 +33,8 @@ export function AssetLibraryPage(props: AssetLibraryPageProps) {
   const [editing, setEditing] = useState<AssetSnapshot | null>(null);
   const [deleting, setDeleting] = useState<AssetSnapshot | null>(null);
   const [busy, setBusy] = useState(false);
+  const [dragActive, setDragActive] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const tags = useMemo(
     () => source === "models"
       ? []
@@ -52,8 +55,49 @@ export function AssetLibraryPage(props: AssetLibraryPageProps) {
     [props.jobs, props.modelAssets]
   );
 
+  function isFileDrag(event: DragEvent<HTMLElement>): boolean {
+    return source !== "models" && Array.from(event.dataTransfer.types).includes("Files");
+  }
+
+  function handleDragEnter(event: DragEvent<HTMLElement>) {
+    if (!isFileDrag(event)) return;
+    event.preventDefault();
+    setDragActive(true);
+  }
+
+  function handleDragOver(event: DragEvent<HTMLElement>) {
+    if (!isFileDrag(event)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+  }
+
+  function handleDragLeave(event: DragEvent<HTMLElement>) {
+    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+      setDragActive(false);
+    }
+  }
+
+  function handleDrop(event: DragEvent<HTMLElement>) {
+    if (!isFileDrag(event)) return;
+    event.preventDefault();
+    setDragActive(false);
+    const images = Array.from(event.dataTransfer.files).filter((file) => file.type.startsWith("image/"));
+    if (images.length === 0 || uploading) return;
+    setUploading(true);
+    void props.onUploadFiles(images)
+      .catch(() => undefined)
+      .finally(() => setUploading(false));
+  }
+
   return (
-    <section className="library-page">
+    <section
+      className={`library-page${dragActive ? " drag-active" : ""}`}
+      aria-busy={uploading}
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
       <header className="page-heading">
         <div><h1>素材库</h1><p>统一查看当前项目的图片素材、生成图片和 AI 模型。</p></div>
         {source !== "models" && (

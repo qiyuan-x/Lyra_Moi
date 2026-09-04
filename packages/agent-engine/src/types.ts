@@ -12,6 +12,7 @@ export interface AgentToolCall {
 export interface AgentMessage {
   role: AgentMessageRole;
   content: string;
+  attachments?: OrderedAssetInput[];
   toolCall?: AgentToolCall;
   toolCallId?: string;
   toolName?: string;
@@ -74,6 +75,7 @@ export interface AgentTool {
 export interface LlmCompletionInput {
   messages: AgentMessage[];
   tools: AgentToolDefinition[];
+  projectId?: string;
   signal: AbortSignal | undefined;
 }
 

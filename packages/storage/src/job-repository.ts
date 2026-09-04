@@ -9,6 +9,7 @@ import type {
   ModelGenerationRequest
 } from "@lyra/contracts";
 import {
+  isMultiViewToModelGenerationRequest,
   isModelGenerationRequest,
   isTextToModelGenerationRequest
 } from "@lyra/contracts";
@@ -514,7 +515,13 @@ export class JobRepository {
         ? request.textureImageAssetId
           ? [{ assetId: request.textureImageAssetId, position: 1, label: "纹理输入图" }]
           : []
-        : [
+        : isMultiViewToModelGenerationRequest(request)
+          ? modelViewEntries(request.multiViewImageAssetIds).map(([view, assetId], index) => ({
+              assetId,
+              position: index + 1,
+              label: MODEL_VIEW_LABELS[view]
+            }))
+          : [
             { assetId: request.inputImageAssetId, position: 1, label: "模型输入图" },
             ...(request.textureImageAssetId
               ? [{
@@ -856,6 +863,10 @@ function validateRequest(request: JobRequest, kind: JobKind): void {
     }
     if (isTextToModelGenerationRequest(request)) {
       requireText(request.prompt, "Text-to-model prompt");
+    } else if (isMultiViewToModelGenerationRequest(request)) {
+      const views = modelViewEntries(request.multiViewImageAssetIds);
+      if (views.length < 2) throw new Error("Multi-view model input requires at least two images.");
+      for (const [, assetId] of views) requireText(assetId, "Multi-view model input image asset ID");
     } else {
       requireText(request.inputImageAssetId, "Model input image asset ID");
     }
@@ -901,6 +912,9 @@ function normalizeStoredRequest(
   }
   if (Array.isArray(raw.outputFormats)) {
     if (raw.inputMode === "text" && typeof raw.prompt === "string") {
+      return raw as unknown as ModelGenerationRequest;
+    }
+    if (raw.inputMode === "multiview" && isRecord(raw.multiViewImageAssetIds)) {
       return raw as unknown as ModelGenerationRequest;
     }
     if (typeof raw.inputImageAssetId === "string") {
@@ -962,6 +976,25 @@ function parseRecord(value: string, label: string): Record<string, unknown> {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+const MODEL_VIEW_LABELS = {
+  front: "正面图",
+  left: "左面图",
+  back: "背面图",
+  right: "右面图",
+  top: "顶面图",
+  bottom: "底面图",
+  leftFront: "左前 45° 图",
+  rightFront: "右前 45° 图"
+} as const;
+
+function modelViewEntries(images: Partial<Record<keyof typeof MODEL_VIEW_LABELS, string>>): Array<[
+  keyof typeof MODEL_VIEW_LABELS,
+  string
+]> {
+  return (Object.keys(MODEL_VIEW_LABELS) as Array<keyof typeof MODEL_VIEW_LABELS>)
+    .flatMap((view) => images[view] ? [[view, images[view]!]] : []);
 }
 
 function isTerminal(status: GenerationTaskStatus): boolean {

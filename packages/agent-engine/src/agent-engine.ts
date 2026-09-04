@@ -133,6 +133,7 @@ export class AgentEngine {
       const completion = await this.#provider.complete({
         messages: structuredClone(state.messages),
         tools: canUseTools ? this.#tools.definitions() : [],
+        projectId: state.context.projectId,
         signal
       });
       signal?.throwIfAborted();

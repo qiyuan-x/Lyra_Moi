@@ -41,7 +41,7 @@ class LauncherPaths:
                     return version.strip()
             except (OSError, ValueError):
                 pass
-        return "0.0.6"
+        return "0.0.7"
 
     @property
     def update_manifest_url(self) -> str | None:
@@ -135,6 +135,10 @@ class LauncherPaths:
     @property
     def lock_file(self) -> Path:
         return self.run_dir / "launcher.lock"
+
+    @property
+    def instance_lock_file(self) -> Path:
+        return self.run_dir / "launcher-instance.lock"
 
     @property
     def update_state_file(self) -> Path:

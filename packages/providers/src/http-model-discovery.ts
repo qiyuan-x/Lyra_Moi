@@ -37,6 +37,7 @@ export function createHttpProviderRegistry(
   return new ProviderRegistry()
     .register(new OpenAiModelDiscoveryAdapter("openai", true, client))
     .register(new OpenAiModelDiscoveryAdapter("openai-compatible", false, client))
+    .register(new OpenAiModelDiscoveryAdapter("openai-compatible", true, client, "frostapi-3d"))
     .register(new OpenAiModelDiscoveryAdapter("openai-compatible", true, client, "seedream-image"))
     .register(new OpenAiModelDiscoveryAdapter("openai-compatible", true, client, "zhipu-image"))
     .register(new AnthropicModelDiscoveryAdapter(client))

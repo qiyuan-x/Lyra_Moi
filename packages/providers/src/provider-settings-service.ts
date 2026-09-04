@@ -3,6 +3,7 @@ import type {
   ApplicationDefaultModels,
   CreateProviderModelRequestBody,
   DiscoveredProviderModel,
+  FrostApiUsageSnapshot,
   ProviderConnectionTestResult,
   ProviderAdapterType,
   ProviderModelSnapshot,
@@ -27,6 +28,10 @@ import type {
   UpdateStoredProviderProfileInput
 } from "@lyra/storage";
 import type { ProviderRegistry } from "./provider-registry.js";
+import {
+  FrostApiUsageClient,
+  type FrostApiUsageReader
+} from "./frostapi-usage.js";
 
 const DEFAULT_BASE_URLS: Partial<Record<ProviderProtocol, string>> = {
   openai: "https://api.openai.com/v1",
@@ -45,6 +50,7 @@ export interface ProviderSettingsServiceOptions {
   settings: AppSettingsRepository;
   secrets: SecretStore;
   registry: ProviderRegistry;
+  frostApiUsage?: FrostApiUsageReader;
 }
 
 export class ProviderSettingsService {
@@ -52,12 +58,14 @@ export class ProviderSettingsService {
   readonly #settings: AppSettingsRepository;
   readonly #secrets: SecretStore;
   readonly #registry: ProviderRegistry;
+  readonly #frostApiUsage: FrostApiUsageReader;
 
   constructor(options: ProviderSettingsServiceOptions) {
     this.#providers = options.providers;
     this.#settings = options.settings;
     this.#secrets = options.secrets;
     this.#registry = options.registry;
+    this.#frostApiUsage = options.frostApiUsage ?? new FrostApiUsageClient();
   }
 
   async createProfile(value: unknown): Promise<ProviderProfileSnapshot> {
@@ -290,6 +298,21 @@ export class ProviderSettingsService {
     };
   }
 
+  async getFrostApiUsage(
+    profileId: string,
+    signal?: AbortSignal
+  ): Promise<FrostApiUsageSnapshot> {
+    const profile = this.#providers.requireProfile(profileId);
+    if (!isFrostApiProfile(profile)) {
+      throw new Error("Usage queries are only supported for FrostAPI providers.");
+    }
+    return this.#frostApiUsage.query({
+      baseUrl: profile.baseUrl,
+      apiKey: await this.#secrets.get(profile.apiKeyEnvironmentVariable),
+      ...(signal ? { signal } : {})
+    });
+  }
+
   #synchronizeDiscoveredModels(
     profileId: string,
     models: readonly DiscoveredProviderModel[],
@@ -489,8 +512,9 @@ function validateAdapterServiceType(
     adapterType === "meshy" ||
     adapterType === "hunyuan" ||
     adapterType === "tripo" ||
-    adapterType === "stability-3d";
-  const supportsModel = modelAdapter || adapterType === "openai-compatible";
+    adapterType === "stability-3d" ||
+    adapterType === "frostapi-3d";
+  const supportsModel = modelAdapter;
   const imageAdapter =
     adapterType === "dashscope-image" ||
     adapterType === "seedream-image" ||
@@ -518,6 +542,17 @@ function isProtocolAdapter(
     adapterType === "anthropic" ||
     adapterType === "gemini" ||
     adapterType === "openai-compatible";
+}
+
+function isFrostApiProfile(profile: StoredProviderProfile): boolean {
+  if (profile.adapterType === "frostapi-3d") return true;
+  const internal = profile.settings.__lyra;
+  return Boolean(
+    internal &&
+    typeof internal === "object" &&
+    !Array.isArray(internal) &&
+    (internal as Record<string, unknown>).providerKind === "frostapi"
+  );
 }
 
 export function filterDiscoveredModels(

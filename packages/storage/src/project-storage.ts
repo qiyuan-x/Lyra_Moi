@@ -29,6 +29,7 @@ export class ProjectDirectoryStore {
       resolve(projectRoot, "generated", "images"),
       resolve(projectRoot, "generated", "models"),
       resolve(projectRoot, "generated", "thumbnails"),
+      resolve(projectRoot, "animations"),
       resolve(projectRoot, "temp")
     ]) {
       mkdirSync(directory, { recursive: true });

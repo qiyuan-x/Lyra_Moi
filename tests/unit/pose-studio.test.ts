@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import * as THREE from "../../apps/web/node_modules/three/build/three.module.js";
 import {
   applyHandPreset,
   builtInPoseTemplates,
@@ -18,6 +19,13 @@ import {
   readPoseSnapshot,
   type PoseTemplate
 } from "../../apps/web/src/features/pose-studio/pose-types.js";
+import { animationClipDisplayName } from "../../apps/web/src/features/pose-studio/AnimationClipPickerDialog.js";
+import {
+  composeRetargetedWorldRotation,
+  ue5ToQuaterniusV2BoneMap,
+  ue5ToUniversalBoneMap
+} from "../../apps/web/src/features/pose-studio/ue5-animation-retarget.js";
+import { captureUe5MannequinReferenceTransforms } from "../../apps/web/src/features/pose-studio/ue5-mannequin-reference.js";
 
 describe("pose studio", () => {
   it("creates an independent neutral pose", () => {
@@ -69,6 +77,70 @@ describe("pose studio", () => {
     expect(relaxed.pose.bones.rightPinky3.rotation).toEqual([0, 0, 0]);
   });
 
+  it("only exposes the verified UE5 base body poses", () => {
+    const templates = getBuiltInPoseTemplates().filter((item) => item.kind === "body");
+    expect(templates.map((item) => item.id)).toEqual([
+      "t-pose",
+      "a-pose",
+      "relaxed"
+    ]);
+  });
+
+  it("uses Chinese display names without changing imported animation clip names", () => {
+    expect(animationClipDisplayName("Sitting_Idle_Loop")).toBe("坐姿待机");
+    expect(animationClipDisplayName("Farm_Watering")).toBe("浇水");
+    expect(animationClipDisplayName("Custom_Action_01")).toBe("Custom Action 01");
+  });
+
+  it("maps UE5 limbs and fingers to the loaded action-library skeleton", () => {
+    expect(ue5ToUniversalBoneMap.thigh_l).toBe("DEF-thighL");
+    expect(ue5ToUniversalBoneMap.lowerarm_r).toBe("DEF-forearmR");
+    expect(ue5ToUniversalBoneMap.index_03_l).toBe("DEF-f_index03L");
+    expect(ue5ToUniversalBoneMap.pelvis).toBe("DEF-hips");
+    expect(ue5ToQuaterniusV2BoneMap.spine_05).toBe("spine_03");
+    expect(ue5ToQuaterniusV2BoneMap.head).toBe("Head");
+  });
+
+  it("transfers world motion from the source rest pose to the target TPose", () => {
+    const sourceRest = new THREE.Quaternion().setFromEuler(new THREE.Euler(.3, -.4, .2));
+    const targetTPose = new THREE.Quaternion().setFromEuler(new THREE.Euler(-.2, .1, -.6));
+    const worldMotion = new THREE.Quaternion().setFromEuler(new THREE.Euler(.15, .35, -.1));
+    const sourceCurrent = worldMotion.clone().multiply(sourceRest);
+    const expected = worldMotion.clone().multiply(targetTPose);
+    const actual = composeRetargetedWorldRotation(
+      sourceCurrent,
+      sourceRest.clone().invert(),
+      targetTPose
+    );
+    expect(actual.angleTo(expected)).toBeLessThan(1e-6);
+  });
+
+  it("captures the UE5 T-pose reference without changing the displayed animation pose", () => {
+    const root = new THREE.Group();
+    const upperArm = new THREE.Bone();
+    upperArm.name = "upperarm_l";
+    root.add(upperArm);
+    const displayed = new THREE.Quaternion().setFromEuler(new THREE.Euler(.2, -.1, .35));
+    const reference = new THREE.Quaternion().setFromEuler(new THREE.Euler(-.15, .05, 1.2));
+    upperArm.quaternion.copy(displayed);
+    const clip = new THREE.AnimationClip("TPose", 0, [
+      new THREE.QuaternionKeyframeTrack(
+        "upperarm_l.quaternion",
+        [0],
+        reference.toArray()
+      )
+    ]);
+
+    const captured = captureUe5MannequinReferenceTransforms(
+      root,
+      [clip],
+      { leftUpperArm: "upperarm_l" }
+    );
+
+    expect(captured.get("leftUpperArm")?.quaternion.angleTo(reference)).toBeLessThan(1e-3);
+    expect(upperArm.quaternion.angleTo(displayed)).toBeLessThan(1e-6);
+  });
+
   it("uses full finger rotations for V and OK gestures", () => {
     const neutral = createNeutralPose();
     const v = applyHandPreset(neutral, "left", "v");
@@ -90,6 +162,18 @@ describe("pose studio", () => {
     });
     expect(migrated?.root.position).toEqual([1, 2, 3]);
     expect(migrated?.bones.leftUpperArm.rotation).toEqual([4, 5, 6]);
+  });
+
+  it("adds a neutral pelvis when reading an older version 2 pose", () => {
+    const legacy = createNeutralPose();
+    const bones = { ...legacy.bones } as Record<string, unknown>;
+    delete bones.pelvis;
+    const migrated = readPoseSnapshot({ ...legacy, bones });
+    expect(migrated?.bones.pelvis).toEqual({
+      position: [0, 0, 0],
+      rotation: [0, 0, 0],
+      scale: [1, 1, 1]
+    });
   });
 
   it("exports selected templates and imports them", () => {

@@ -1,5 +1,4 @@
 import type {
-  AgentMessage,
   AgentToolDefinition,
   LlmCompletion,
   LlmCompletionInput,
@@ -7,12 +6,18 @@ import type {
 } from "@lyra/agent-engine";
 import { ProviderConnectionError } from "./provider-errors.js";
 import { ProviderHttpClient } from "./provider-http-client.js";
+import {
+  loadLlmMessages,
+  type LlmProviderAssetLoader,
+  type LoadedAgentMessage
+} from "./llm-provider-types.js";
 
 export interface AnthropicLlmProviderOptions {
   baseUrl: string;
   apiKey: string | null;
   model: string;
   settings?: Record<string, unknown>;
+  assetLoader?: LlmProviderAssetLoader;
   client?: ProviderHttpClient;
 }
 
@@ -21,6 +26,7 @@ export class AnthropicLlmProvider implements LlmProvider {
   readonly #apiKey: string;
   readonly #model: string;
   readonly #settings: Record<string, unknown>;
+  readonly #assetLoader: LlmProviderAssetLoader | undefined;
   readonly #client: ProviderHttpClient;
 
   constructor(options: AnthropicLlmProviderOptions) {
@@ -28,10 +34,16 @@ export class AnthropicLlmProvider implements LlmProvider {
     this.#apiKey = requireText(options.apiKey, "Provider API key");
     this.#model = requireText(options.model, "Provider model");
     this.#settings = structuredClone(options.settings ?? {});
+    this.#assetLoader = options.assetLoader;
     this.#client = options.client ?? new ProviderHttpClient();
   }
 
   async complete(input: LlmCompletionInput): Promise<LlmCompletion> {
+    const messages = await loadLlmMessages(
+      input.messages,
+      input.projectId,
+      this.#assetLoader
+    );
     const body = await this.#client.postJson(
       `${this.#baseUrl}/messages`,
       {
@@ -39,7 +51,7 @@ export class AnthropicLlmProvider implements LlmProvider {
         "x-api-key": this.#apiKey,
         "anthropic-version": "2023-06-01"
       },
-      createRequest(this.#model, this.#settings, input.messages, input.tools),
+      createRequest(this.#model, this.#settings, messages, input.tools),
       input.signal
     );
     return parseCompletion(body);
@@ -49,7 +61,7 @@ export class AnthropicLlmProvider implements LlmProvider {
 function createRequest(
   model: string,
   settings: Record<string, unknown>,
-  messages: readonly AgentMessage[],
+  messages: readonly LoadedAgentMessage[],
   tools: readonly AgentToolDefinition[]
 ): Record<string, unknown> {
   const request: Record<string, unknown> = {
@@ -80,7 +92,7 @@ function createRequest(
   return request;
 }
 
-function toMessage(message: AgentMessage): Record<string, unknown> {
+function toMessage(message: LoadedAgentMessage): Record<string, unknown> {
   if (message.role === "assistant" && message.toolCall) {
     return {
       role: "assistant",
@@ -100,6 +112,22 @@ function toMessage(message: AgentMessage): Record<string, unknown> {
         tool_use_id: requireText(message.toolCallId, "Tool call ID"),
         content: message.content
       }]
+    };
+  }
+  if (message.role === "user" && message.attachments.length > 0) {
+    return {
+      role: "user",
+      content: [
+        ...message.attachments.map((attachment) => ({
+          type: "image",
+          source: {
+            type: "base64",
+            media_type: attachment.mimeType,
+            data: Buffer.from(attachment.data).toString("base64")
+          }
+        })),
+        ...(message.content ? [{ type: "text", text: message.content }] : [])
+      ]
     };
   }
   return { role: message.role, content: message.content };

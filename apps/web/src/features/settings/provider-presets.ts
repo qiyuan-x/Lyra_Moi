@@ -54,23 +54,23 @@ const GEMINI_GUIDE =
 export const providerPresets: Record<ProviderServiceType, ProviderPreset[]> = {
   llm: [
     preset("openai", "llm", "OpenAI", "GPT", "openai", "openai", "https://api.openai.com/v1", ["openai", "chatgpt"], "https://platform.openai.com/api-keys", OPENAI_GUIDE),
-    preset("anthropic", "llm", "Claude", "C", "anthropic", "anthropic", "https://api.anthropic.com/v1", ["anthropic", "claude"], "https://console.anthropic.com/settings/keys", "1. 登录 Anthropic Console。\n2. 在 API Keys 页面创建密钥。\n3. 复制密钥后返回 Lyra 执行连通性测试。"),
+    preset("anthropic", "llm", "Claude", "C", "anthropic", "anthropic", "https://api.anthropic.com/v1", ["anthropic", "claude"], "https://platform.claude.com/settings/keys", "1. 登录 Claude Platform。\n2. 在 API Keys 页面创建密钥。\n3. 复制密钥后返回 Lyra 执行连通性测试。"),
     preset("gemini", "llm", "Gemini", "G", "gemini", "gemini", "https://generativelanguage.googleapis.com/v1beta", ["gemini", "google"], "https://aistudio.google.com/app/apikey", GEMINI_GUIDE),
     preset("deepseek", "llm", "DeepSeek", "DS", "openai-compatible", "openai-compatible", "https://api.deepseek.com/v1", ["deepseek"], "https://platform.deepseek.com/api_keys", "1. 登录 DeepSeek 开放平台。\n2. 在 API Keys 页面创建密钥。\n3. 确认账户可用后返回 Lyra 执行连通性测试。"),
     preset("frostapi", "llm", "FrostAPI", "Frost", "openai-compatible", "openai-compatible", "https://api.linfrsot.cloud", ["frostapi", "frost", "frsotapi"], "https://api.linfrsot.cloud", "1. 在 FrostAPI 控制台创建 API Key。\n2. 复制密钥后返回 Lyra。\n3. 使用默认端点执行连通性测试。"),
-    preset("qwen-llm", "llm", "通义千问", "QW", "openai-compatible", "openai-compatible", "https://dashscope.aliyuncs.com/compatible-mode/v1", ["qwen", "通义", "千问", "dashscope"], "https://bailian.console.aliyun.com/", "1. 登录阿里云百炼控制台。\n2. 开通模型服务并创建 API Key。\n3. 复制密钥后返回 Lyra 执行连通性测试。"),
-    preset("doubao", "llm", "豆包", "DB", "openai-compatible", "openai-compatible", "https://ark.cn-beijing.volces.com/api/v3", ["doubao", "豆包", "ark", "火山"], "https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey", "1. 登录火山方舟控制台。\n2. 开通模型并创建 API Key。\n3. 复制密钥后返回 Lyra 执行连通性测试。"),
+    preset("qwen-llm", "llm", "通义千问", "QW", "openai-compatible", "openai-compatible", "https://dashscope.aliyuncs.com/compatible-mode/v1", ["qwen", "通义", "千问", "dashscope"], "https://bailian.console.aliyun.com/?tab=model", "1. 登录阿里云百炼控制台。\n2. 开通模型服务并创建 API Key。\n3. 复制密钥后返回 Lyra 执行连通性测试。"),
+    preset("doubao", "llm", "豆包", "DB", "openai-compatible", "openai-compatible", "https://ark.cn-beijing.volces.com/api/v3", ["doubao", "豆包", "ark", "火山"], "https://console.volcengine.com/ark/region:ark+cn-beijing/apikey", "1. 登录火山方舟控制台。\n2. 开通模型并创建 API Key。\n3. 复制密钥后返回 Lyra 执行连通性测试。"),
     preset("zhipu-llm", "llm", "智谱 GLM", "GLM", "openai-compatible", "openai-compatible", "https://open.bigmodel.cn/api/paas/v4", ["zhipu", "智谱", "glm", "bigmodel"], "https://open.bigmodel.cn/usercenter/apikeys", "1. 登录智谱开放平台。\n2. 在 API Keys 页面创建密钥。\n3. 复制密钥后返回 Lyra 执行连通性测试。"),
-    preset("kimi", "llm", "Kimi", "K", "openai-compatible", "openai-compatible", "https://api.moonshot.cn/v1", ["kimi", "moonshot", "月之暗面"], "https://platform.moonshot.cn/console/api-keys", "1. 登录 Moonshot 开放平台。\n2. 创建 API Key。\n3. 复制密钥后返回 Lyra 执行连通性测试。"),
-    preset("xai", "llm", "xAI", "xAI", "openai-compatible", "openai-compatible", "https://api.x.ai/v1", ["xai", "grok"], "https://console.x.ai/", "1. 登录 xAI Console。\n2. 创建 API Key。\n3. 复制密钥后返回 Lyra 执行连通性测试。"),
+    preset("kimi", "llm", "Kimi", "K", "openai-compatible", "openai-compatible", "https://api.moonshot.cn/v1", ["kimi", "moonshot", "月之暗面"], "https://platform.kimi.com/console/api-keys", "1. 登录 Kimi API 开放平台。\n2. 创建 API Key。\n3. 复制密钥后返回 Lyra 执行连通性测试。"),
+    preset("xai", "llm", "xAI", "xAI", "openai-compatible", "openai-compatible", "https://api.x.ai/v1", ["xai", "grok"], "https://console.x.ai/team/default/api-keys", "1. 登录 xAI Console。\n2. 创建 API Key。\n3. 复制密钥后返回 Lyra 执行连通性测试。"),
     preset("mistral", "llm", "Mistral", "M", "openai-compatible", "openai-compatible", "https://api.mistral.ai/v1", ["mistral"], "https://console.mistral.ai/api-keys", "1. 登录 Mistral Console。\n2. 创建 API Key。\n3. 复制密钥后返回 Lyra 执行连通性测试。")
   ],
   image: [
     preset("gpt-image", "image", "OpenAI 图像", "GPT", "openai", "openai", "https://api.openai.com/v1", ["openai", "gpt-image", "chatgpt"], "https://platform.openai.com/api-keys", OPENAI_GUIDE),
     preset("frostapi", "image", "FrostAPI 图像", "Frost", "openai-compatible", "openai-compatible", "https://api.linfrsot.cloud", ["frostapi", "frost", "frsotapi"], "https://api.linfrsot.cloud", "1. 在 FrostAPI 控制台创建 API Key。\n2. 确认已开通图像模型。\n3. 复制密钥后返回 Lyra 执行连通性测试。"),
     preset("gemini-image", "image", "Gemini 图像", "G", "gemini", "gemini", "https://generativelanguage.googleapis.com/v1beta", ["gemini", "google"], "https://aistudio.google.com/app/apikey", GEMINI_GUIDE),
-    preset("qwen-image", "image", "通义万相", "QW", "openai-compatible", "dashscope-image", "https://dashscope.aliyuncs.com/api/v1", ["qwen", "通义万相", "wan", "dashscope"], "https://bailian.console.aliyun.com/", "1. 登录阿里云百炼控制台。\n2. 开通通义万相或 Qwen-Image 并创建 API Key。\n3. 复制密钥后返回 Lyra 执行连通性测试。"),
-    preset("seedream-image", "image", "即梦 Seedream", "SD", "openai-compatible", "seedream-image", "https://ark.cn-beijing.volces.com/api/v3", ["seedream", "即梦", "豆包", "ark"], "https://console.volcengine.com/ark/region:ark+cn-beijing/apiKey", "1. 登录火山方舟控制台。\n2. 开通 Seedream 模型并创建 API Key。\n3. 复制密钥后返回 Lyra 执行连通性测试。"),
+    preset("qwen-image", "image", "通义万相", "QW", "openai-compatible", "dashscope-image", "https://dashscope.aliyuncs.com/api/v1", ["qwen", "通义万相", "wan", "dashscope"], "https://bailian.console.aliyun.com/?tab=model", "1. 登录阿里云百炼控制台。\n2. 开通通义万相或 Qwen-Image 并创建 API Key。\n3. 复制密钥后返回 Lyra 执行连通性测试。"),
+    preset("seedream-image", "image", "即梦 Seedream", "SD", "openai-compatible", "seedream-image", "https://ark.cn-beijing.volces.com/api/v3", ["seedream", "即梦", "豆包", "ark"], "https://console.volcengine.com/ark/region:ark+cn-beijing/apikey", "1. 登录火山方舟控制台。\n2. 开通 Seedream 模型并创建 API Key。\n3. 复制密钥后返回 Lyra 执行连通性测试。"),
     preset("zhipu-image", "image", "智谱 GLM-Image", "GLM", "openai-compatible", "zhipu-image", "https://open.bigmodel.cn/api/paas/v4", ["zhipu", "智谱", "glm-image", "cogview"], "https://open.bigmodel.cn/usercenter/apikeys", "1. 登录智谱开放平台。\n2. 创建 API Key 并开通图像模型。\n3. 返回 Lyra 执行连通性测试。"),
     {
       ...preset("hunyuan-image", "image", "腾讯混元生图", "HY", "openai-compatible", "hunyuan-image", "https://hunyuan.tencentcloudapi.com", ["hunyuan-image", "混元生图", "腾讯云"], "https://console.cloud.tencent.com/cam/capi", "1. 登录腾讯云控制台。\n2. 在访问管理的 API 密钥管理中创建 SecretId 和 SecretKey。\n3. 开通混元生图服务后，将两项凭证分别填入 Lyra。"),
@@ -79,10 +79,10 @@ export const providerPresets: Record<ProviderServiceType, ProviderPreset[]> = {
     preset("stability-image", "image", "Stability AI", "S", "openai-compatible", "stability-image", "https://api.stability.ai", ["stability", "stable image", "sd3"], "https://platform.stability.ai/account/keys", "1. 登录 Stability AI Platform。\n2. 在 API Keys 页面创建密钥。\n3. 复制密钥后返回 Lyra 执行连通性测试。")
   ],
   model: [
-    preset("frostapi", "model", "FrostAPI 3D", "Frost", "openai-compatible", "openai-compatible", "https://api.linfrsot.cloud", ["frostapi", "frost", "frsotapi"], "https://api.linfrsot.cloud", "1. 在 FrostAPI 控制台创建 API Key。\n2. 连接会通过 OpenAI 兼容的 /models 接口读取可用模型。\n3. 复制密钥后返回 Lyra 执行连通性测试。"),
+    preset("frostapi", "model", "FrostAPI 3D", "Frost", "openai-compatible", "frostapi-3d", "https://api.linfrsot.cloud", ["frostapi", "frost", "frsotapi"], "https://api.linfrsot.cloud", "1. 在 FrostAPI 控制台创建 API Key。\n2. 连接会通过 /v1/models 读取可用模型。\n3. 生成任务使用 FrostAPI /v1/3d 接口。"),
     preset("meshy", "model", "Meshy", "M", "openai-compatible", "meshy", "https://api.meshy.ai", ["meshy"], "https://www.meshy.ai/settings/api", "1. 登录 Meshy。\n2. 打开 API Settings 并创建 API Key。\n3. 复制密钥后返回 Lyra 执行连通性测试。"),
-    preset("hunyuan", "model", "腾讯混元 3D", "HY", "openai-compatible", "hunyuan", "https://api.ai3d.cloud.tencent.com", ["hunyuan", "混元", "腾讯"], "https://console.cloud.tencent.com/hunyuan", "1. 登录腾讯云并开通混元生 3D。\n2. 在对应服务页面创建 API Key。\n3. 该密钥不是腾讯云 SecretId/SecretKey，请按控制台说明填写。"),
-    preset("tripo", "model", "Tripo", "T", "openai-compatible", "tripo", "https://api.tripo3d.ai/v2/openapi", ["tripo"], "https://platform.tripo3d.ai", "1. 登录 Tripo Console。\n2. 在 API Keys 页面创建密钥。\n3. 复制 tsk_ 开头的 API Key 后返回 Lyra 执行测试。"),
+    preset("hunyuan", "model", "腾讯混元 3D", "HY", "openai-compatible", "hunyuan", "https://tokenhub.tencentmaas.com", ["hunyuan", "混元", "腾讯", "tokenhub"], "https://console.cloud.tencent.com/tokenhub/apikey?regionId=1", "1. 新用户在腾讯云 TokenHub 开通 HY-3D，并创建 API Key。\n2. 已购买旧版腾讯混元 3D 的用户也可直接填写原 API Key。\n3. Lyra 会自动识别新旧 API 的认证和请求格式；基础 URL 可保留默认值，也可填写对应平台地址。"),
+    preset("tripo", "model", "Tripo", "T", "openai-compatible", "tripo", "https://api.tripo3d.ai/v2/openapi", ["tripo"], "https://platform.tripo3d.ai/api-keys", "1. 登录 Tripo Console。\n2. 在 API Keys 页面创建密钥。\n3. 复制 tsk_ 开头的 API Key 后返回 Lyra 执行测试。"),
     preset("stability-3d", "model", "Stability AI 3D", "S", "openai-compatible", "stability-3d", "https://api.stability.ai", ["stability", "spar3d", "fast3d"], "https://platform.stability.ai/account/keys", "1. 登录 Stability AI Platform。\n2. 在 API Keys 页面创建密钥。\n3. 复制密钥后返回 Lyra 执行连通性测试。")
   ]
 };
@@ -175,7 +175,8 @@ export function adapterLabel(adapterType: ProviderAdapterType): string {
     meshy: "Meshy API",
     hunyuan: "混元 3D API",
     tripo: "Tripo API",
-    "stability-3d": "Stability 3D API"
+    "stability-3d": "Stability 3D API",
+    "frostapi-3d": "FrostAPI 3D"
   };
   return labels[adapterType] ?? protocolLabels[adapterType as ProviderProtocol] ?? adapterType;
 }

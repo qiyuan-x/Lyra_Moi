@@ -1,6 +1,6 @@
 {
   "name": "@lyra/providers",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
@@ -19,6 +19,7 @@
     "@lyra/agent-engine": "workspace:*",
     "@lyra/contracts": "workspace:*",
     "@lyra/core": "workspace:*",
-    "@lyra/storage": "workspace:*"
+    "@lyra/storage": "workspace:*",
+    "undici": "6.28.0"
   }
 }

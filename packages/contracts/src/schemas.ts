@@ -48,8 +48,24 @@ export const manualModelGenerationRequestSchema = {
   ],
   properties: {
     projectId: { type: "string", minLength: 1 },
-    inputMode: { enum: ["image", "text"] },
+    inputMode: { enum: ["image", "text", "multiview"] },
     imageAssetId: { type: "string", minLength: 1 },
+    multiViewImageAssetIds: {
+      type: "object",
+      additionalProperties: false,
+      minProperties: 1,
+      required: ["front"],
+      properties: {
+        front: { type: "string", minLength: 1 },
+        left: { type: "string", minLength: 1 },
+        back: { type: "string", minLength: 1 },
+        right: { type: "string", minLength: 1 },
+        top: { type: "string", minLength: 1 },
+        bottom: { type: "string", minLength: 1 },
+        leftFront: { type: "string", minLength: 1 },
+        rightFront: { type: "string", minLength: 1 }
+      }
+    },
     prompt: { type: "string", minLength: 1, maxLength: 1024 },
     textureImageAssetId: { type: "string", minLength: 1 },
     providerProfileId: { type: "string", minLength: 1 },
@@ -70,6 +86,10 @@ export const manualModelGenerationRequestSchema = {
     {
       properties: { inputMode: { const: "text" } },
       required: ["prompt"]
+    },
+    {
+      properties: { inputMode: { const: "multiview" } },
+      required: ["multiViewImageAssetIds"]
     }
   ]
 } as const satisfies JsonSchema;
@@ -79,7 +99,7 @@ export const sendAgentMessageRequestSchema = {
   additionalProperties: false,
   required: ["text", "attachments"],
   properties: {
-    text: { type: "string", minLength: 1 },
+    text: { type: "string" },
     attachments: { type: "array", items: orderedAssetInputSchema },
     optimizeImagePrompt: { type: "boolean" },
     selection: {
@@ -120,7 +140,7 @@ export const createProviderProfileRequestSchema = {
       enum: [
         "openai", "anthropic", "gemini", "openai-compatible",
         "dashscope-image", "seedream-image", "zhipu-image", "hunyuan-image",
-        "stability-image", "meshy", "tripo", "hunyuan", "stability-3d"
+        "stability-image", "meshy", "tripo", "hunyuan", "stability-3d", "frostapi-3d"
       ]
     },
     baseUrl: { type: "string" },
@@ -142,7 +162,7 @@ export const updateProviderProfileRequestSchema = {
       enum: [
         "openai", "anthropic", "gemini", "openai-compatible",
         "dashscope-image", "seedream-image", "zhipu-image", "hunyuan-image",
-        "stability-image", "meshy", "tripo", "hunyuan", "stability-3d"
+        "stability-image", "meshy", "tripo", "hunyuan", "stability-3d", "frostapi-3d"
       ]
     },
     baseUrl: { type: "string" },

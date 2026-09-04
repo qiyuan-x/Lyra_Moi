@@ -18,6 +18,7 @@ import { DashScopeImageProvider } from "./dashscope-image-provider.js";
 import { HunyuanImageProvider } from "./hunyuan-image-provider.js";
 import { HunyuanModelProvider } from "./hunyuan-model-provider.js";
 import type { ProviderAssetLoader } from "./image-provider-types.js";
+import type { LlmProviderAssetLoader } from "./llm-provider-types.js";
 import { MeshyModelProvider } from "./meshy-model-provider.js";
 import type {
   BinaryModelProvider,
@@ -31,11 +32,14 @@ import {
 } from "./openai-llm-provider.js";
 import type { OpenAiLlmProviderOptions } from "./openai-llm-provider.js";
 import { ProviderConnectionError } from "./provider-errors.js";
-import { ProviderHttpClient } from "./provider-http-client.js";
+import {
+  createImageProviderHttpClient,
+  ProviderHttpClient
+} from "./provider-http-client.js";
 import { StabilityImageProvider } from "./stability-image-provider.js";
 import { StabilityModelProvider } from "./stability-model-provider.js";
 import { TripoModelProvider } from "./tripo-model-provider.js";
-import { OpenAiCompatibleModelProvider } from "./openai-compatible-model-provider.js";
+import { FrostApiModelProvider } from "./frostapi-model-provider.js";
 
 type RuntimeLlmProviderOptions = OpenAiLlmProviderOptions;
 type RuntimeImageProviderOptions = OpenAiImageProviderOptions & {
@@ -86,7 +90,7 @@ const modelProviderFactories: Partial<Record<
   tripo: (options) => new TripoModelProvider(options),
   hunyuan: (options) => new HunyuanModelProvider(options),
   "stability-3d": (options) => new StabilityModelProvider(options),
-  "openai-compatible": (options) => new OpenAiCompatibleModelProvider(options)
+  "frostapi-3d": (options) => new FrostApiModelProvider(options)
 };
 
 export interface RuntimeProviderFactoryOptions {
@@ -104,6 +108,7 @@ export class RuntimeProviderFactory {
   readonly #secrets: SecretStore;
   readonly #assetLoader: ProviderAssetLoader;
   readonly #modelAssetLoader: ModelProviderAssetLoader;
+  readonly #llmAssetLoader: LlmProviderAssetLoader;
   readonly #llmClient: ProviderHttpClient;
   readonly #imageClient: ProviderHttpClient;
   readonly #modelClient: ProviderHttpClient;
@@ -111,12 +116,14 @@ export class RuntimeProviderFactory {
   constructor(options: RuntimeProviderFactoryOptions) {
     this.#providers = options.providers;
     this.#secrets = options.secrets;
-    this.#assetLoader = new AssetServiceLoader(options.assets);
-    this.#modelAssetLoader = new AssetServiceLoader(options.assets);
+    const assetLoader = new AssetServiceLoader(options.assets);
+    this.#assetLoader = assetLoader;
+    this.#modelAssetLoader = assetLoader;
+    this.#llmAssetLoader = assetLoader;
     this.#llmClient = options.llmClient ?? options.client ?? new ProviderHttpClient();
     this.#imageClient = options.imageClient
       ?? options.client
-      ?? new ProviderHttpClient({ timeoutMs: 10 * 60_000 });
+      ?? createImageProviderHttpClient();
     this.#modelClient = options.modelClient
       ?? options.client
       ?? new ProviderHttpClient({
@@ -133,6 +140,7 @@ export class RuntimeProviderFactory {
       secondaryApiKey: resolved.secondaryApiKey,
       model: resolved.model.remoteModelId,
       settings: resolved.model.settings,
+      assetLoader: this.#llmAssetLoader,
       client: this.#llmClient
     };
     return llmProviderFactories[resolved.profile.protocol](options);
@@ -271,7 +279,10 @@ export class RuntimeModelProviderResolver {
   }
 }
 
-class AssetServiceLoader implements ProviderAssetLoader, ModelProviderAssetLoader {
+class AssetServiceLoader implements
+  ProviderAssetLoader,
+  ModelProviderAssetLoader,
+  LlmProviderAssetLoader {
   readonly #assets: AssetService;
 
   constructor(assets: AssetService) {
@@ -293,6 +304,21 @@ class AssetServiceLoader implements ProviderAssetLoader, ModelProviderAssetLoade
       data: content.data,
       mimeType: content.descriptor.mimeType,
       name: createAttachmentName(content.descriptor.asset.name, content.descriptor.mimeType)
+    };
+  }
+
+  async loadAsset(assetId: string, projectId: string) {
+    const content = await this.#assets.getContent(assetId);
+    if (content.descriptor.asset.projectId !== projectId) {
+      throw new ProviderConnectionError(
+        "INVALID_CONFIGURATION",
+        "Attachment does not belong to the conversation project."
+      );
+    }
+    return {
+      data: content.data,
+      mimeType: content.descriptor.mimeType,
+      name: content.descriptor.asset.name
     };
   }
 

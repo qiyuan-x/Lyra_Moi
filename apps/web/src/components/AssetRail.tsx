@@ -20,7 +20,7 @@ export function AssetRail(props: AssetRailProps) {
   const imageAssets = props.assets.filter((asset) => asset.kind === "image");
   const uploaded = imageAssets.filter((asset) => asset.source === "upload");
   const generated = imageAssets.filter((asset) => asset.source === "generated");
-  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerSource, setPickerSource] = useState<"all" | "upload" | "generated" | null>(null);
 
   if (props.collapsed) {
     return (
@@ -45,7 +45,7 @@ export function AssetRail(props: AssetRailProps) {
             <button
               type="button"
               className="button button-quiet asset-picker-open"
-              onClick={() => setPickerOpen(true)}
+              onClick={() => setPickerSource("all")}
             >
               <Icon name="library" size={14} />选择引用
             </button>
@@ -57,6 +57,7 @@ export function AssetRail(props: AssetRailProps) {
       </header>
       <div className="asset-groups">
         <AssetGroup
+          className="asset-group-uploaded"
           title="上传素材"
           assets={uploaded}
           emptyText="上传图片"
@@ -64,11 +65,20 @@ export function AssetRail(props: AssetRailProps) {
           thumbnailUrl={props.thumbnailUrl}
           onToggleAttachment={props.onToggleAttachment}
           onPreview={props.onPreview}
-          action={(
+          action={<div className="asset-group-header-actions">
+            <button
+              type="button"
+              className="icon-button"
+              title="选择上传素材"
+              aria-label="选择上传素材"
+              onClick={() => setPickerSource("upload")}
+            >
+              <Icon name="library" size={15} />
+            </button>
             <button type="button" className="icon-button" aria-label="上传素材" onClick={props.onUploadClick}>
               <Icon name="plus" size={16} />
             </button>
-          )}
+          </div>}
           onEmptyClick={props.onUploadClick}
         />
         <AssetGroup
@@ -80,15 +90,27 @@ export function AssetRail(props: AssetRailProps) {
           onToggleAttachment={props.onToggleAttachment}
           onPreview={props.onPreview}
           generationModelByAssetId={props.generationModelByAssetId}
+          action={(
+            <button
+              type="button"
+              className="icon-button"
+              title="选择生成图片"
+              aria-label="选择生成图片"
+              onClick={() => setPickerSource("generated")}
+            >
+              <Icon name="library" size={15} />
+            </button>
+          )}
         />
       </div>
-      {pickerOpen && (
+      {pickerSource && (
         <AssetPickerDialog
           assets={imageAssets}
+          initialSource={pickerSource}
           attachmentOrder={props.attachmentOrder}
           thumbnailUrl={props.thumbnailUrl}
           onToggleAttachment={props.onToggleAttachment}
-          onClose={() => setPickerOpen(false)}
+          onClose={() => setPickerSource(null)}
           onPreview={props.onPreview}
           onUploadClick={props.onUploadClick}
         />
@@ -98,6 +120,7 @@ export function AssetRail(props: AssetRailProps) {
 }
 
 function AssetGroup(props: {
+  className?: string;
   title: string;
   assets: AssetSnapshot[];
   emptyText: string;
@@ -110,7 +133,7 @@ function AssetGroup(props: {
   onEmptyClick?: () => void;
 }) {
   return (
-    <section className="asset-group">
+    <section className={`asset-group${props.className ? ` ${props.className}` : ""}`}>
       <header>
         <div><strong>{props.title}</strong><span>{props.assets.length}</span></div>
         {props.action}
@@ -126,7 +149,7 @@ function AssetGroup(props: {
             {props.onEmptyClick && <Icon name="plus" size={18} />}
             {props.emptyText}
           </button>
-        ) : props.assets.map((asset) => {
+        ) : props.assets.slice(0, 6).map((asset) => {
           const order = props.attachmentOrder.get(asset.id);
           const generationModel = props.generationModelByAssetId?.get(asset.id);
           return (

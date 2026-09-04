@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   ProviderRegistry,
   ProviderSettingsService,
+  type FrostApiUsageInput,
   type ProviderDiscoveryInput
 } from "@lyra/providers";
 import {
@@ -212,6 +213,61 @@ describe("ProviderSettingsService", () => {
         protocol: "openai-compatible",
         baseUrl: "https://api.deepseek.com/v1"
       });
+    } finally {
+      database.close();
+    }
+  });
+
+  it("queries FrostAPI usage with the saved provider credentials", async () => {
+    const parent = await mkdtemp(join(tmpdir(), "lyra-providers-"));
+    temporaryDirectories.push(parent);
+    const layout = createRuntimeLayout(join(parent, "data"));
+    await migrateRuntimeDatabase(layout);
+    const database = await openReadyRuntimeDatabase(layout);
+    const received: FrostApiUsageInput[] = [];
+    const service = new ProviderSettingsService({
+      providers: new ProviderRepository(database),
+      settings: new AppSettingsRepository(database),
+      secrets: new EnvironmentFileSecretStore(layout.environmentFile),
+      registry: new ProviderRegistry(),
+      frostApiUsage: {
+        async query(input) {
+          received.push(input);
+          return {
+            mode: "quota_limited",
+            quota: { limit: 10, used: 3, remaining: 7, unit: "USD" }
+          };
+        }
+      }
+    });
+
+    try {
+      const frost = await service.createProfile({
+        serviceType: "image",
+        name: "FrostAPI 图像",
+        protocol: "openai-compatible",
+        baseUrl: "https://api.linfrsot.cloud",
+        apiKey: "sk-saved",
+        settings: { __lyra: { providerKind: "frostapi" } }
+      });
+      await expect(service.getFrostApiUsage(frost.id)).resolves.toEqual({
+        mode: "quota_limited",
+        quota: { limit: 10, used: 3, remaining: 7, unit: "USD" }
+      });
+      expect(received).toEqual([expect.objectContaining({
+        baseUrl: "https://api.linfrsot.cloud/v1",
+        apiKey: "sk-saved"
+      })]);
+
+      const other = await service.createProfile({
+        serviceType: "llm",
+        name: "Other",
+        protocol: "openai-compatible",
+        baseUrl: "https://other.test/v1",
+        apiKey: "sk-other"
+      });
+      await expect(service.getFrostApiUsage(other.id))
+        .rejects.toThrow("only supported for FrostAPI");
     } finally {
       database.close();
     }

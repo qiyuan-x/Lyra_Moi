@@ -7,6 +7,7 @@ import type {
   AssetSnapshot,
   JobSnapshot,
   ModelOutputFormat,
+  MultiViewImageAssetIds,
   ProviderModelSnapshot
 } from "@lyra/contracts";
 import type { ManualImageTaskInput } from "../features/generation/task-input.js";
@@ -25,6 +26,7 @@ type ModelGenerationInput = {
 } & (
   | { inputMode: "image"; imageAssetId: string }
   | { inputMode: "text"; prompt: string }
+  | { inputMode: "multiview"; multiViewImageAssetIds: MultiViewImageAssetIds }
 );
 
 interface UseGenerationActionsOptions {
@@ -109,7 +111,13 @@ export function useGenerationActions(
         options.projectId,
         input.inputMode === "image"
           ? { ...common, inputMode: "image", imageAssetId: input.imageAssetId }
-          : { ...common, inputMode: "text", prompt: input.prompt }
+          : input.inputMode === "multiview"
+            ? {
+                ...common,
+                inputMode: "multiview",
+                multiViewImageAssetIds: input.multiViewImageAssetIds
+              }
+            : { ...common, inputMode: "text", prompt: input.prompt }
       );
       options.onNotice("建模任务已提交。");
       await options.refreshProject(options.projectId);

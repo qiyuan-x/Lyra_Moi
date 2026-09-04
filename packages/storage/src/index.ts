@@ -9,6 +9,7 @@ export * from "./environment-secret-store.js";
 export * from "./migration-runner.js";
 export * from "./migrations/index.js";
 export * from "./project-repository.js";
+export * from "./project-animation-store.js";
 export * from "./project-storage.js";
 export * from "./process-stop-file.js";
 export * from "./provider-repository.js";

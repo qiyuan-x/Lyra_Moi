@@ -4,10 +4,13 @@ import type {
   ManualModelGenerationRequestBody,
   ModelGenerationRequest,
   ModelOutputFormat,
-  ProviderAdapterType
+  MultiViewImageAssetIds,
+  ModelGenerationAdapterType
 } from "@lyra/contracts";
 import {
-  isMeshyGenerationModel,
+  isHunyuan31ModelId,
+  isMultiViewToModelGenerationRequest,
+  resolveModelGenerationAdapter,
   parseManualModelGenerationRequest
 } from "@lyra/contracts";
 import type {
@@ -72,6 +75,19 @@ export class ModelGenerationService {
     if (input.inputMode === "text" && !prompt) {
       throw new Error("Text-to-model prompt is required.");
     }
+    const multiViewImages = input.inputMode === "multiview"
+      ? Object.fromEntries(Object.entries(input.multiViewImageAssetIds).map(([view, assetId]) => [
+          view,
+          this.#assets.requireStored(assetId)
+        ]))
+      : null;
+    if (multiViewImages) {
+      for (const asset of Object.values(multiViewImages)) {
+        if (asset.projectId !== normalizedProjectId || asset.kind !== "image") {
+          throw new Error("Multi-view inputs must be images in the selected project.");
+        }
+      }
+    }
     const textureImage = input.textureImageAssetId
       ? this.#assets.requireStored(input.textureImageAssetId)
       : null;
@@ -92,12 +108,26 @@ export class ModelGenerationService {
     ) {
       throw new Error("Selected model provider is not available.");
     }
-    if (input.inputMode === "text" && profile.adapterType === "stability-3d") {
+    const generationAdapter = resolveModelGenerationAdapter(
+      profile.adapterType,
+      model.remoteModelId
+    );
+    if (!generationAdapter) {
+      throw new Error("Selected model is not supported by its modeling provider.");
+    }
+    if (input.inputMode === "text" && generationAdapter === "stability-3d") {
       throw new Error("The selected Stability AI 3D model requires an image input.");
+    }
+    if (input.inputMode === "multiview") {
+      validateMultiViewProvider(
+        generationAdapter,
+        model.remoteModelId,
+        input.multiViewImageAssetIds
+      );
     }
     if (
       textureImage &&
-      !isMeshyGenerationModel(profile.adapterType, model.remoteModelId)
+      generationAdapter !== "meshy"
     ) {
       throw new Error("Only Meshy supports a separate texture reference image.");
     }
@@ -110,7 +140,7 @@ export class ModelGenerationService {
       providerProfileId: profile.id,
       providerModelId: model.id,
       outputFormats: normalizeOutputFormats(
-        profile.adapterType,
+        generationAdapter,
         model.remoteModelId,
         input.outputFormats,
         input.parameters
@@ -124,7 +154,13 @@ export class ModelGenerationService {
           inputMode: "text",
           prompt: prompt!
         }
-      : {
+      : input.inputMode === "multiview"
+        ? {
+            ...commonRequest,
+            inputMode: "multiview",
+            multiViewImageAssetIds: structuredClone(input.multiViewImageAssetIds)
+          }
+        : {
           ...commonRequest,
           inputMode: "image",
           inputImageAssetId: image!.id
@@ -138,19 +174,58 @@ export class ModelGenerationService {
       requestMessageId: options.requestMessageId ?? null,
       title: input.inputMode === "text"
         ? `${prompt!.slice(0, 40)} · 文字生成 3D 模型`
-        : `${image!.name} · 生成 3D 模型`
+        : isMultiViewToModelGenerationRequest(request)
+          ? `${multiViewImages!.front!.name} 等 ${Object.keys(multiViewImages!).length} 张 · 多视图生成 3D 模型`
+          : `${image!.name} · 生成 3D 模型`
     });
   }
 }
 
+function validateMultiViewProvider(
+  adapterType: ModelGenerationAdapterType,
+  remoteModelId: string,
+  images: MultiViewImageAssetIds
+): void {
+  const views = Object.keys(images);
+  if (adapterType === "meshy") {
+    if (!["latest", "meshy-5", "meshy-6", "meshy-7"].includes(remoteModelId)) {
+      throw new Error("当前 Meshy 模型不支持多图生成。");
+    }
+    if (views.length > 4 || views.some((view) => !["front", "left", "back", "right"].includes(view))) {
+      throw new Error("Meshy 多图生成最多支持正面、左面、背面和右面四张图片。");
+    }
+    return;
+  }
+  if (views.length < 2) throw new Error("多视图生成至少需要正面图和另一张视图。");
+  if (adapterType === "tripo") {
+    if (remoteModelId.startsWith("Turbo-")) {
+      throw new Error("当前 Tripo Turbo 模型不支持多视图生成。");
+    }
+    if (views.some((view) => !["front", "left", "back", "right"].includes(view))) {
+      throw new Error("Tripo 多视图仅支持正面、左面、背面和右面。");
+    }
+    return;
+  }
+  if (adapterType === "hunyuan") {
+    if (
+      !isHunyuan31ModelId(remoteModelId) &&
+      views.some((view) => ["top", "bottom", "leftFront", "rightFront"].includes(view))
+    ) {
+      throw new Error("混元 3.0 不支持顶面、底面和前侧 45° 视图。");
+    }
+    return;
+  }
+  throw new Error("当前建模供应商不支持多视图生成。");
+}
+
 function normalizeOutputFormats(
-  adapterType: ProviderAdapterType,
+  adapterType: ModelGenerationAdapterType,
   remoteModelId: string,
   formats: readonly ModelOutputFormat[],
   parameters: Record<string, unknown>
 ): ModelOutputFormat[] {
   const requested = [...new Set(formats)];
-  if (isMeshyGenerationModel(adapterType, remoteModelId)) {
+  if (adapterType === "meshy") {
     return [...new Set<ModelOutputFormat>(["glb", ...requested])];
   }
   if (adapterType === "tripo") {
@@ -185,12 +260,6 @@ function normalizeOutputFormats(
   if (adapterType === "stability-3d") {
     if (requested.some((format) => format !== "glb")) {
       throw new Error("Stability AI 3D 仅支持 GLB 输出。");
-    }
-    return ["glb"];
-  }
-  if (adapterType === "openai-compatible") {
-    if (requested.some((format) => format !== "glb")) {
-      throw new Error("OpenAI 兼容 3D API 当前仅支持 GLB 输出。");
     }
     return ["glb"];
   }

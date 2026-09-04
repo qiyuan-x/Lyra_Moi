@@ -2,7 +2,10 @@ import { createHash, createHmac } from "node:crypto";
 import type { GenerationRequest } from "@lyra/contracts";
 import type { BinaryImageProvider, GeneratedImageBinary } from "@lyra/core";
 import { ProviderConnectionError } from "./provider-errors.js";
-import { ProviderHttpClient } from "./provider-http-client.js";
+import {
+  createImageProviderHttpClient,
+  ProviderHttpClient
+} from "./provider-http-client.js";
 
 export interface HunyuanImageProviderOptions {
   baseUrl: string;
@@ -18,7 +21,7 @@ export class HunyuanImageProvider implements BinaryImageProvider {
   readonly #client: ProviderHttpClient;
 
   constructor(options: HunyuanImageProviderOptions) {
-    this.#client = options.client ?? new ProviderHttpClient({ timeoutMs: 10 * 60_000 });
+    this.#client = options.client ?? createImageProviderHttpClient();
     this.#api = new HunyuanImageApiClient({
       baseUrl: options.baseUrl,
       secretId: options.apiKey,
@@ -92,7 +95,7 @@ export class HunyuanImageApiClient {
     this.#baseUrl = requireText(options.baseUrl, "Hunyuan Image Base URL").replace(/\/+$/u, "");
     this.#secretId = requireText(options.secretId, "Tencent Cloud SecretId");
     this.#secretKey = requireText(options.secretKey, "Tencent Cloud SecretKey");
-    this.#client = options.client ?? new ProviderHttpClient();
+    this.#client = options.client ?? createImageProviderHttpClient();
   }
 
   async call(

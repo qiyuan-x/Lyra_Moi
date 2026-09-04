@@ -1,4 +1,8 @@
-import type { ModelOutputFormat } from "@lyra/contracts";
+import type {
+  ModelInputMode,
+  ModelOutputFormat,
+  ModelViewType
+} from "@lyra/contracts";
 
 export type ModelPageConfig = {
   parameters: Record<string, unknown>;
@@ -6,10 +10,11 @@ export type ModelPageConfig = {
 };
 
 export type PersistedModelingState = {
-  inputMode: "image" | "text";
+  inputMode: ModelInputMode;
   prompt: string;
   selectedImageId: string;
   selectedTextureImageId: string;
+  selectedMultiViewImageIds: Partial<Record<ModelViewType, string>>;
   modelConfigs: Record<string, ModelPageConfig>;
 };
 
@@ -18,6 +23,7 @@ export const emptyPersistedModelingState: PersistedModelingState = {
   prompt: "",
   selectedImageId: "",
   selectedTextureImageId: "",
+  selectedMultiViewImageIds: {},
   modelConfigs: {}
 };
 
@@ -30,7 +36,9 @@ export function readPersistedModelingState(
     );
     if (!isRecord(value)) return cloneEmptyState();
     return {
-      inputMode: value.inputMode === "text" ? "text" : "image",
+      inputMode: value.inputMode === "text" || value.inputMode === "multiview"
+        ? value.inputMode
+        : "image",
       prompt: readText(value.prompt),
       selectedImageId:
         readText(value.selectedImageId) ||
@@ -38,6 +46,7 @@ export function readPersistedModelingState(
       selectedTextureImageId:
         readText(value.selectedTextureImageId) ||
         readLegacySelection(value.selectedTextureImageBySource, "generated"),
+      selectedMultiViewImageIds: readMultiViewSelections(value.selectedMultiViewImageIds),
       modelConfigs: isRecord(value.modelConfigs)
         ? value.modelConfigs as Record<string, ModelPageConfig>
         : {}
@@ -73,6 +82,18 @@ function readLegacySelection(
 
 function readText(value: unknown): string {
   return typeof value === "string" ? value : "";
+}
+
+function readMultiViewSelections(
+  value: unknown
+): Partial<Record<ModelViewType, string>> {
+  if (!isRecord(value)) return {};
+  const result: Partial<Record<ModelViewType, string>> = {};
+  for (const view of ["left", "back", "right", "top", "bottom", "leftFront", "rightFront"] as const) {
+    const assetId = readText(value[view]);
+    if (assetId) result[view] = assetId;
+  }
+  return result;
 }
 
 function cloneEmptyState(): PersistedModelingState {

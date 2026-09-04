@@ -10,6 +10,28 @@ export type ModelOutputFormat =
   | "usdz"
   | "3mf";
 
+export type ModelInputMode = "image" | "text" | "multiview";
+
+export type ModelGenerationAdapterType =
+  | "meshy"
+  | "tripo"
+  | "hunyuan"
+  | "stability-3d";
+
+export type ModelViewType =
+  | "front"
+  | "left"
+  | "back"
+  | "right"
+  | "top"
+  | "bottom"
+  | "leftFront"
+  | "rightFront";
+
+export type MultiViewImageAssetIds = Partial<Record<ModelViewType, EntityId>> & {
+  front: EntityId;
+};
+
 interface ModelGenerationRequestBase {
   projectId: EntityId;
   textureImageAssetId?: EntityId;
@@ -32,9 +54,16 @@ export interface TextToModelGenerationRequest
   prompt: string;
 }
 
+export interface MultiViewToModelGenerationRequest
+  extends ModelGenerationRequestBase {
+  inputMode: "multiview";
+  multiViewImageAssetIds: MultiViewImageAssetIds;
+}
+
 export type ModelGenerationRequest =
   | ImageToModelGenerationRequest
-  | TextToModelGenerationRequest;
+  | TextToModelGenerationRequest
+  | MultiViewToModelGenerationRequest;
 
 interface ManualModelGenerationRequestBase {
   projectId: EntityId;
@@ -53,6 +82,10 @@ export type ManualModelGenerationRequestBody =
   | (ManualModelGenerationRequestBase & {
       inputMode: "text";
       prompt: string;
+    })
+  | (ManualModelGenerationRequestBase & {
+      inputMode: "multiview";
+      multiViewImageAssetIds: MultiViewImageAssetIds;
     });
 
 export type ManualModelGenerationInput =
@@ -78,11 +111,60 @@ export function isTextToModelGenerationRequest(
   return request.inputMode === "text";
 }
 
+export function isMultiViewToModelGenerationRequest(
+  request: ModelGenerationRequest
+): request is MultiViewToModelGenerationRequest {
+  return request.inputMode === "multiview";
+}
+
 export function isMeshyGenerationModel(
   adapterType: ProviderAdapterType | undefined,
   remoteModelId: string
 ): boolean {
-  if (adapterType === "meshy") return true;
-  if (adapterType !== "openai-compatible") return false;
-  return /^(?:meshy-[567]|meshy-t[12])$/u.test(remoteModelId.trim().toLowerCase());
+  return resolveModelGenerationAdapter(adapterType, remoteModelId) === "meshy";
+}
+
+export function resolveModelGenerationAdapter(
+  adapterType: ProviderAdapterType | undefined,
+  remoteModelId: string
+): ModelGenerationAdapterType | null {
+  if (
+    adapterType === "meshy" ||
+    adapterType === "tripo" ||
+    adapterType === "hunyuan" ||
+    adapterType === "stability-3d"
+  ) {
+    return adapterType;
+  }
+  if (adapterType !== "frostapi-3d") return null;
+
+  const model = remoteModelId.trim().toLowerCase();
+  if (/^(?:meshy-(?:[567]|t[12])|latest)$/u.test(model)) return "meshy";
+  if (
+    /^(?:tripo[-_.]|p1[-_.]|turbo[-_.]|v(?:2(?:\.\d+)?|3(?:\.\d+)?)[-_.])/u.test(model)
+  ) {
+    return "tripo";
+  }
+  if (/^(?:hunyuan[-_.]|hy[-_.]?3d[-_.]|3\.[01]$)/u.test(model)) return "hunyuan";
+  if (/^(?:stability[-_.]|stable-fast-3d|sf3d|spar3d)/u.test(model)) {
+    return "stability-3d";
+  }
+  return null;
+}
+
+export function normalizeHunyuan3dModelId(
+  remoteModelId: string
+): "hy-3d-3.0" | "hy-3d-3.1" | null {
+  const normalized = remoteModelId.trim().toLowerCase().replaceAll("_", "-");
+  if (["3.0", "hy-3d-3.0", "hunyuan-3.0"].includes(normalized)) {
+    return "hy-3d-3.0";
+  }
+  if (["3.1", "hy-3d-3.1", "hunyuan-3.1"].includes(normalized)) {
+    return "hy-3d-3.1";
+  }
+  return null;
+}
+
+export function isHunyuan31ModelId(remoteModelId: string): boolean {
+  return normalizeHunyuan3dModelId(remoteModelId) === "hy-3d-3.1";
 }

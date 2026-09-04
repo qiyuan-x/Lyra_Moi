@@ -1,5 +1,6 @@
 export const jointIds = [
   "root",
+  "pelvis",
   "spine",
   "chest",
   "neck",
@@ -93,6 +94,7 @@ export interface PoseCaptureOptions {
 
 export const jointLabels: Record<JointId, string> = {
   root: "整体",
+  pelvis: "骨盆",
   spine: "腰部",
   chest: "胸部",
   neck: "颈部",
@@ -180,7 +182,10 @@ export function clonePose(pose: PoseSnapshot): PoseSnapshot {
     version: 2,
     root: cloneTransform(pose.root),
     bones: Object.fromEntries(
-      jointIds.map((jointId) => [jointId, cloneTransform(pose.bones[jointId])])
+      jointIds.map((jointId) => [
+        jointId,
+        cloneTransform(pose.bones[jointId] ?? createNeutralTransform())
+      ])
     ) as Record<JointId, EditableTransform>
   };
 }
@@ -202,8 +207,14 @@ export function readPoseSnapshot(value: unknown): PoseSnapshot | null {
   const candidate = value as Record<string, unknown>;
   if (candidate.version === 2 && isTransform(candidate.root)) {
     const bones = candidate.bones as Record<string, unknown> | undefined;
-    if (bones && jointIds.every((jointId) => isTransform(bones[jointId]))) {
-      return clonePose(candidate as unknown as PoseSnapshot);
+    const requiredJointIds = jointIds.filter((jointId) => jointId !== "pelvis");
+    if (bones && requiredJointIds.every((jointId) => isTransform(bones[jointId]))) {
+      const pose = createNeutralPose();
+      pose.root = cloneTransform(candidate.root);
+      for (const jointId of jointIds) {
+        if (isTransform(bones[jointId])) pose.bones[jointId] = cloneTransform(bones[jointId]);
+      }
+      return pose;
     }
   }
   if (candidate.version === 1 && Array.isArray(candidate.root)) {

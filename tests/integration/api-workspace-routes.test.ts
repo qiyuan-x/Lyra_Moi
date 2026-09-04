@@ -26,6 +26,7 @@ import {
   ImmutableBlobStore,
   JobRepository,
   ProjectDirectoryStore,
+  ProjectAnimationStore,
   PromptPreviewStore,
   ProjectRepository,
   PromptTemplateRepository,
@@ -156,6 +157,30 @@ describe("workspace HTTP routes", () => {
       expect(createdProvider.status).toBe(201);
       expect(JSON.stringify(createdProvider.body)).not.toContain("local-secret");
       const createdProviderId = readNestedString(createdProvider.body, "profile", "id");
+      const frostProvider = await postJson(fixture.baseUrl, "/api/v1/providers", {
+        serviceType: "llm",
+        name: "FrostAPI",
+        protocol: "openai-compatible",
+        baseUrl: "https://api.linfrsot.cloud",
+        apiKey: "sk-frost-test",
+        settings: { __lyra: { providerKind: "frostapi" } }
+      });
+      const frostProviderId = readNestedString(frostProvider.body, "profile", "id");
+      expect(await getJson(
+        fixture.baseUrl,
+        `/api/v1/providers/${frostProviderId}/usage`
+      )).toMatchObject({
+        status: 200,
+        body: {
+          usage: {
+            mode: "unrestricted",
+            planName: "钱包余额",
+            balance: 5,
+            remaining: 5,
+            unit: "USD"
+          }
+        }
+      });
       const createdModel = await postJson(fixture.baseUrl, `/api/v1/providers/${createdProviderId}/models`, {
         serviceType: "image",
         remoteModelId: "image-local",
@@ -186,6 +211,40 @@ describe("workspace HTTP routes", () => {
       expect((await fetch(`${fixture.baseUrl}/api/v1/assets/${uploaded.asset.id}/content`, {
         headers: { "If-None-Match": etag! }
       })).status).toBe(304);
+
+      const animationBytes = Buffer.from("; FBX 7.4.0 project animation test");
+      const animationForm = new FormData();
+      animationForm.append(
+        "file",
+        new Blob([animationBytes], { type: "application/octet-stream" }),
+        "walk.fbx"
+      );
+      animationForm.append("clips", JSON.stringify([{ name: "Walk", duration: 1.25 }]));
+      const animationUploadResponse = await fetch(
+        `${fixture.baseUrl}/api/v1/projects/${fixture.seed.projectId}/animations`,
+        { method: "POST", body: animationForm }
+      );
+      expect(animationUploadResponse.status).toBe(201);
+      const animationUpload = await animationUploadResponse.json() as {
+        animation: { id: string; name: string };
+      };
+      expect(animationUpload.animation.name).toBe("walk");
+      expect(await getJson(
+        fixture.baseUrl,
+        `/api/v1/projects/${fixture.seed.projectId}/animations`
+      )).toMatchObject({
+        status: 200,
+        body: { items: [{ id: animationUpload.animation.id, clips: [{ name: "Walk" }] }] }
+      });
+      const animationContent = await fetch(
+        `${fixture.baseUrl}/api/v1/projects/${fixture.seed.projectId}/animations/${animationUpload.animation.id}/content`
+      );
+      expect(animationContent.status).toBe(200);
+      expect(Buffer.from(await animationContent.arrayBuffer())).toEqual(animationBytes);
+      expect((await deleteJson(
+        fixture.baseUrl,
+        `/api/v1/projects/${fixture.seed.projectId}/animations/${animationUpload.animation.id}`
+      )).status).toBe(200);
 
       const conversationResponse = await postJson(
         fixture.baseUrl,
@@ -530,11 +589,23 @@ async function createFixture() {
       jobs
     }),
     assets: assetService,
+    projectAnimations: new ProjectAnimationStore(layout.projects, projects),
     providers: new ProviderSettingsService({
       providers,
       settings,
       secrets: new EnvironmentFileSecretStore(layout.environmentFile),
-      registry: new ProviderRegistry()
+      registry: new ProviderRegistry(),
+      frostApiUsage: {
+        async query() {
+          return {
+            mode: "unrestricted",
+            planName: "钱包余额",
+            balance: 5,
+            remaining: 5,
+            unit: "USD"
+          };
+        }
+      }
     }),
     prompts: new PromptTemplateService({
       prompts,

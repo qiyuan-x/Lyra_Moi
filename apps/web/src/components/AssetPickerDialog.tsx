@@ -14,6 +14,7 @@ export interface AssetPickerDialogProps {
   description?: string;
   submitLabel?: string;
   selectionMode?: "multiple" | "single";
+  initialSource?: "all" | "upload" | "generated";
 }
 
 export function AssetPickerDialog({
@@ -27,9 +28,10 @@ export function AssetPickerDialog({
   title = "选择引用图片",
   description = "可多选，选择后会按图片顺序发送给模型",
   submitLabel = "完成选择",
-  selectionMode = "multiple"
+  selectionMode = "multiple",
+  initialSource = "all"
 }: AssetPickerDialogProps) {
-  const [source, setSource] = useState<"all" | "upload" | "generated">("all");
+  const [source, setSource] = useState<"all" | "upload" | "generated">(initialSource);
   const [search, setSearch] = useState("");
 
   useEffect(() => {

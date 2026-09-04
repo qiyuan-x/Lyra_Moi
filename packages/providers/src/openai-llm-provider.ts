@@ -1,5 +1,4 @@
 import type {
-  AgentMessage,
   AgentToolDefinition,
   LlmCompletion,
   LlmCompletionInput,
@@ -7,12 +6,19 @@ import type {
 } from "@lyra/agent-engine";
 import { ProviderConnectionError } from "./provider-errors.js";
 import { ProviderHttpClient } from "./provider-http-client.js";
+import {
+  attachmentDataUrl,
+  loadLlmMessages,
+  type LlmProviderAssetLoader,
+  type LoadedAgentMessage
+} from "./llm-provider-types.js";
 
 export interface OpenAiLlmProviderOptions {
   baseUrl: string;
   apiKey: string | null;
   model: string;
   settings?: Record<string, unknown>;
+  assetLoader?: LlmProviderAssetLoader;
   client?: ProviderHttpClient;
 }
 
@@ -21,6 +27,7 @@ export class OpenAiResponsesLlmProvider implements LlmProvider {
   readonly #apiKey: string;
   readonly #model: string;
   readonly #settings: Record<string, unknown>;
+  readonly #assetLoader: LlmProviderAssetLoader | undefined;
   readonly #client: ProviderHttpClient;
 
   constructor(options: OpenAiLlmProviderOptions) {
@@ -28,14 +35,20 @@ export class OpenAiResponsesLlmProvider implements LlmProvider {
     this.#apiKey = requireApiKey(options.apiKey);
     this.#model = requireText(options.model, "Provider model");
     this.#settings = structuredClone(options.settings ?? {});
+    this.#assetLoader = options.assetLoader;
     this.#client = options.client ?? new ProviderHttpClient();
   }
 
   async complete(input: LlmCompletionInput): Promise<LlmCompletion> {
+    const messages = await loadLlmMessages(
+      input.messages,
+      input.projectId,
+      this.#assetLoader
+    );
     const body = await this.#client.postJson(
       `${this.#baseUrl}/responses`,
       { Authorization: `Bearer ${this.#apiKey}`, Accept: "application/json" },
-      createResponsesRequest(this.#model, this.#settings, input.messages, input.tools),
+      createResponsesRequest(this.#model, this.#settings, messages, input.tools),
       input.signal
     );
     return parseResponsesCompletion(body);
@@ -47,6 +60,7 @@ export class OpenAiCompatibleLlmProvider implements LlmProvider {
   readonly #apiKey: string | null;
   readonly #model: string;
   readonly #settings: Record<string, unknown>;
+  readonly #assetLoader: LlmProviderAssetLoader | undefined;
   readonly #client: ProviderHttpClient;
 
   constructor(options: OpenAiLlmProviderOptions) {
@@ -54,16 +68,22 @@ export class OpenAiCompatibleLlmProvider implements LlmProvider {
     this.#apiKey = normalizeOptionalApiKey(options.apiKey);
     this.#model = requireText(options.model, "Provider model");
     this.#settings = structuredClone(options.settings ?? {});
+    this.#assetLoader = options.assetLoader;
     this.#client = options.client ?? new ProviderHttpClient();
   }
 
   async complete(input: LlmCompletionInput): Promise<LlmCompletion> {
+    const messages = await loadLlmMessages(
+      input.messages,
+      input.projectId,
+      this.#assetLoader
+    );
     const headers: Record<string, string> = { Accept: "application/json" };
     if (this.#apiKey) headers.Authorization = `Bearer ${this.#apiKey}`;
     const body = await this.#client.postJson(
       `${this.#baseUrl}/chat/completions`,
       headers,
-      createChatCompletionsRequest(this.#model, this.#settings, input.messages, input.tools),
+      createChatCompletionsRequest(this.#model, this.#settings, messages, input.tools),
       input.signal
     );
     return parseChatCompletion(body);
@@ -73,7 +93,7 @@ export class OpenAiCompatibleLlmProvider implements LlmProvider {
 function createResponsesRequest(
   model: string,
   settings: Record<string, unknown>,
-  messages: readonly AgentMessage[],
+  messages: readonly LoadedAgentMessage[],
   tools: readonly AgentToolDefinition[]
 ): Record<string, unknown> {
   const request: Record<string, unknown> = {
@@ -105,7 +125,7 @@ function createResponsesRequest(
 function createChatCompletionsRequest(
   model: string,
   settings: Record<string, unknown>,
-  messages: readonly AgentMessage[],
+  messages: readonly LoadedAgentMessage[],
   tools: readonly AgentToolDefinition[]
 ): Record<string, unknown> {
   const request: Record<string, unknown> = {
@@ -127,7 +147,7 @@ function createChatCompletionsRequest(
   return request;
 }
 
-function toResponsesInput(message: AgentMessage): Record<string, unknown> {
+function toResponsesInput(message: LoadedAgentMessage): Record<string, unknown> {
   if (message.role === "assistant" && message.toolCall) {
     return {
       type: "function_call",
@@ -143,10 +163,22 @@ function toResponsesInput(message: AgentMessage): Record<string, unknown> {
       output: message.content
     };
   }
+  if (message.role === "user" && message.attachments.length > 0) {
+    return {
+      role: "user",
+      content: [
+        ...message.attachments.map((attachment) => ({
+          type: "input_image",
+          image_url: attachmentDataUrl(attachment)
+        })),
+        ...(message.content ? [{ type: "input_text", text: message.content }] : [])
+      ]
+    };
+  }
   return { role: message.role, content: message.content };
 }
 
-function toChatMessage(message: AgentMessage): Record<string, unknown> {
+function toChatMessage(message: LoadedAgentMessage): Record<string, unknown> {
   if (message.role === "assistant" && message.toolCall) {
     return {
       role: "assistant",
@@ -168,6 +200,18 @@ function toChatMessage(message: AgentMessage): Record<string, unknown> {
       role: "tool",
       tool_call_id: requireText(message.toolCallId, "Tool call ID"),
       content: message.content
+    };
+  }
+  if (message.role === "user" && message.attachments.length > 0) {
+    return {
+      role: "user",
+      content: [
+        ...message.attachments.map((attachment) => ({
+          type: "image_url",
+          image_url: { url: attachmentDataUrl(attachment) }
+        })),
+        ...(message.content ? [{ type: "text", text: message.content }] : [])
+      ]
     };
   }
   return { role: message.role, content: message.content };

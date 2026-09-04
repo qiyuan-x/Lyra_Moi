@@ -14,12 +14,15 @@ import type {
   CreateProviderProfileRequestBody,
   CursorPage,
   DiscoveredProviderModel,
+  FrostApiUsageSnapshot,
   JobSnapshot,
   ManualGenerationRequestBody,
   ManualModelGenerationInput,
   MessageSnapshot,
   OrderedAssetInput,
   ProjectSnapshot,
+  ProjectAnimationClipSnapshot,
+  ProjectAnimationSnapshot,
   PromptTemplateListQuery,
   PromptTemplateSnapshot,
   ProviderConnectionTestResult,
@@ -201,6 +204,12 @@ export class ApiClient {
     }).then((value) => value.result);
   }
 
+  getFrostApiUsage(profileId: string): Promise<FrostApiUsageSnapshot> {
+    return request<{ usage: FrostApiUsageSnapshot }>(
+      `/api/v1/providers/${encodeURIComponent(profileId)}/usage`
+    ).then((value) => value.usage);
+  }
+
   setDefaultModel(serviceType: "llm" | "image" | "model", modelId: string | null): Promise<ApplicationDefaultModels> {
     return request<{ defaults: ApplicationDefaultModels }>(`/api/v1/default-models/${serviceType}`, {
       method: "PUT",
@@ -245,6 +254,70 @@ export class ApiClient {
       `/api/v1/projects/${encodeURIComponent(projectId)}/assets`,
       { method: "POST", body }
     ).then((value) => value.asset);
+  }
+
+  listProjectAnimations(projectId: string): Promise<ProjectAnimationSnapshot[]> {
+    return request<{ items: ProjectAnimationSnapshot[] }>(
+      `/api/v1/projects/${encodeURIComponent(projectId)}/animations`
+    ).then((value) => value.items);
+  }
+
+  uploadProjectAnimation(
+    projectId: string,
+    file: File,
+    clips: ProjectAnimationClipSnapshot[]
+  ): Promise<ProjectAnimationSnapshot> {
+    const body = new FormData();
+    body.append("file", file, file.name);
+    body.append("clips", JSON.stringify(clips));
+    return request<{ animation: ProjectAnimationSnapshot }>(
+      `/api/v1/projects/${encodeURIComponent(projectId)}/animations`,
+      { method: "POST", body }
+    ).then((value) => value.animation);
+  }
+
+  updateProjectAnimation(
+    projectId: string,
+    animationId: string,
+    name: string
+  ): Promise<ProjectAnimationSnapshot> {
+    return request<{ animation: ProjectAnimationSnapshot }>(
+      `/api/v1/projects/${encodeURIComponent(projectId)}/animations/${encodeURIComponent(animationId)}`,
+      { method: "PATCH", json: { name } }
+    ).then((value) => value.animation);
+  }
+
+  deleteProjectAnimation(
+    projectId: string,
+    animationId: string
+  ): Promise<ProjectAnimationSnapshot> {
+    return request<{ animation: ProjectAnimationSnapshot }>(
+      `/api/v1/projects/${encodeURIComponent(projectId)}/animations/${encodeURIComponent(animationId)}`,
+      { method: "DELETE" }
+    ).then((value) => value.animation);
+  }
+
+  async downloadProjectAnimation(
+    projectId: string,
+    animation: ProjectAnimationSnapshot
+  ): Promise<File> {
+    const headers = new Headers();
+    const accessToken = getAccessToken();
+    if (accessToken) headers.set("Authorization", `Bearer ${accessToken}`);
+    const response = await fetch(
+      `${API_BASE}/api/v1/projects/${encodeURIComponent(projectId)}/animations/${encodeURIComponent(animation.id)}/content`,
+      { cache: "no-store", headers }
+    );
+    if (!response.ok) {
+      const value = await readResponse(response);
+      const message = isRecord(value) && isRecord(value.error) && typeof value.error.message === "string"
+        ? value.error.message
+        : `请求失败：HTTP ${response.status}`;
+      throw new ApiClientError(message, response.status, value);
+    }
+    return new File([await response.blob()], animation.originalName, {
+      type: animation.mimeType
+    });
   }
 
   assetContentUrl(assetId: string): string {

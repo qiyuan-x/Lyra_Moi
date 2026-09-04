@@ -20,6 +20,7 @@ import {
   EnvironmentFileSecretStore,
   ImmutableBlobStore,
   ProjectDirectoryStore,
+  ProjectAnimationStore,
   PromptPreviewStore,
   openReadyRuntimeDatabase,
   SharpImageProcessor,
@@ -91,6 +92,7 @@ export async function createApiRuntime(options: CreateApiRuntimeOptions = {}): P
     const defaultProject = projects.ensureDefaultProject();
     const projectDirectories = new ProjectDirectoryStore(layout.projects);
     projectDirectories.ensure(defaultProject.id);
+    const projectAnimations = new ProjectAnimationStore(layout.projects, projects);
     const secretStore = new EnvironmentFileSecretStore(layout.environmentFile);
 
     const agentPromptSettings = new AgentPromptSettingsService(
@@ -157,6 +159,7 @@ export async function createApiRuntime(options: CreateApiRuntimeOptions = {}): P
         jobs
       }),
       assets: assetService,
+      projectAnimations,
       providers: new ProviderSettingsService({
         providers,
         settings,

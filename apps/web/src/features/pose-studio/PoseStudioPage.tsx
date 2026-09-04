@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "../../components/Icon.js";
+import type { ApiClient } from "../../lib/api-client.js";
 import {
   applyBodyTemplate,
   applyHandTemplate,
@@ -8,7 +9,9 @@ import {
 } from "./pose-presets.js";
 import { posesEqual } from "./pose-editor-adapter.js";
 import { PoseTemplateManagerDialog } from "./PoseTemplateManagerDialog.js";
+import { PoseTemplatePickerDialog } from "./PoseTemplatePickerDialog.js";
 import { PoseViewport, type PoseViewportHandle } from "./PoseViewport.js";
+import { AnimationModelWorkspace } from "./AnimationModelWorkspace.js";
 import type { ImportedPoseTemplate } from "./pose-template-transfer.js";
 import { createPreviewDataUrl } from "../templates/template-archive.js";
 import {
@@ -28,6 +31,7 @@ import {
 
 interface PoseStudioPageProps {
   projectId: string;
+  api: ApiClient;
   onSaveScreenshot: (file: File) => Promise<void>;
 }
 
@@ -42,6 +46,7 @@ const transformLabels: Record<TransformMode, string> = {
 
 export function PoseStudioPage(props: PoseStudioPageProps) {
   const viewportRef = useRef<PoseViewportHandle>(null);
+  const [studioMode, setStudioMode] = useState<"mannequin" | "ue5Actions" | "animation">("mannequin");
   const [pose, setPose] = useState<PoseSnapshot>(() => readProjectPose(props.projectId));
   const [selectedJoint, setSelectedJoint] = useState<JointId>("root");
   const [transformMode, setTransformMode] = useState<TransformMode>("rotate");
@@ -55,6 +60,7 @@ export function PoseStudioPage(props: PoseStudioPageProps) {
   const [templateSide, setTemplateSide] = useState<"left" | "right">("left");
   const [creatingTemplate, setCreatingTemplate] = useState(false);
   const [managingTemplates, setManagingTemplates] = useState(false);
+  const [pickingTemplateKind, setPickingTemplateKind] = useState<PoseTemplateKind | null>(null);
   const [modelReady, setModelReady] = useState(false);
   const [modelError, setModelError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -174,6 +180,17 @@ export function PoseStudioPage(props: PoseStudioPageProps) {
     viewportRef.current?.reset(neutralPose);
   }
 
+  function editAnimationFrame(nextPose: PoseSnapshot, nextMannequin: MannequinId) {
+    if (!posesEqual(pose, nextPose)) {
+      setHistory((current) => [...current.slice(-59), clonePose(pose)]);
+    }
+    setFuture([]);
+    setMannequin(nextMannequin);
+    setPose(clonePose(nextPose));
+    setSelectedJoint("pelvis");
+    setStudioMode("mannequin");
+  }
+
   function saveCustomTemplate() {
     const name = templateName.trim();
     if (!name) return;
@@ -249,9 +266,36 @@ export function PoseStudioPage(props: PoseStudioPageProps) {
       <header className="pose-studio-toolbar">
         <div>
           <strong>动作参考</strong>
-          <span>直接选择骨骼摆姿势，完成后保存截图到素材库。</span>
+          <span>{studioMode === "mannequin"
+            ? "编辑 UE5 小白人骨骼并保存动作。"
+            : studioMode === "ue5Actions"
+              ? "导入或查看 UE5 骨架动画。"
+              : "直接查看导入模型原有骨骼和动画帧。"}</span>
+          <nav className="pose-workspace-tabs" aria-label="动作参考模式">
+            <button
+              type="button"
+              className={studioMode === "mannequin" ? "active" : ""}
+              onClick={() => setStudioMode("mannequin")}
+            >
+              动作编辑
+            </button>
+            <button
+              type="button"
+              className={studioMode === "ue5Actions" ? "active" : ""}
+              onClick={() => setStudioMode("ue5Actions")}
+            >
+              UE5 动画
+            </button>
+            <button
+              type="button"
+              className={studioMode === "animation" ? "active" : ""}
+              onClick={() => setStudioMode("animation")}
+            >
+              其他骨骼动画
+            </button>
+          </nav>
         </div>
-        <div className="pose-toolbar-actions">
+        {studioMode === "mannequin" && <div className="pose-toolbar-actions">
           <button type="button" className="button button-secondary" disabled={!history.length} onClick={undo}>撤销</button>
           <button type="button" className="button button-secondary" disabled={!future.length} onClick={redo}>重做</button>
           <button type="button" className="button button-secondary" onClick={() => commitPose(mirrorPose(pose))}>镜像</button>
@@ -260,10 +304,20 @@ export function PoseStudioPage(props: PoseStudioPageProps) {
             <Icon name="image" size={17} />
             {saving ? "正在保存" : "保存截图"}
           </button>
-        </div>
+        </div>}
       </header>
 
-      <div className="pose-studio-layout">
+      {studioMode !== "mannequin" ? (
+        <AnimationModelWorkspace
+          key={studioMode}
+          mode={studioMode === "ue5Actions" ? "ue5" : "direct"}
+          projectId={props.projectId}
+          api={props.api}
+          onSaveScreenshot={props.onSaveScreenshot}
+          {...(studioMode === "ue5Actions" ? { onSendPoseToEditor: editAnimationFrame } : {})}
+        />
+      ) : <>
+        <div className="pose-studio-layout">
         <aside className={`pose-template-panel${templatesOpen ? " open" : ""}`}>
           <button type="button" className="pose-mobile-panel-toggle" onClick={() => setTemplatesOpen((open) => !open)}>
             <strong>动作模板</strong>
@@ -296,16 +350,16 @@ export function PoseStudioPage(props: PoseStudioPageProps) {
                 </div>
               </div>
             )}
-            <TemplateSection title="身体动作" count={bodyTemplates.length}>
-              {bodyTemplates.map((template) => (
+            <TemplateSection title="身体动作" count={bodyTemplates.length} onPick={() => setPickingTemplateKind("body")}>
+              {bodyTemplates.slice(0, 3).map((template) => (
                 <button type="button" className="pose-body-template" key={template.id} onClick={() => commitPose(applyBodyTemplate(pose, template.pose))}>
                   {template.previewDataUrl && <img src={template.previewDataUrl} alt="" />}
                   {template.name}
                 </button>
               ))}
             </TemplateSection>
-            <TemplateSection title="手势" count={handTemplates.length}>
-              {handTemplates.map((template) => (
+            <TemplateSection title="手势" count={handTemplates.length} onPick={() => setPickingTemplateKind("hand")}>
+              {handTemplates.slice(0, 6).map((template) => (
                 <div className="pose-hand-template" key={template.id}>
                   {template.previewDataUrl && <img src={template.previewDataUrl} alt="" />}
                   <span title={template.name}>{template.name}</span>
@@ -417,9 +471,9 @@ export function PoseStudioPage(props: PoseStudioPageProps) {
             </ControlSection>
           </div>
         </aside>
-      </div>
+        </div>
 
-      {managingTemplates && (
+        {managingTemplates && (
         <PoseTemplateManagerDialog
           templates={templates}
           onClose={() => setManagingTemplates(false)}
@@ -436,7 +490,17 @@ export function PoseStudioPage(props: PoseStudioPageProps) {
             });
           }}
         />
-      )}
+        )}
+        {pickingTemplateKind && (
+        <PoseTemplatePickerDialog
+          kind={pickingTemplateKind}
+          templates={templates}
+          onClose={() => setPickingTemplateKind(null)}
+          onApplyBody={(template) => commitPose(applyBodyTemplate(pose, template.pose))}
+          onApplyHand={(template, side) => commitPose(applyHandTemplate(pose, template, side))}
+        />
+        )}
+      </>}
     </section>
   );
 }
@@ -445,10 +509,26 @@ function ControlSection(props: { title: string; children: React.ReactNode }) {
   return <section className="pose-control-section"><header>{props.title}</header>{props.children}</section>;
 }
 
-function TemplateSection(props: { title: string; count: number; children: React.ReactNode }) {
+function TemplateSection(props: {
+  title: string;
+  count: number;
+  children: React.ReactNode;
+  onPick: () => void;
+}) {
   return (
     <section className="pose-template-section">
-      <header><strong>{props.title}</strong><span>{props.count}</span></header>
+      <header>
+        <div><strong>{props.title}</strong><span>{props.count}</span></div>
+        <button
+          type="button"
+          className="icon-button pose-template-pick-button"
+          title={`选择${props.title}模板`}
+          aria-label={`选择${props.title}模板`}
+          onClick={props.onPick}
+        >
+          <Icon name="library" size={15} />
+        </button>
+      </header>
       <div>{props.children}</div>
     </section>
   );

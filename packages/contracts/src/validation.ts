@@ -98,8 +98,10 @@ export function parseManualModelGenerationRequest(
 
 export function parseSendAgentMessageRequest(value: unknown): SendAgentMessageRequestBody {
   assertSchema(validateAgentMessage, value);
-  if (!value.text.trim()) throw new ContractValidationError(["text cannot be blank"]);
   assertOrderedAttachments(value.attachments);
+  if (!value.text.trim() && value.attachments.length === 0) {
+    throw new ContractValidationError(["message cannot be empty"]);
+  }
 
   const selection = value.selection;
   if (selection) {

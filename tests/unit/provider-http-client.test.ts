@@ -69,4 +69,48 @@ describe("ProviderHttpClient", () => {
     controller.abort(reason);
     await expect(request).rejects.toBe(reason);
   });
+
+  it("allows requests without a fixed total timeout", async () => {
+    let requestSignal: AbortSignal | null = null;
+    const client = new ProviderHttpClient({
+      timeoutMs: null,
+      disableUndiciTimeouts: true,
+      fetchImplementation: async (_input, init = {}) => {
+        requestSignal = init.signal ?? null;
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        return Response.json({ ok: true });
+      }
+    });
+
+    await expect(client.getJson("https://provider.test", {})).resolves.toEqual({ ok: true });
+    expect(requestSignal?.aborted).toBe(false);
+  });
+
+  it("maps Undici header timeout errors to provider timeout", async () => {
+    const timeout = Object.assign(new Error("Headers Timeout Error"), {
+      code: "UND_ERR_HEADERS_TIMEOUT"
+    });
+    const client = new ProviderHttpClient({
+      fetchImplementation: async () => {
+        throw new TypeError("fetch failed", { cause: timeout });
+      }
+    });
+
+    await expect(client.getJson("https://provider.test", {})).rejects.toMatchObject({
+      code: "TIMEOUT",
+      message: "Provider response headers timed out."
+    });
+  });
+
+  it("keeps real network failures classified as unreachable", async () => {
+    const client = new ProviderHttpClient({
+      fetchImplementation: async () => {
+        throw Object.assign(new Error("socket disconnected"), { code: "UND_ERR_SOCKET" });
+      }
+    });
+
+    await expect(client.getJson("https://provider.test", {})).rejects.toMatchObject({
+      code: "UNREACHABLE"
+    });
+  });
 });

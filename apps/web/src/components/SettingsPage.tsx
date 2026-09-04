@@ -51,6 +51,7 @@ interface SettingsPageProps {
 type ProviderDialogState = {
   profile: ProviderProfileSnapshot | null;
   preset: ProviderPreset | null;
+  enableAfterConnection?: boolean;
 };
 
 export function SettingsPage(props: SettingsPageProps) {
@@ -97,13 +98,6 @@ export function SettingsPage(props: SettingsPageProps) {
       availableDefaultModels.some(
         (model) => model.providerProfileId === profile.id
       )
-  );
-  const configuredPresetIds = new Set(scopedProfiles.flatMap((profile) => {
-    const preset = findProfilePreset(profile);
-    return preset ? [preset.id] : [];
-  }));
-  const availablePresets = activePresets.filter(
-    (preset) => !configuredPresetIds.has(preset.id)
   );
   const orderedProfiles = [...scopedProfiles].sort((left, right) => {
     const leftPreset = findProfilePreset(left);
@@ -177,15 +171,22 @@ export function SettingsPage(props: SettingsPageProps) {
     setConnectionFeedback(null);
   }
 
-  function openDetail(profile: ProviderProfileSnapshot) {
+  function openDetail(
+    profile: ProviderProfileSnapshot,
+    enableAfterConnection = false
+  ) {
     setOpenProviderMenuId(null);
-    setDetailTarget({ profile, preset: findProfilePreset(profile) });
+    setDetailTarget({
+      profile,
+      preset: findProfilePreset(profile),
+      enableAfterConnection
+    });
     setConnectionFeedback(null);
   }
 
   function toggleProfile(profile: ProviderProfileSnapshot) {
     if (isStarterProviderProfile(profile) && !profile.hasApiKey) {
-      openDetail(profile);
+      openDetail(profile, true);
       return;
     }
     void run(async () => {
@@ -443,11 +444,13 @@ export function SettingsPage(props: SettingsPageProps) {
                 key={selected?.id ?? detailPreset?.id ?? "custom"}
                 profile={selected ?? null}
                 preset={detailPreset}
+                enableAfterConnection={Boolean(detailTarget.enableAfterConnection)}
                 busy={busy}
                 feedback={connectionFeedback}
                 serviceType={serviceType}
                 onSave={saveConnection}
                 onTest={testConnection}
+                onQueryFrostApiUsage={(profileId) => props.api.getFrostApiUsage(profileId)}
                 afterConnection={selected ? (
                   <section className="settings-detail-section settings-model-section">
                     <header>
@@ -504,7 +507,7 @@ export function SettingsPage(props: SettingsPageProps) {
 
       {providerPickerOpen && (
         <ProviderPickerDialog
-          presets={availablePresets}
+          presets={activePresets}
           onClose={() => setProviderPickerOpen(false)}
           onSelectPreset={openPreset}
           onSelectCustom={() => {

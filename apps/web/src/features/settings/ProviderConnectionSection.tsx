@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import type {
+  FrostApiUsageSnapshot,
   ProviderAdapterType,
   ProviderConnectionTestResult,
   ProviderProfileSnapshot,
@@ -13,6 +14,13 @@ import {
 } from "./provider-presets.js";
 
 const INTERNAL_SETTINGS_KEY = "__lyra";
+const MODEL_ADAPTERS: readonly ProviderAdapterType[] = [
+  "frostapi-3d",
+  "meshy",
+  "tripo",
+  "hunyuan",
+  "stability-3d"
+];
 
 export interface ProviderFormValue {
   name: string;
@@ -38,40 +46,63 @@ interface ProviderConnectionSectionProps {
   serviceType: ProviderServiceType;
   busy: boolean;
   feedback: ConnectionStatus | null;
+  enableAfterConnection?: boolean;
   afterConnection?: ReactNode;
   onSave: (value: ProviderFormValue) => Promise<ProviderProfileSnapshot>;
   onTest: (value: ProviderFormValue) => Promise<ProviderConnectionTestResult>;
+  onQueryFrostApiUsage: (profileId: string) => Promise<FrostApiUsageSnapshot>;
 }
 
 export function ProviderConnectionSection(props: ProviderConnectionSectionProps) {
   const initialProtocol = props.preset?.protocol ?? props.profile?.protocol ?? "openai-compatible";
-  const initialAdapter = props.preset?.adapterType ?? props.profile?.adapterType ?? initialProtocol;
+  const initialAdapter = props.preset?.adapterType ?? props.profile?.adapterType ??
+    (props.serviceType === "model" ? "frostapi-3d" : initialProtocol);
   const initialGuide = readProviderMetadata(
     props.profile?.settings ?? props.preset?.settings ?? {},
     props.preset
   );
   const [name, setName] = useState(props.profile?.name ?? props.preset?.name ?? "");
   const [protocol, setProtocol] = useState<ProviderProtocol>(initialProtocol);
+  const [adapterType, setAdapterType] = useState<ProviderAdapterType>(initialAdapter);
   const [baseUrl, setBaseUrl] = useState(props.profile?.baseUrl ?? props.preset?.baseUrl ?? "");
   const [apiKey, setApiKey] = useState("");
+  const [hasSavedApiKey, setHasSavedApiKey] = useState(Boolean(props.profile?.hasApiKey));
+  const [savedApiKeyMask, setSavedApiKeyMask] = useState(props.profile?.apiKeyMask ?? null);
   const [clearApiKey, setClearApiKey] = useState(false);
   const [secondaryApiKey, setSecondaryApiKey] = useState("");
+  const [hasSavedSecondaryApiKey, setHasSavedSecondaryApiKey] = useState(
+    Boolean(props.profile?.hasSecondaryApiKey)
+  );
+  const [savedSecondaryApiKeyMask, setSavedSecondaryApiKeyMask] = useState(
+    props.profile?.secondaryApiKeyMask ?? null
+  );
   const [clearSecondaryApiKey, setClearSecondaryApiKey] = useState(false);
   const [enabled, setEnabled] = useState(props.profile?.enabled ?? true);
+  const [pendingEnable, setPendingEnable] = useState(
+    () => Boolean(props.enableAfterConnection)
+  );
   const [apiKeyWebsite, setApiKeyWebsite] = useState(initialGuide.website);
   const [apiKeyGuide, setApiKeyGuide] = useState(initialGuide.steps);
   const [status, setStatus] = useState<ConnectionStatus | null>(props.feedback);
-  const adapterType: ProviderAdapterType = props.preset?.adapterType ?? protocol;
+  const [usage, setUsage] = useState<FrostApiUsageSnapshot | null>(null);
+  const [usageStatus, setUsageStatus] = useState<"idle" | "loading" | "error">("idle");
+  const [usageError, setUsageError] = useState("");
   const pairCredentials = props.preset?.credentialMode === "pair" || adapterType === "hunyuan-image";
   const requiresApiKey = Boolean(props.preset) || props.serviceType === "model";
-  const keepsExistingKey = Boolean(props.profile?.hasApiKey && !clearApiKey);
+  const keepsExistingKey = hasSavedApiKey && !clearApiKey;
   const keepsExistingSecondaryKey = Boolean(
-    props.profile?.hasSecondaryApiKey && !clearSecondaryApiKey
+    hasSavedSecondaryApiKey && !clearSecondaryApiKey
   );
-  const missingRequiredKey = enabled && requiresApiKey && !keepsExistingKey && !apiKey.trim();
+  const validationEnabled = enabled || pendingEnable;
+  const missingConfiguredKey = requiresApiKey && !keepsExistingKey && !apiKey.trim();
+  const missingConfiguredSecondaryKey =
+    pairCredentials && !keepsExistingSecondaryKey && !secondaryApiKey.trim();
+  const missingRequiredKey = validationEnabled && missingConfiguredKey;
   const missingRequiredSecondaryKey =
-    enabled && pairCredentials && !keepsExistingSecondaryKey && !secondaryApiKey.trim();
+    validationEnabled && missingConfiguredSecondaryKey;
+  const missingUsageKey = !keepsExistingKey && !apiKey.trim();
   const lastPersisted = useRef("");
+  const frostApi = isFrostApiProfile(props.profile, props.preset, adapterType);
 
   useEffect(() => {
     lastPersisted.current = connectionSignature(initialValue());
@@ -143,9 +174,31 @@ export function ProviderConnectionSection(props: ProviderConnectionSectionProps)
     if (profile) {
       setName(profile.name);
       setProtocol(profile.protocol);
+      setAdapterType(profile.adapterType);
       setBaseUrl(profile.baseUrl);
-      setEnabled(profile.enabled);
+      setHasSavedApiKey(profile.hasApiKey);
+      setSavedApiKeyMask(profile.apiKeyMask);
+      setHasSavedSecondaryApiKey(profile.hasSecondaryApiKey);
+      setSavedSecondaryApiKeyMask(profile.secondaryApiKeyMask);
+    } else {
+      if (value.apiKey) {
+        setHasSavedApiKey(true);
+        setSavedApiKeyMask("••••••••");
+      }
+      if (value.clearApiKey) {
+        setHasSavedApiKey(false);
+        setSavedApiKeyMask(null);
+      }
+      if (value.secondaryApiKey) {
+        setHasSavedSecondaryApiKey(true);
+        setSavedSecondaryApiKeyMask("••••••••");
+      }
+      if (value.clearSecondaryApiKey) {
+        setHasSavedSecondaryApiKey(false);
+        setSavedSecondaryApiKeyMask(null);
+      }
     }
+    setEnabled(savedValue.enabled);
     if (value.apiKey) setApiKey("");
     if (value.secondaryApiKey) setSecondaryApiKey("");
     if (value.clearApiKey) setClearApiKey(false);
@@ -161,8 +214,8 @@ export function ProviderConnectionSection(props: ProviderConnectionSectionProps)
     if (
       !value.name ||
       !value.baseUrl ||
-      missingRequiredKey ||
-      missingRequiredSecondaryKey ||
+      missingConfiguredKey ||
+      missingConfiguredSecondaryKey ||
       props.busy
     ) return;
     setStatus({ type: "saving", text: "正在自动保存…" });
@@ -188,13 +241,18 @@ export function ProviderConnectionSection(props: ProviderConnectionSectionProps)
     missingRequiredKey,
     missingRequiredSecondaryKey,
     name,
+    pendingEnable,
     props.busy,
     protocol,
+    adapterType,
     secondaryApiKey
   ]);
 
   async function test() {
-    const value = currentValue();
+    const value = {
+      ...currentValue(),
+      enabled: pendingEnable ? true : enabled
+    };
     if (
       !value.name ||
       !value.baseUrl ||
@@ -205,6 +263,7 @@ export function ProviderConnectionSection(props: ProviderConnectionSectionProps)
     setStatus({ type: "testing", text: "正在保存配置并读取模型…" });
     try {
       const result = await props.onTest(value);
+      setPendingEnable(false);
       markSaved(value);
       setStatus({
         type: "success",
@@ -215,7 +274,87 @@ export function ProviderConnectionSection(props: ProviderConnectionSectionProps)
     }
   }
 
+  async function queryFrostApiUsage() {
+    if (!props.profile || props.busy || usageStatus === "loading") return;
+    const value = currentValue();
+    if (
+      !value.name ||
+      !value.baseUrl ||
+      missingUsageKey
+    ) return;
+    setUsageStatus("loading");
+    setUsageError("");
+    try {
+      const profile = await props.onSave(value);
+      markSaved(value, profile);
+      setUsage(await props.onQueryFrostApiUsage(profile.id));
+      setUsageStatus("idle");
+    } catch (error) {
+      setUsage(null);
+      setUsageError(toErrorMessage(error));
+      setUsageStatus("error");
+    }
+  }
+
+  async function removePrimaryApiKey() {
+    if (props.busy || clearApiKey || !hasSavedApiKey) return;
+    const previousEnabled = enabled;
+    const value: ProviderFormValue = {
+      ...currentValue(),
+      apiKey: "",
+      clearApiKey: true,
+      enabled: requiresApiKey ? false : enabled
+    };
+    setPendingEnable(false);
+    setEnabled(value.enabled);
+    setHasSavedApiKey(false);
+    setSavedApiKeyMask(null);
+    setClearApiKey(true);
+    setUsage(null);
+    setStatus({ type: "saving", text: "正在清除 API Key…" });
+    try {
+      const profile = await props.onSave(value);
+      markSaved(value, profile);
+      setStatus({ type: "saved", text: "API Key 已清除" });
+    } catch (error) {
+      setEnabled(previousEnabled);
+      setHasSavedApiKey(true);
+      setSavedApiKeyMask(props.profile?.apiKeyMask ?? "••••••••");
+      setClearApiKey(false);
+      setStatus({ type: "error", text: toErrorMessage(error) });
+    }
+  }
+
+  async function removeSecondaryApiKey() {
+    if (props.busy || clearSecondaryApiKey || !hasSavedSecondaryApiKey) return;
+    const previousEnabled = enabled;
+    const value: ProviderFormValue = {
+      ...currentValue(),
+      secondaryApiKey: "",
+      clearSecondaryApiKey: true,
+      enabled: false
+    };
+    setPendingEnable(false);
+    setEnabled(false);
+    setHasSavedSecondaryApiKey(false);
+    setSavedSecondaryApiKeyMask(null);
+    setClearSecondaryApiKey(true);
+    setStatus({ type: "saving", text: "正在清除 SecretKey…" });
+    try {
+      const profile = await props.onSave(value);
+      markSaved(value, profile);
+      setStatus({ type: "saved", text: "SecretKey 已清除" });
+    } catch (error) {
+      setEnabled(previousEnabled);
+      setHasSavedSecondaryApiKey(true);
+      setSavedSecondaryApiKeyMask(props.profile?.secondaryApiKeyMask ?? "••••••••");
+      setClearSecondaryApiKey(false);
+      setStatus({ type: "error", text: toErrorMessage(error) });
+    }
+  }
+
   function changeEnabled(nextEnabled: boolean) {
+    setPendingEnable(false);
     if (!props.profile) {
       setEnabled(nextEnabled);
       return;
@@ -241,7 +380,7 @@ export function ProviderConnectionSection(props: ProviderConnectionSectionProps)
   }
 
   const primaryLabel = pairCredentials ? "SecretId" : "API Key";
-  const primaryPlaceholder = props.profile?.hasApiKey
+  const primaryPlaceholder = hasSavedApiKey
     ? "已保存，输入新值可替换"
     : pairCredentials ? "输入 SecretId" : "输入 API Key";
 
@@ -282,15 +421,29 @@ export function ProviderConnectionSection(props: ProviderConnectionSectionProps)
               <select value={adapterType} disabled>
                 <option value={adapterType}>{adapterLabel(adapterType)}</option>
               </select>
+            ) : props.serviceType === "model" ? (
+              <select
+                value={adapterType}
+                onChange={(event) => {
+                  setProtocol("openai-compatible");
+                  setAdapterType(event.target.value as ProviderAdapterType);
+                }}
+              >
+                {MODEL_ADAPTERS.map((value) => (
+                  <option value={value} key={value}>{adapterLabel(value)}</option>
+                ))}
+              </select>
             ) : (
               <select
                 value={protocol}
-                onChange={(event) => setProtocol(event.target.value as ProviderProtocol)}
+                onChange={(event) => {
+                  const value = event.target.value as ProviderProtocol;
+                  setProtocol(value);
+                  setAdapterType(value);
+                }}
               >
                 {Object.entries(protocolLabels)
-                  .filter(([value]) => props.serviceType === "model"
-                    ? value === "openai-compatible"
-                    : props.serviceType !== "image" || value !== "anthropic")
+                  .filter(([value]) => props.serviceType !== "image" || value !== "anthropic")
                   .map(([value, label]) => (
                   <option value={value} key={value}>{label}</option>
                   ))}
@@ -309,16 +462,13 @@ export function ProviderConnectionSection(props: ProviderConnectionSectionProps)
             id="provider-primary-key"
             label={`${primaryLabel}${requiresApiKey ? "（必填）" : "（可选）"}`}
             value={apiKey}
-            saved={Boolean(props.profile?.hasApiKey)}
-            mask={props.profile?.apiKeyMask}
+            saved={hasSavedApiKey}
+            mask={savedApiKeyMask}
             clearing={clearApiKey}
             disabled={props.busy}
             placeholder={primaryPlaceholder}
             onChange={setApiKey}
-            onClear={() => {
-              setApiKey("");
-              setClearApiKey(true);
-            }}
+            onClear={() => void removePrimaryApiKey()}
           />
 
           {pairCredentials && (
@@ -326,18 +476,15 @@ export function ProviderConnectionSection(props: ProviderConnectionSectionProps)
               id="provider-secondary-key"
               label="SecretKey（必填）"
               value={secondaryApiKey}
-              saved={Boolean(props.profile?.hasSecondaryApiKey)}
-              mask={props.profile?.secondaryApiKeyMask}
+              saved={hasSavedSecondaryApiKey}
+              mask={savedSecondaryApiKeyMask}
               clearing={clearSecondaryApiKey}
               disabled={props.busy}
-              placeholder={props.profile?.hasSecondaryApiKey
+              placeholder={hasSavedSecondaryApiKey
                 ? "已保存，输入新值可替换"
                 : "输入 SecretKey"}
               onChange={setSecondaryApiKey}
-              onClear={() => {
-                setSecondaryApiKey("");
-                setClearSecondaryApiKey(true);
-              }}
+              onClear={() => void removeSecondaryApiKey()}
             />
           )}
         </div>
@@ -347,7 +494,33 @@ export function ProviderConnectionSection(props: ProviderConnectionSectionProps)
             {status.text}
           </p>
         )}
+        {frostApi && usage && (
+          <p className="provider-usage-result" aria-live="polite">
+            {formatFrostApiUsage(usage)}
+          </p>
+        )}
+        {frostApi && usageStatus === "error" && (
+          <p className="connection-result connection-error" aria-live="polite">
+            {usageError}
+          </p>
+        )}
         <footer className="settings-connection-footer">
+          {frostApi && props.profile && (
+            <button
+              type="button"
+              className="button button-secondary"
+              disabled={
+                props.busy ||
+                usageStatus === "loading" ||
+                !name.trim() ||
+                !baseUrl.trim() ||
+                missingUsageKey
+              }
+              onClick={() => void queryFrostApiUsage()}
+            >
+              {usageStatus === "loading" ? "查询中…" : "查询余额"}
+            </button>
+          )}
           <button
             type="button"
             className="button button-primary"
@@ -355,8 +528,8 @@ export function ProviderConnectionSection(props: ProviderConnectionSectionProps)
               props.busy ||
               !name.trim() ||
               !baseUrl.trim() ||
-              missingRequiredKey ||
-              missingRequiredSecondaryKey
+              missingConfiguredKey ||
+              missingConfiguredSecondaryKey
             }
             onClick={() => void test()}
           >
@@ -450,10 +623,10 @@ function SecretField(props: {
       <small>
         {props.value
           ? "输入停止后自动保存"
-          : props.saved
-            ? `已保存 ${props.mask ?? "••••••••"}`
-            : props.clearing
-              ? "密钥将在自动保存后清除"
+          : props.clearing
+            ? "密钥将在自动保存后清除"
+            : props.saved
+              ? `已保存 ${props.mask ?? "••••••••"}`
               : "尚未设置"}
       </small>
     </div>
@@ -523,4 +696,27 @@ function isHttpUrl(value: string): boolean {
   } catch {
     return false;
   }
+}
+
+function isFrostApiProfile(
+  profile: ProviderProfileSnapshot | null,
+  preset: ProviderPreset | null,
+  adapterType: ProviderAdapterType
+): boolean {
+  if (preset?.id === "frostapi" || adapterType === "frostapi-3d") return true;
+  const internal = profile?.settings[INTERNAL_SETTINGS_KEY];
+  return Boolean(
+    isRecord(internal) && internal.providerKind === "frostapi"
+  );
+}
+
+function formatFrostApiUsage(usage: FrostApiUsageSnapshot): string {
+  if (usage.mode === "unrestricted") {
+    return `${usage.planName}：${formatUsageNumber(usage.balance)} ${usage.unit}`;
+  }
+  return `剩余 ${formatUsageNumber(usage.quota.remaining)} / ${formatUsageNumber(usage.quota.limit)} ${usage.quota.unit}，已用 ${formatUsageNumber(usage.quota.used)}`;
+}
+
+function formatUsageNumber(value: number): string {
+  return new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 6 }).format(value);
 }

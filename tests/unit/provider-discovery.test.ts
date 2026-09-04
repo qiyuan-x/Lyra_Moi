@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  HunyuanModelDiscoveryAdapter,
   MeshyModelDiscoveryAdapter,
   ProviderConnectionError,
   ProviderHttpClient,
@@ -14,7 +15,7 @@ import {
 import type { StoredProviderProfile } from "@lyra/storage";
 
 describe("HTTP provider model discovery", () => {
-  it("discovers OpenAI-compatible 3D models through the models endpoint", async () => {
+  it("discovers FrostAPI 3D models through the models endpoint", async () => {
     let headers = new Headers();
     let url = "";
     const registry = createHttpProviderRegistry({
@@ -33,7 +34,7 @@ describe("HTTP provider model discovery", () => {
       profile: {
         ...profile("openai-compatible", "https://api.frost.test"),
         serviceType: "model",
-        adapterType: "openai-compatible"
+        adapterType: "frostapi-3d"
       },
       apiKey: "frost-secret",
       signal: undefined
@@ -76,6 +77,90 @@ describe("HTTP provider model discovery", () => {
       "meshy-5",
       "meshy-t2",
       "meshy-t1"
+    ]);
+  });
+
+  it("discovers supported Hunyuan 3D models through TokenHub", async () => {
+    let url = "";
+    let headers = new Headers();
+    const adapter = new HunyuanModelDiscoveryAdapter(new ProviderHttpClient({
+      fetchImplementation: async (input, init) => {
+        url = String(input);
+        headers = new Headers(init?.headers);
+        return Response.json({
+          object: "list",
+          data: [
+            { id: "hy-3d-3.0", name: "HY-3D-3.0", status: "online" },
+            { id: "HY-3D-3.1", name: "HY-3D-3.1", status: "online" },
+            { id: "hy-3d-express", name: "HY-3D-Express", status: "online" },
+            { id: "deepseek-v4", name: "DeepSeek", status: "online" }
+          ]
+        });
+      }
+    }));
+    const models = await adapter.discoverModels({
+      profile: {
+        ...profile("openai-compatible", "https://tokenhub.tencentmaas.com"),
+        serviceType: "model",
+        adapterType: "hunyuan"
+      },
+      apiKey: "tokenhub-secret",
+      signal: undefined
+    });
+
+    expect(url).toBe("https://tokenhub.tencentmaas.com/v1/models");
+    expect(headers.get("authorization")).toBe("Bearer tokenhub-secret");
+    expect(models.map((model) => model.remoteModelId)).toEqual([
+      "hy-3d-3.1",
+      "hy-3d-3.0"
+    ]);
+  });
+
+  it("automatically accepts a legacy Hunyuan API key", async () => {
+    const calls: Array<{ url: string; headers: Headers; body?: Record<string, unknown> }> = [];
+    const adapter = new HunyuanModelDiscoveryAdapter(new ProviderHttpClient({
+      fetchImplementation: async (input, init) => {
+        const body = typeof init?.body === "string"
+          ? JSON.parse(init.body) as Record<string, unknown>
+          : undefined;
+        calls.push({
+          url: String(input),
+          headers: new Headers(init?.headers),
+          ...(body ? { body } : {})
+        });
+        if (String(input).endsWith("/v1/models")) {
+          return Response.json(
+            { error: { message: "invalid token" } },
+            { status: 401 }
+          );
+        }
+        return Response.json({
+          ErrorCode: "InvalidParameterValue.JobId",
+          ErrorMessage: "JobId does not exist"
+        });
+      }
+    }));
+
+    const models = await adapter.discoverModels({
+      profile: {
+        ...profile("openai-compatible", "https://tokenhub.tencentmaas.com"),
+        serviceType: "model",
+        adapterType: "hunyuan"
+      },
+      apiKey: "legacy-token",
+      signal: undefined
+    });
+
+    expect(calls.map((call) => call.url)).toEqual([
+      "https://tokenhub.tencentmaas.com/v1/models",
+      "https://api.ai3d.cloud.tencent.com/v1/ai3d/query"
+    ]);
+    expect(calls[0]?.headers.get("authorization")).toBe("Bearer legacy-token");
+    expect(calls[1]?.headers.get("authorization")).toBe("legacy-token");
+    expect(calls[1]?.body).toEqual({ JobId: "lyra-connection-test" });
+    expect(models.map((model) => model.remoteModelId)).toEqual([
+      "hy-3d-3.1",
+      "hy-3d-3.0"
     ]);
   });
 

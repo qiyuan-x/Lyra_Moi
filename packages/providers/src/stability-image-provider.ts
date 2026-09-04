@@ -1,7 +1,10 @@
 import type { GenerationRequest } from "@lyra/contracts";
 import type { BinaryImageProvider, GeneratedImageBinary } from "@lyra/core";
 import { ProviderConnectionError } from "./provider-errors.js";
-import { ProviderHttpClient } from "./provider-http-client.js";
+import {
+  createImageProviderHttpClient,
+  ProviderHttpClient
+} from "./provider-http-client.js";
 import type { ProviderAssetLoader } from "./image-provider-types.js";
 
 export interface StabilityImageProviderOptions {
@@ -25,7 +28,7 @@ export class StabilityImageProvider implements BinaryImageProvider {
     this.#apiKey = requireText(options.apiKey, "Stability API key");
     this.#model = requireText(options.model, "Stability model");
     this.#assetLoader = options.assetLoader;
-    this.#client = options.client ?? new ProviderHttpClient({ timeoutMs: 10 * 60_000 });
+    this.#client = options.client ?? createImageProviderHttpClient();
   }
 
   async generate(

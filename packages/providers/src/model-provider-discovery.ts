@@ -1,7 +1,12 @@
 import type { DiscoveredProviderModel } from "@lyra/contracts";
-import { HunyuanAi3dClient } from "./hunyuan-model-provider.js";
 import { ProviderConnectionError } from "./provider-errors.js";
 import { ProviderHttpClient } from "./provider-http-client.js";
+import {
+  HUNYUAN_LEGACY_BASE_URL,
+  HUNYUAN_TOKENHUB_BASE_URL,
+  HunyuanAi3dClient,
+  type HunyuanApiVariant
+} from "./hunyuan-model-provider.js";
 import {
   requireRecord,
   requireText
@@ -75,14 +80,60 @@ export class HunyuanModelDiscoveryAdapter implements ProviderDiscoveryAdapter {
 
   async discoverModels(input: ProviderDiscoveryInput): Promise<DiscoveredProviderModel[]> {
     const apiKey = requireText(input.apiKey, "Hunyuan API key is required.");
-    const api = new HunyuanAi3dClient({
-      baseUrl: input.profile.baseUrl,
+    const endpoints = resolveHunyuanDiscoveryEndpoints(input.profile.baseUrl);
+    let firstError: unknown;
+    for (const variant of variantOrder(endpoints.preferredVariant)) {
+      try {
+        return variant === "tokenhub"
+          ? await this.#discoverTokenHubModels(endpoints.tokenhubBaseUrl, apiKey, input.signal)
+          : await this.#discoverLegacyModels(endpoints.legacyBaseUrl, apiKey, input.signal);
+      } catch (error) {
+        firstError ??= error;
+      }
+    }
+    throw firstError ?? new ProviderConnectionError(
+      "UNREACHABLE",
+      "Hunyuan provider could not be reached."
+    );
+  }
+
+  async #discoverTokenHubModels(
+    baseUrl: string,
+    apiKey: string,
+    signal?: AbortSignal
+  ): Promise<DiscoveredProviderModel[]> {
+    const normalized = baseUrl.replace(/\/+$/u, "").replace(/\/v1$/u, "");
+    const result = requireRecord(await this.#client.getJson(
+      `${normalized}/v1/models`,
+      { Accept: "application/json", Authorization: `Bearer ${apiKey}` },
+      signal
+    ));
+    if (!Array.isArray(result.data)) {
+      throw new ProviderConnectionError(
+        "INVALID_RESPONSE",
+        "TokenHub model list response is invalid."
+      );
+    }
+    const available = new Set(result.data.flatMap((value) => {
+      if (!isRecord(value) || typeof value.id !== "string") return [];
+      return [value.id.trim().toLowerCase()];
+    }));
+    return hunyuanModels().filter((model) => available.has(model.remoteModelId));
+  }
+
+  async #discoverLegacyModels(
+    baseUrl: string,
+    apiKey: string,
+    signal?: AbortSignal
+  ): Promise<DiscoveredProviderModel[]> {
+    const client = new HunyuanAi3dClient({
+      baseUrl,
       apiKey,
+      variant: "legacy",
       client: this.#client
     });
-    let result: Record<string, unknown>;
     try {
-      result = await api.query({ JobId: "0" }, input.signal);
+      await client.query({ JobId: "lyra-connection-test" }, signal);
     } catch (error) {
       if (
         error instanceof ProviderConnectionError &&
@@ -91,15 +142,6 @@ export class HunyuanModelDiscoveryAdapter implements ProviderDiscoveryAdapter {
         return hunyuanModels();
       }
       throw error;
-    }
-    if (
-      typeof result.ErrorCode === "string" &&
-      /auth|credential|permission/iu.test(result.ErrorCode)
-    ) {
-      throw new ProviderConnectionError(
-        "AUTHENTICATION_FAILED",
-        result.ErrorMessage as string || "Tencent Cloud credential test failed."
-      );
     }
     return hunyuanModels();
   }
@@ -133,7 +175,44 @@ function discovered(remoteModelId: string, displayName: string): DiscoveredProvi
 
 function hunyuanModels(): DiscoveredProviderModel[] {
   return [
-    discovered("3.1", "混元生 3D 3.1"),
-    discovered("3.0", "混元生 3D 3.0")
+    discovered("hy-3d-3.1", "混元生 3D 3.1"),
+    discovered("hy-3d-3.0", "混元生 3D 3.0")
   ];
+}
+
+function resolveHunyuanDiscoveryEndpoints(baseUrl: string): {
+  preferredVariant: HunyuanApiVariant;
+  tokenhubBaseUrl: string;
+  legacyBaseUrl: string;
+} {
+  const configured = requireText(baseUrl, "Hunyuan Base URL is required.");
+  const url = new URL(configured);
+  const normalized = (
+    url.hostname.toLowerCase() === new URL(HUNYUAN_LEGACY_BASE_URL).hostname ||
+    url.hostname.toLowerCase() === new URL(HUNYUAN_TOKENHUB_BASE_URL).hostname
+  )
+    ? url.origin
+    : url.toString().replace(/\/+$/u, "");
+  if (url.hostname.toLowerCase() === new URL(HUNYUAN_LEGACY_BASE_URL).hostname) {
+    return {
+      preferredVariant: "legacy",
+      tokenhubBaseUrl: HUNYUAN_TOKENHUB_BASE_URL,
+      legacyBaseUrl: normalized
+    };
+  }
+  return {
+    preferredVariant: "tokenhub",
+    tokenhubBaseUrl: normalized,
+    legacyBaseUrl: HUNYUAN_LEGACY_BASE_URL
+  };
+}
+
+function variantOrder(preferred: HunyuanApiVariant): HunyuanApiVariant[] {
+  return preferred === "tokenhub"
+    ? ["tokenhub", "legacy"]
+    : ["legacy", "tokenhub"];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

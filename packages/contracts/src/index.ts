@@ -10,5 +10,6 @@ export * from "./job.js";
 export * from "./model-generation.js";
 export * from "./provider.js";
 export * from "./prompt.js";
+export * from "./project-animation.js";
 export * from "./schemas.js";
 export * from "./validation.js";

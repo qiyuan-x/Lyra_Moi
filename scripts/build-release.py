@@ -19,12 +19,12 @@ APP_DIR = RELEASE_DIR / "app"
 UPDATE_MANIFEST_URL = "https://linfrsot.cloud/lyra/updates/latest.json"
 UPDATE_PACKAGE_BASE_URL = "https://linfrsot.cloud/lyra/updates/packages"
 RELEASE_NOTES = (
-    "图片生成统一支持自动、1K、2K 和 4K 分辨率设置。",
-    "动作参考复位时同时恢复默认动作和镜头。",
-    "统一供应商的添加、配置、启停和删除操作。",
-    "默认提供 OpenAI、Gemini、FrostAPI 配置入口。",
-    "图片预览支持缩放、拖动和视图复位。",
-    "移除右上角操作反馈弹窗。",
+    "更新 Meshy、Tripo、混元和 FrostAPI 3D 建模调用，并增加多视图输入。",
+    "动作参考增加 UE5 与其他骨骼动画导入、项目动作库和当前帧编辑。",
+    "完善图片预览、素材拖放、模板效果图和对话附件。",
+    "供应商支持同类型多配置、密钥清除和 FrostAPI 余额查询。",
+    "图片生成请求不再设置固定等待时长，保留手动取消和网络错误处理。",
+    "完善社区入口、Windows 在线更新和启动器单实例运行。",
 )
 sys.path.insert(0, str(ROOT))
 
@@ -43,6 +43,7 @@ def main() -> int:
     _bundle_node_services()
     _copy_web_and_resources()
     _copy_sharp_runtime()
+    _copy_undici_runtime()
     _copy_node_runtime()
     _build_launcher_executable()
     _write_release_manifest()
@@ -72,6 +73,7 @@ def _bundle_node_services() -> None:
                 "--target=node22",
                 f"--outfile={APP_DIR / role / 'run.js'}",
                 "--external:sharp",
+                "--external:undici",
             ]
         )
     (APP_DIR / "package.json").write_text(
@@ -107,6 +109,17 @@ def _copy_sharp_runtime() -> None:
         if not source.is_dir():
             raise FileNotFoundError(f"Sharp runtime dependency is missing: {source}")
         shutil.copytree(source, target, ignore=shutil.ignore_patterns("node_modules"))
+
+
+def _copy_undici_runtime() -> None:
+    source = (ROOT / "packages" / "providers" / "node_modules" / "undici").resolve()
+    if not source.is_dir():
+        raise FileNotFoundError(f"Undici runtime dependency is missing: {source}")
+    shutil.copytree(
+        source,
+        APP_DIR / "node_modules" / "undici",
+        ignore=shutil.ignore_patterns("node_modules"),
+    )
 
 
 def _copy_node_runtime() -> None:

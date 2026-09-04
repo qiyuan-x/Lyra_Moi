@@ -467,6 +467,16 @@ export function App() {
   }, [preview]);
 
   useEffect(() => {
+    if (!preview) return;
+    const preventBackgroundScroll = (event: WheelEvent) => event.preventDefault();
+    window.addEventListener("wheel", preventBackgroundScroll, {
+      capture: true,
+      passive: false
+    });
+    return () => window.removeEventListener("wheel", preventBackgroundScroll, true);
+  }, [preview]);
+
+  useEffect(() => {
     setPreviewZoom(1);
     setPreviewOffset({ x: 0, y: 0 });
     setPreviewDragging(false);
@@ -548,6 +558,7 @@ export function App() {
 
   function handlePreviewWheel(event: ReactWheelEvent<HTMLDivElement>) {
     event.preventDefault();
+    event.stopPropagation();
     zoomPreview(event.deltaY < 0 ? 0.15 : -0.15);
   }
 
@@ -766,6 +777,7 @@ export function App() {
               setPage("model");
             }}
             onUpload={() => uploadInputRef.current?.click()}
+            onUploadFiles={uploadAssets}
             onUpdate={updateAsset}
             onDelete={deleteAsset}
             onDeleteModel={deleteModelAssets}
@@ -798,6 +810,7 @@ export function App() {
             <PoseStudioPage
               key={projectId}
               projectId={projectId}
+              api={api}
               onSaveScreenshot={async (file) => {
                 await uploadAssets([file]);
                 pushNotice("success", "动作截图已保存到当前项目素材库");

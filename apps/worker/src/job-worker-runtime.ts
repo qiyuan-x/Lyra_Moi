@@ -33,7 +33,7 @@ export interface JobWorkerRuntimeOptions {
   heartbeatIntervalMs?: number;
   cancellationPollIntervalMs?: number;
   staleLockTimeoutMs?: number;
-  executionTimeoutMs?: number;
+  executionTimeoutMs?: number | null;
   kinds?: readonly JobKind[];
   workerKind?: WorkerKind;
 }
@@ -71,7 +71,7 @@ export class JobWorkerRuntime {
   readonly #heartbeatIntervalMs: number;
   readonly #cancellationPollIntervalMs: number;
   readonly #staleLockTimeoutMs: number;
-  readonly #executionTimeoutMs: number;
+  readonly #executionTimeoutMs: number | null;
   readonly #kinds: readonly JobKind[];
   readonly #workerKind: WorkerKind;
   #running = false;
@@ -101,12 +101,16 @@ export class JobWorkerRuntime {
       options.staleLockTimeoutMs ?? 30_000,
       "staleLockTimeoutMs"
     );
-    this.#executionTimeoutMs = validateInterval(
-      options.executionTimeoutMs ?? 12 * 60_000,
-      "executionTimeoutMs"
-    );
     this.#kinds = options.kinds?.length ? [...options.kinds] : ["image.generate"];
     this.#workerKind = options.workerKind ?? "image";
+    this.#executionTimeoutMs = options.executionTimeoutMs === null
+      ? null
+      : options.executionTimeoutMs === undefined && this.#workerKind === "image"
+        ? null
+        : validateInterval(
+          options.executionTimeoutMs ?? 12 * 60_000,
+          "executionTimeoutMs"
+        );
   }
 
   get isRunning(): boolean {
@@ -176,10 +180,12 @@ export class JobWorkerRuntime {
       }
     }, this.#cancellationPollIntervalMs);
     cancellationPoll.unref();
-    const executionTimeout = setTimeout(() => {
-      controller.abort(new JobTimeoutError(this.#workerKind));
-    }, this.#executionTimeoutMs);
-    executionTimeout.unref();
+    const executionTimeout = this.#executionTimeoutMs === null
+      ? null
+      : setTimeout(() => {
+        controller.abort(new JobTimeoutError(this.#workerKind));
+      }, this.#executionTimeoutMs);
+    executionTimeout?.unref();
     try {
       const output = await this.#executor.execute(
         job,
@@ -216,7 +222,7 @@ export class JobWorkerRuntime {
     } finally {
       clearInterval(heartbeat);
       clearInterval(cancellationPoll);
-      clearTimeout(executionTimeout);
+      if (executionTimeout) clearTimeout(executionTimeout);
       this.#activeController = null;
     }
     return true;

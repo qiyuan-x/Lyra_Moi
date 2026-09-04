@@ -11,6 +11,7 @@ import type {
   WorkspaceQueryService
 } from "@lyra/core";
 import type { ProviderSettingsService } from "@lyra/providers";
+import type { ProjectAnimationStore } from "@lyra/storage";
 import type { ApplicationUpdateService } from "./application-update-service.js";
 
 export interface CreateApiServerOptions {
@@ -20,6 +21,7 @@ export interface CreateApiServerOptions {
   manualGenerations?: ManualGenerationService;
   modelGenerations?: ModelGenerationService;
   assets?: AssetService;
+  projectAnimations?: ProjectAnimationStore;
   providers?: ProviderSettingsService;
   prompts?: PromptTemplateService;
   agentPromptSettings?: AgentPromptSettingsService;
@@ -32,6 +34,7 @@ export interface CreateApiServerOptions {
   heartbeatIntervalMs?: number;
   maxJsonBodyBytes?: number;
   maxAssetBodyBytes?: number;
+  maxAnimationBodyBytes?: number;
   webRoot?: string;
   accessToken?: string;
 }

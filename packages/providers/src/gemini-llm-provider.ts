@@ -1,5 +1,4 @@
 import type {
-  AgentMessage,
   AgentToolDefinition,
   LlmCompletion,
   LlmCompletionInput,
@@ -7,12 +6,18 @@ import type {
 } from "@lyra/agent-engine";
 import { ProviderConnectionError } from "./provider-errors.js";
 import { ProviderHttpClient } from "./provider-http-client.js";
+import {
+  loadLlmMessages,
+  type LlmProviderAssetLoader,
+  type LoadedAgentMessage
+} from "./llm-provider-types.js";
 
 export interface GeminiLlmProviderOptions {
   baseUrl: string;
   apiKey: string | null;
   model: string;
   settings?: Record<string, unknown>;
+  assetLoader?: LlmProviderAssetLoader;
   client?: ProviderHttpClient;
 }
 
@@ -21,6 +26,7 @@ export class GeminiInteractionsLlmProvider implements LlmProvider {
   readonly #apiKey: string;
   readonly #model: string;
   readonly #settings: Record<string, unknown>;
+  readonly #assetLoader: LlmProviderAssetLoader | undefined;
   readonly #client: ProviderHttpClient;
 
   constructor(options: GeminiLlmProviderOptions) {
@@ -28,14 +34,20 @@ export class GeminiInteractionsLlmProvider implements LlmProvider {
     this.#apiKey = requireApiKey(options.apiKey);
     this.#model = requireText(options.model, "Provider model");
     this.#settings = structuredClone(options.settings ?? {});
+    this.#assetLoader = options.assetLoader;
     this.#client = options.client ?? new ProviderHttpClient();
   }
 
   async complete(input: LlmCompletionInput): Promise<LlmCompletion> {
+    const messages = await loadLlmMessages(
+      input.messages,
+      input.projectId,
+      this.#assetLoader
+    );
     const body = await this.#client.postJson(
       `${this.#baseUrl}/interactions`,
       { "x-goog-api-key": this.#apiKey, Accept: "application/json" },
-      createInteractionRequest(this.#model, this.#settings, input.messages, input.tools),
+      createInteractionRequest(this.#model, this.#settings, messages, input.tools),
       input.signal
     );
     return parseInteractionCompletion(body);
@@ -45,7 +57,7 @@ export class GeminiInteractionsLlmProvider implements LlmProvider {
 function createInteractionRequest(
   model: string,
   settings: Record<string, unknown>,
-  messages: readonly AgentMessage[],
+  messages: readonly LoadedAgentMessage[],
   tools: readonly AgentToolDefinition[]
 ): Record<string, unknown> {
   const request: Record<string, unknown> = { model, store: true };
@@ -84,7 +96,7 @@ function createInteractionRequest(
       }
     ];
   } else {
-    request.input = createConversationTranscript(messages);
+    request.input = createConversationInput(messages);
   }
   applyGeminiSettings(request, settings);
   return request;
@@ -130,19 +142,49 @@ function parseInteractionCompletion(value: unknown): LlmCompletion {
   return { type: "message", text: text.join("") };
 }
 
-function createConversationTranscript(messages: readonly AgentMessage[]): string {
+function createConversationInput(
+  messages: readonly LoadedAgentMessage[]
+): string | Record<string, unknown>[] {
+  const conversation = messages.filter((message) => message.role !== "system");
+  if (conversation.every((message) => message.attachments.length === 0)) {
+    return createConversationTranscript(conversation);
+  }
+
+  const input: Record<string, unknown>[] = [];
+  for (const message of conversation) {
+    if (message.role === "user") {
+      input.push(...message.attachments.map((attachment) => ({
+        type: "image",
+        data: Buffer.from(attachment.data).toString("base64"),
+        mime_type: attachment.mimeType
+      })));
+    }
+    if (!message.content) continue;
+    const text = conversation.length === 1 && message.role === "user"
+      ? message.content
+      : formatConversationLine(message);
+    input.push({ type: "text", text });
+  }
+  if (input.length === 0) {
+    throw new ProviderConnectionError("INVALID_CONFIGURATION", "Gemini user input is required.");
+  }
+  return input;
+}
+
+function createConversationTranscript(messages: readonly LoadedAgentMessage[]): string {
   const lines = messages
-    .filter((message) => message.role !== "system")
-    .map((message) => {
-      if (message.role === "assistant") return `Assistant: ${message.content}`;
-      if (message.role === "tool") return `Tool ${message.toolName ?? "result"}: ${message.content}`;
-      return `User: ${message.content}`;
-    });
+    .map(formatConversationLine);
   const transcript = lines.join("\n\n").trim();
   if (!transcript) {
     throw new ProviderConnectionError("INVALID_CONFIGURATION", "Gemini user input is required.");
   }
   return transcript;
+}
+
+function formatConversationLine(message: LoadedAgentMessage): string {
+  if (message.role === "assistant") return `Assistant: ${message.content}`;
+  if (message.role === "tool") return `Tool ${message.toolName ?? "result"}: ${message.content}`;
+  return `User: ${message.content}`;
 }
 
 function applyGeminiSettings(

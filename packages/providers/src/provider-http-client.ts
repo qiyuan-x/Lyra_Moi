@@ -1,24 +1,32 @@
+import { Agent, type Dispatcher } from "undici";
 import { ProviderConnectionError, type ProviderConnectionErrorCode } from "./provider-errors.js";
 import type { FetchLike } from "./provider-types.js";
 
 export interface ProviderHttpClientOptions {
   fetchImplementation?: FetchLike;
-  timeoutMs?: number;
+  timeoutMs?: number | null;
   maxResponseBytes?: number;
+  disableUndiciTimeouts?: boolean;
 }
 
 export class ProviderHttpClient {
   readonly #fetch: FetchLike;
-  readonly #timeoutMs: number;
+  readonly #timeoutMs: number | null;
   readonly #maxResponseBytes: number;
+  readonly #dispatcher: Dispatcher | null;
 
   constructor(options: ProviderHttpClientOptions = {}) {
     this.#fetch = options.fetchImplementation ?? globalThis.fetch.bind(globalThis);
-    this.#timeoutMs = positiveInteger(options.timeoutMs ?? 120_000, "Provider timeout");
+    this.#timeoutMs = options.timeoutMs === null
+      ? null
+      : positiveInteger(options.timeoutMs ?? 120_000, "Provider timeout");
     this.#maxResponseBytes = positiveInteger(
       options.maxResponseBytes ?? 64 * 1024 * 1024,
       "Provider response limit"
     );
+    this.#dispatcher = options.disableUndiciTimeouts
+      ? new Agent({ headersTimeout: 0, bodyTimeout: 0 })
+      : null;
   }
 
   getJson(
@@ -107,23 +115,43 @@ export class ProviderHttpClient {
     let timedOut = false;
     const onAbort = () => controller.abort(signal?.reason);
     signal?.addEventListener("abort", onAbort, { once: true });
-    const timer = setTimeout(() => {
-      timedOut = true;
-      controller.abort();
-    }, this.#timeoutMs);
-    timer.unref();
+    const timer = this.#timeoutMs === null
+      ? null
+      : setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, this.#timeoutMs);
+    timer?.unref();
 
     let response: Response;
     try {
-      response = await this.#fetch(url, { ...init, signal: controller.signal });
-    } catch {
+      const requestInit: RequestInit & { dispatcher?: Dispatcher } = {
+        ...init,
+        signal: controller.signal
+      };
+      if (this.#dispatcher) requestInit.dispatcher = this.#dispatcher;
+      response = await this.#fetch(url, requestInit);
+    } catch (error) {
       if (signal?.aborted) throw signal.reason ?? new Error("Aborted.");
       if (timedOut) {
         throw new ProviderConnectionError("TIMEOUT", "Provider request timed out.");
       }
+      const undiciCode = readNestedErrorCode(error);
+      if (undiciCode === "UND_ERR_HEADERS_TIMEOUT") {
+        throw new ProviderConnectionError(
+          "TIMEOUT",
+          "Provider response headers timed out."
+        );
+      }
+      if (undiciCode === "UND_ERR_BODY_TIMEOUT") {
+        throw new ProviderConnectionError(
+          "TIMEOUT",
+          "Provider response body timed out."
+        );
+      }
       throw new ProviderConnectionError("UNREACHABLE", "Provider could not be reached.");
     } finally {
-      clearTimeout(timer);
+      if (timer) clearTimeout(timer);
       signal?.removeEventListener("abort", onAbort);
     }
 
@@ -141,6 +169,13 @@ export class ProviderHttpClient {
     }
     return response;
   }
+}
+
+export function createImageProviderHttpClient(): ProviderHttpClient {
+  return new ProviderHttpClient({
+    timeoutMs: null,
+    disableUndiciTimeouts: true
+  });
 }
 
 async function readProviderErrorMessage(
@@ -232,4 +267,15 @@ function positiveInteger(value: number, label: string): number {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function readNestedErrorCode(error: unknown): string | null {
+  const visited = new Set<object>();
+  let current = error;
+  while (typeof current === "object" && current !== null && !visited.has(current)) {
+    visited.add(current);
+    if ("code" in current && typeof current.code === "string") return current.code;
+    current = "cause" in current ? current.cause : null;
+  }
+  return null;
 }

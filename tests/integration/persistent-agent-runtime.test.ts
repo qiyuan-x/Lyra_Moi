@@ -388,12 +388,13 @@ describe("persistent Agent runtime", () => {
         { assetId: firstAsset.id, position: 1, label: "图1" },
         { assetId: secondAsset.id, position: 2, label: "图2" }
       ]);
-      expect(llm.inputs[0]?.messages.at(-1)?.content).toContain(
-        `1. 图1: assetId=${firstAsset.id}`
-      );
-      expect(llm.inputs[0]?.messages.at(-1)?.content).toContain(
-        `2. 图2: assetId=${secondAsset.id}`
-      );
+      expect(llm.inputs[0]?.messages.at(-1)).toMatchObject({
+        content: "  把图二的人物替换为图一，再逐步细化  ",
+        attachments: [
+          { assetId: firstAsset.id, position: 1, label: "图1" },
+          { assetId: secondAsset.id, position: 2, label: "图2" }
+        ]
+      });
       expect(
         fixture.database.connection.prepare("SELECT COUNT(*) AS count FROM jobs").get()
       ).toMatchObject({ count: 2 });

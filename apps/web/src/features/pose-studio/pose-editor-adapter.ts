@@ -14,6 +14,7 @@ import {
   type TransformMode,
   type Vector3Tuple
 } from "./pose-types.js";
+import { applyUe5MannequinReferencePose } from "./ue5-mannequin-reference.js";
 
 const modelUrls: Record<MannequinId, string> = {
   manny: "/models/pose-studio/manny/ue5_manny.gltf",
@@ -43,7 +44,8 @@ interface BoneVisual {
   outline: THREE.LineBasicMaterial;
 }
 
-const mannyBoneNames: Record<Exclude<JointId, "root">, string> = {
+export const ue5PoseBoneNames: Record<Exclude<JointId, "root">, string> = {
+  pelvis: "pelvis",
   spine: "spine_01",
   chest: "spine_03",
   neck: "neck_01",
@@ -95,7 +97,8 @@ const mannyBoneNames: Record<Exclude<JointId, "root">, string> = {
 };
 
 const boneTipJoints: Partial<Record<JointId, JointId>> = {
-  root: "spine",
+  root: "pelvis",
+  pelvis: "spine",
   spine: "chest",
   chest: "neck",
   neck: "head",
@@ -203,7 +206,7 @@ export class PoseEditorAdapter {
     this.previewRenderer.domElement.className = "pose-camera-preview-canvas";
     this.previewContainer.append(this.previewRenderer.domElement);
 
-    this.camera.position.set(3.2, 2.25, 4.2);
+    this.camera.position.set(0, 2.25, 4.2);
     this.orbit = new OrbitControls(this.camera, this.renderer.domElement);
     this.orbit.target.set(0, 1.05, 0);
     this.orbit.enableDamping = true;
@@ -466,7 +469,7 @@ export class PoseEditorAdapter {
       }
       this.modelContent = gltf.scene;
       this.modelContent.name = mannequin === "manny" ? "UE5_Manny" : "UE5_Quinn";
-      this.applyTPose(gltf.animations);
+      applyUe5MannequinReferencePose(this.modelContent, gltf.animations);
       this.modelContent.traverse((object) => {
         if (object instanceof THREE.SkinnedMesh) {
           object.frustumCulled = false;
@@ -489,17 +492,6 @@ export class PoseEditorAdapter {
       if (version !== this.loadVersion) return;
       this.callbacks.onError(error instanceof Error ? error : new Error("小白人模型加载失败。"));
     }
-  }
-
-  private applyTPose(animations: THREE.AnimationClip[]) {
-    if (!this.modelContent) return;
-    const clip = animations.find((item) => item.name.toLowerCase().includes("tpose"));
-    if (!clip) return;
-    const mixer = new THREE.AnimationMixer(this.modelContent);
-    const action = mixer.clipAction(clip);
-    action.play();
-    mixer.setTime(0);
-    this.modelContent.updateMatrixWorld(true);
   }
 
   private normalizeModelOrigin() {
@@ -526,7 +518,7 @@ export class PoseEditorAdapter {
     const missing: string[] = [];
     for (const jointId of jointIds) {
       if (jointId === "root") continue;
-      const boneName = mannyBoneNames[jointId];
+      const boneName = ue5PoseBoneNames[jointId];
       const object = this.modelContent?.getObjectByName(boneName);
       if (!(object instanceof THREE.Bone)) {
         missing.push(boneName);
@@ -585,13 +577,12 @@ export class PoseEditorAdapter {
   }
 
   private updateBoneVisuals() {
-    const pelvis = this.modelContent?.getObjectByName("pelvis");
     const start = new THREE.Vector3();
     const end = new THREE.Vector3();
     const direction = new THREE.Vector3();
     const quaternion = new THREE.Quaternion();
     for (const [jointId, visual] of this.boneVisuals) {
-      const target = jointId === "root" ? pelvis : this.bones.get(jointId);
+      const target = jointId === "root" ? this.modelRoot : this.bones.get(jointId);
       if (!target) continue;
       target.getWorldPosition(start);
       const tipJoint = boneTipJoints[jointId];
@@ -612,8 +603,7 @@ export class PoseEditorAdapter {
         new THREE.Vector3(0, 1, 0),
         direction.normalize()
       );
-      const finger = /(Thumb|Index|Middle|Ring|Pinky)/.test(jointId);
-      const width = length * (finger ? .16 : .12);
+      const width = boneVisualWidth(jointId, length);
       visual.mesh.scale.set(width, length, width);
     }
   }
@@ -631,7 +621,7 @@ export class PoseEditorAdapter {
     const distance = Math.max(fitHeight, fitWidth) * 1.12;
     this.orbit.target.copy(center);
     this.camera.position.copy(center).add(
-      new THREE.Vector3(.72, .18, 1).normalize().multiplyScalar(distance)
+      new THREE.Vector3(0, 0, 1).multiplyScalar(distance)
     );
     this.camera.near = Math.max(.005, height / 500);
     this.camera.far = Math.max(50, height * 20);
@@ -825,6 +815,26 @@ function readTransform(object: THREE.Object3D, rest: RestTransform | null): Edit
     ], 2),
     scale: roundVector(scale.toArray() as Vector3Tuple, 4)
   };
+}
+
+export function boneVisualWidth(jointId: JointId, length: number): number {
+  if (jointId === "root") return .014;
+  if (/(Thumb|Index|Middle|Ring|Pinky)/u.test(jointId)) {
+    return THREE.MathUtils.clamp(length * .12, .003, .006);
+  }
+  if (jointId === "pelvis" || jointId === "spine" || jointId === "chest") {
+    return THREE.MathUtils.clamp(length * .24, .024, .042);
+  }
+  if (jointId === "neck" || jointId === "head") {
+    return THREE.MathUtils.clamp(length * .14, .014, .03);
+  }
+  if (jointId.endsWith("Shoulder")) {
+    return THREE.MathUtils.clamp(length * .14, .016, .026);
+  }
+  if (jointId.endsWith("Hand") || jointId.endsWith("Foot")) {
+    return THREE.MathUtils.clamp(length * .12, .012, .024);
+  }
+  return THREE.MathUtils.clamp(length * .1, .012, .03);
 }
 
 function safeRatio(value: number, base: number): number {

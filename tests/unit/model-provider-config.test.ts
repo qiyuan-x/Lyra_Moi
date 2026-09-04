@@ -10,23 +10,32 @@ describe("model provider configuration", () => {
     expect(defaultModelParameters("meshy", "meshy-t2")).toMatchObject({
       targetFaceCount: 4_000,
       topology: "triangle",
+      pbr: false,
+      remesh: false,
       ultraMode: false
     });
     expect(defaultModelParameters("hunyuan", "hunyuan3d-2.1")).toMatchObject({
       targetFaceCount: 500_000,
-      polygonType: "triangle"
+      polygonType: "triangle",
+      pbr: false
     });
-    expect(defaultModelParameters("tripo", "P1-500")).toMatchObject({
-      targetFaceCount: 20_000,
-      geometryQuality: "standard"
+    expect(defaultModelParameters("tripo", "P1-20260311")).toMatchObject({
+      targetFaceCount: null,
+      geometryQuality: "standard",
+      textureQuality: "standard",
+      exportUv: true,
+      autoSize: false
     });
     expect(defaultModelParameters("stability-3d", "spar3d")).toEqual({});
-    expect(defaultModelParameters("openai-compatible", "meshy-7")).toMatchObject({
-      targetFaceCount: 30_000,
+    expect(defaultModelParameters("frostapi-3d", "meshy-7")).toMatchObject({
+      targetFaceCount: null,
       topology: "triangle",
+      pbr: false,
+      remesh: false,
+      textureResolution: "2k",
       ultraMode: false
     });
-    expect(defaultModelParameters("openai-compatible", "generic-3d")).toEqual({});
+    expect(defaultModelParameters(undefined, "generic-3d")).toEqual({});
   });
 
   it("validates provider-specific face count limits", () => {
@@ -41,16 +50,28 @@ describe("model provider configuration", () => {
       targetFaceCount: 20_000,
       geometryQuality: "standard"
     }, ["glb"])).toBeNull();
+    expect(validateModelParameters("tripo", "v3.1-20260211", {
+      targetFaceCount: 10_001,
+      smartLowPoly: true,
+      quad: true
+    }, ["glb"])).toContain("10,000");
+    expect(validateModelParameters("tripo", "v3.1-20260211", {
+      targetFaceCount: null,
+      generateParts: true,
+      texture: true,
+      pbr: false,
+      quad: false
+    }, ["glb"])).toContain("关闭纹理");
     expect(validateModelParameters("stability-3d", "spar3d", {}, ["glb"]))
       .toBeNull();
     expect(validateModelParameters("stability-3d", "spar3d", {}, ["obj"]))
       .toContain("GLB");
-    expect(validateModelParameters("openai-compatible", "meshy-7", {
+    expect(validateModelParameters("frostapi-3d", "meshy-7", {
       targetFaceCount: 30_000
     }, ["glb", "obj"]))
       .toBeNull();
-    expect(validateModelParameters("openai-compatible", "generic-3d", {}, ["obj"]))
-      .toContain("GLB");
+    expect(validateModelParameters(undefined, "generic-3d", {}, ["obj"]))
+      .toContain("请选择建模模型");
   });
 
   it("returns stable adapter labels", () => {
@@ -58,6 +79,6 @@ describe("model provider configuration", () => {
     expect(modelAdapterLabel("hunyuan")).toBe("混元");
     expect(modelAdapterLabel("tripo")).toBe("Tripo");
     expect(modelAdapterLabel("stability-3d")).toBe("Stability AI");
-    expect(modelAdapterLabel("openai-compatible")).toBe("OpenAI 兼容");
+    expect(modelAdapterLabel("frostapi-3d")).toBe("FrostAPI");
   });
 });

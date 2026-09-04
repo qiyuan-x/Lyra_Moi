@@ -322,7 +322,8 @@ export class AgentWorkerRuntime {
       },
       ...history.slice(0, requestIndex + 1).map((message) => ({
         role: message.role === "tool" ? "user" : message.role,
-        content: formatMessageForAgent(message.text, message.attachments)
+        content: message.text,
+        attachments: structuredClone(message.attachments)
       } as AgentMessage))
     ];
     await engine.run(
@@ -575,16 +576,4 @@ function isRetryInstruction(text: string): boolean {
     return false;
   }
   return /(?:重试|再试|重新生成|重新尝试|再来一次|retry|try again)/iu.test(normalized);
-}
-
-function formatMessageForAgent(
-  text: string,
-  attachments: readonly { assetId: string; position: number; label: string }[]
-): string {
-  if (attachments.length === 0) return text;
-  const attachmentLines = attachments.map(
-    (attachment) =>
-      `${attachment.position}. ${attachment.label}: assetId=${attachment.assetId}`
-  );
-  return `${text}\n\n[本轮有序参考素材，仅提供标识，不包含图片二进制]\n${attachmentLines.join("\n")}`;
 }

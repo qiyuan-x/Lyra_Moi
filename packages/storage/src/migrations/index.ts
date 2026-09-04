@@ -18,6 +18,8 @@ import { openAiCompatibleModelAdapterMigration } from "./016-openai-compatible-m
 import { removeCompatibleModelIdMigration } from "./017-remove-compatible-model-id.js";
 import { promptTemplatePreviewsMigration } from "./018-prompt-template-previews.js";
 import { starterProviderProfilesMigration } from "./019-starter-provider-profiles.js";
+import { frostApiModelAdapterMigration } from "./020-frostapi-model-adapter.js";
+import { hunyuanTokenHubMigration } from "./021-hunyuan-tokenhub.js";
 
 export const lyraMigrations: readonly DatabaseMigration[] = [
   initialSchemaMigration,
@@ -38,5 +40,7 @@ export const lyraMigrations: readonly DatabaseMigration[] = [
   openAiCompatibleModelAdapterMigration,
   removeCompatibleModelIdMigration,
   promptTemplatePreviewsMigration,
-  starterProviderProfilesMigration
+  starterProviderProfilesMigration,
+  frostApiModelAdapterMigration,
+  hunyuanTokenHubMigration
 ];

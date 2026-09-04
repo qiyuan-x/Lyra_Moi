@@ -1,7 +1,10 @@
 import type { GenerationRequest } from "@lyra/contracts";
 import type { BinaryImageProvider, GeneratedImageBinary } from "@lyra/core";
 import { ProviderConnectionError } from "./provider-errors.js";
-import { ProviderHttpClient } from "./provider-http-client.js";
+import {
+  createImageProviderHttpClient,
+  ProviderHttpClient
+} from "./provider-http-client.js";
 import type { ProviderAssetLoader } from "./image-provider-types.js";
 
 export interface DashScopeImageProviderOptions {
@@ -27,7 +30,7 @@ export class DashScopeImageProvider implements BinaryImageProvider {
     this.#model = requireText(options.model, "DashScope model");
     this.#assetLoader = options.assetLoader;
     this.#settings = structuredClone(options.settings ?? {});
-    this.#client = options.client ?? new ProviderHttpClient({ timeoutMs: 10 * 60_000 });
+    this.#client = options.client ?? createImageProviderHttpClient();
   }
 
   async generate(

@@ -316,9 +316,6 @@ def run_browser_checks(browser: Any, base_url: str, first_image: Path, second_im
     composer_files.set_input_files([str(first_image), str(second_image)])
     chips = page.locator(".attachment-chip")
     wait_for_count(chips, 2)
-    upload_notice = page.locator(".notice-center .notice-success")
-    upload_notice.wait_for()
-    upload_notice.get_by_role("button", name="关闭通知", exact=True).click()
     wait_for_count(page.locator(".notice-center .notice"), 0)
     expect_equal(chips.locator("img").nth(0).get_attribute("alt"), "first", "first attachment")
     expect_equal(chips.locator("img").nth(1).get_attribute("alt"), "second", "second attachment")
@@ -663,9 +660,7 @@ def run_browser_checks(browser: Any, base_url: str, first_image: Path, second_im
     assert_no_horizontal_overflow(restored, "desktop pose studio")
     save_screenshot(restored, "pose-studio.png")
     restored.get_by_role("button", name="保存截图", exact=True).click()
-    restored.locator(".notice-center", has_text="动作截图已保存到当前项目素材库").wait_for(
-        timeout=15_000
-    )
+    wait_for_count(restored.locator(".notice-center .notice"), 0)
     restored.get_by_role("button", name="图片生成", exact=True).click()
     exercise_project_management(restored)
     restored.locator(".main-sidebar").get_by_role(
@@ -769,8 +764,8 @@ def configure_provider_from_ui(browser: Any, base_url: str, provider_url: str) -
     page.get_by_role("button", name="添加供应商", exact=True).click()
     expect_equal(
         page.locator(".provider-picker-item").count(),
-        9,
-        "remaining LLM provider choices",
+        12,
+        "all LLM provider choices",
     )
     page.locator(".provider-picker-item", has_text="自定义连接").click()
     page.get_by_label("供应商名称", exact=True).fill("E2E LLM")
@@ -933,6 +928,56 @@ def configure_provider_from_ui(browser: Any, base_url: str, provider_url: str) -
         True,
         "configured model catalog enabled",
     )
+
+    page.get_by_role("button", name="LLM 设置", exact=True).click()
+    page.get_by_role("button", name="添加供应商", exact=True).click()
+    page.locator(".provider-picker-item", has_text="FrostAPI").click()
+    page.get_by_label("供应商名称", exact=True).fill("E2E Clear FrostAPI")
+    page.locator(".settings-api-key-field input").fill("e2e-secret")
+    page.locator(".settings-model-section").wait_for(timeout=15_000)
+    page.wait_for_function(
+        """async () => {
+          const value = await (await fetch('/api/v1/providers')).json();
+          const profile = value.profiles.find(item => item.name === 'E2E Clear FrostAPI');
+          return profile && profile.hasApiKey && profile.enabled;
+        }""",
+        timeout=15_000,
+    )
+    page.get_by_role("button", name="清除已保存密钥", exact=True).click()
+    page.wait_for_function(
+        """async () => {
+          const value = await (await fetch('/api/v1/providers')).json();
+          const profile = value.profiles.find(item => item.name === 'E2E Clear FrostAPI');
+          return profile && !profile.hasApiKey && !profile.enabled;
+        }""",
+        timeout=15_000,
+    )
+    page.locator(".settings-api-key-field small", has_text="尚未设置").wait_for(
+        timeout=15_000
+    )
+    expect_equal(
+        page.locator(".settings-enable-control input[type=checkbox]").is_checked(),
+        False,
+        "provider disabled after clearing required API key",
+    )
+    expect_equal(
+        page.get_by_role("button", name="连通性测试并更新模型", exact=True).is_disabled(),
+        True,
+        "connection test disabled after clearing API key",
+    )
+    expect_equal(
+        page.get_by_role("button", name="查询余额", exact=True).is_disabled(),
+        True,
+        "usage query disabled after clearing API key",
+    )
+    cleared_catalog = request_json(f"{base_url}/api/v1/providers")
+    cleared_profile = next(
+        profile for profile in cleared_catalog["profiles"]
+        if profile["name"] == "E2E Clear FrostAPI"
+    )
+    expect_equal(cleared_profile["hasApiKey"], False, "cleared API key state")
+    expect_equal(cleared_profile["enabled"], False, "cleared provider disabled state")
+
     page.get_by_role("button", name="Agent 设置", exact=True).click()
     page.locator(".agent-settings-overview").wait_for()
     expect_equal(

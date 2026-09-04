@@ -71,10 +71,29 @@ describe("provider presets", () => {
     expect(model).toMatchObject({
       name: "FrostAPI 3D",
       protocol: "openai-compatible",
-      adapterType: "openai-compatible",
+      adapterType: "frostapi-3d",
       baseUrl: "https://api.linfrsot.cloud",
       settings: {}
     });
+  });
+
+  it("uses current provider credential pages", () => {
+    expect(providerPresets.llm.find((preset) => preset.id === "anthropic")?.apiKeyWebsite)
+      .toBe("https://platform.claude.com/settings/keys");
+    expect(providerPresets.llm.find((preset) => preset.id === "kimi")?.apiKeyWebsite)
+      .toBe("https://platform.kimi.com/console/api-keys");
+    expect(providerPresets.llm.find((preset) => preset.id === "qwen-llm")?.apiKeyWebsite)
+      .toBe("https://bailian.console.aliyun.com/?tab=model");
+    expect(providerPresets.llm.find((preset) => preset.id === "doubao")?.apiKeyWebsite)
+      .toBe("https://console.volcengine.com/ark/region:ark+cn-beijing/apikey");
+    expect(providerPresets.llm.find((preset) => preset.id === "xai")?.apiKeyWebsite)
+      .toBe("https://console.x.ai/team/default/api-keys");
+    expect(providerPresets.model.find((preset) => preset.id === "hunyuan")?.apiKeyWebsite)
+      .toBe("https://console.cloud.tencent.com/tokenhub/apikey?regionId=1");
+    expect(providerPresets.model.find((preset) => preset.id === "hunyuan")?.baseUrl)
+      .toBe("https://tokenhub.tencentmaas.com");
+    expect(providerPresets.model.find((preset) => preset.id === "tripo")?.apiKeyWebsite)
+      .toBe("https://platform.tripo3d.ai/api-keys");
   });
 
   it("matches model providers by adapter instead of display name", () => {

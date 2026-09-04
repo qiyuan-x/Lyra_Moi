@@ -45,7 +45,7 @@ export const starterProviderProfilesMigration: DatabaseMigration = {
         ),
         (
           'starter-model-frostapi', 'model', 'FrostAPI 3D', 'openai-compatible',
-          'openai-compatible', 'https://api.linfrsot.cloud',
+          'frostapi-3d', 'https://api.linfrsot.cloud',
           'LYRA_PROVIDER_STARTER_MODEL_FROSTAPI_API_KEY',
           '{"__lyra":{"providerKind":"frostapi","starter":true}}', 'frostapi'
         )

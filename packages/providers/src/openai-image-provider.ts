@@ -1,7 +1,10 @@
 import type { GenerationRequest } from "@lyra/contracts";
 import type { BinaryImageProvider, GeneratedImageBinary } from "@lyra/core";
 import { ProviderConnectionError } from "./provider-errors.js";
-import { ProviderHttpClient } from "./provider-http-client.js";
+import {
+  createImageProviderHttpClient,
+  ProviderHttpClient
+} from "./provider-http-client.js";
 import type { ProviderAssetLoader } from "./image-provider-types.js";
 
 export interface OpenAiImageProviderOptions {
@@ -36,7 +39,7 @@ export class OpenAiImageProvider implements BinaryImageProvider {
     this.#settings = structuredClone(options.settings ?? {});
     this.#compatible = options.compatible === true;
     this.#generationReferenceField = options.generationReferenceField ?? null;
-    this.#client = options.client ?? new ProviderHttpClient();
+    this.#client = options.client ?? createImageProviderHttpClient();
   }
 
   async generate(
@@ -275,27 +278,27 @@ function openAiSizeForResolution(
   const sizes = {
     "1K": {
       "1:1": "1024x1024",
-      "2:3": "832x1248",
-      "3:2": "1248x832",
-      "3:4": "896x1200",
-      "4:3": "1200x896",
-      "4:5": "928x1152",
-      "5:4": "1152x928",
-      "9:16": "768x1376",
-      "16:9": "1376x768",
-      "21:9": "1536x672"
+      "2:3": "768x1152",
+      "3:2": "1152x768",
+      "3:4": "768x1024",
+      "4:3": "1024x768",
+      "4:5": "896x1120",
+      "5:4": "1120x896",
+      "9:16": "720x1280",
+      "16:9": "1280x720",
+      "21:9": "1344x576"
     },
     "2K": {
       "1:1": "2048x2048",
-      "2:3": "1696x2528",
-      "3:2": "2528x1696",
-      "3:4": "1792x2400",
-      "4:3": "2400x1792",
-      "4:5": "1856x2304",
-      "5:4": "2304x1856",
-      "9:16": "1536x2752",
-      "16:9": "2752x1536",
-      "21:9": "3168x1344"
+      "2:3": "1344x2016",
+      "3:2": "2016x1344",
+      "3:4": "1536x2048",
+      "4:3": "2048x1536",
+      "4:5": "1600x2000",
+      "5:4": "2000x1600",
+      "9:16": "1152x2048",
+      "16:9": "2048x1152",
+      "21:9": "2016x864"
     },
     "4K": {
       "1:1": "2880x2880",
@@ -307,7 +310,7 @@ function openAiSizeForResolution(
       "5:4": "3200x2560",
       "9:16": "2160x3840",
       "16:9": "3840x2160",
-      "21:9": "3840x1648"
+      "21:9": "3808x1632"
     }
   } as const;
   const size = sizes[resolution][ratio.trim() as keyof typeof sizes[typeof resolution]];
@@ -315,21 +318,7 @@ function openAiSizeForResolution(
 }
 
 function openAiSizeForAspectRatio(value: unknown): string {
-  if (typeof value !== "string") invalidSetting("aspectRatio");
-  switch (value.trim()) {
-    case "1:1":
-      return "1024x1024";
-    case "16:9":
-    case "4:3":
-    case "3:2":
-      return "1536x1024";
-    case "9:16":
-    case "3:4":
-    case "2:3":
-      return "1024x1536";
-    default:
-      return invalidSetting("aspectRatio");
-  }
+  return openAiSizeForResolution("1K", value);
 }
 
 function copyString(

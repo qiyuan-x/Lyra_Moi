@@ -1,7 +1,10 @@
 import type { GenerationRequest } from "@lyra/contracts";
 import type { BinaryImageProvider, GeneratedImageBinary } from "@lyra/core";
 import { ProviderConnectionError } from "./provider-errors.js";
-import { ProviderHttpClient } from "./provider-http-client.js";
+import {
+  createImageProviderHttpClient,
+  ProviderHttpClient
+} from "./provider-http-client.js";
 import type { ProviderAssetLoader } from "./image-provider-types.js";
 
 export interface GeminiImageProviderOptions {
@@ -27,7 +30,7 @@ export class GeminiImageProvider implements BinaryImageProvider {
     this.#model = requireText(options.model, "Provider model");
     this.#assetLoader = options.assetLoader;
     this.#settings = structuredClone(options.settings ?? {});
-    this.#client = options.client ?? new ProviderHttpClient();
+    this.#client = options.client ?? createImageProviderHttpClient();
   }
 
   async generate(
