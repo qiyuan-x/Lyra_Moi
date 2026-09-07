@@ -19,7 +19,6 @@ data/
 *.local
 
 # Local documentation, tests, and server deployment files.
-README.md
 apps/api/README.md
 apps/launcher/README.md
 apps/web/README.md
