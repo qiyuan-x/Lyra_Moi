@@ -17,6 +17,7 @@ import {
 } from "../features/prompts/prompt-transfer.js";
 import { downloadBlob } from "../features/templates/template-archive.js";
 import { Icon } from "./Icon.js";
+import { PromptImagePreviewDialog } from "../features/prompts/PromptImagePreviewDialog.js";
 
 interface PromptLibraryPageProps {
   prompts: PromptTemplateSnapshot[];
@@ -34,6 +35,7 @@ interface PromptLibraryPageProps {
 type Feedback = { type: "error" | "success"; text: string } | null;
 
 export function PromptLibraryPage(props: PromptLibraryPageProps) {
+  const [imagePreview, setImagePreview] = useState<{ url: string; title: string } | null>(null);
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("");
   const [favoritesOnly, setFavoritesOnly] = useState(false);
@@ -297,12 +299,51 @@ export function PromptLibraryPage(props: PromptLibraryPageProps) {
                 aria-label={`选择导出 ${item.name}`}
               />
             </label>
-            {item.previewMimeType && (
-              <img
-                className="prompt-row-preview"
-                src={versionedUrl(props.previewUrl(item.id), item.updatedAt)}
-                alt={`${item.name} 效果图`}
-              />
+            {(item.inputImageAssetId || item.previewMimeType) && (
+              <div
+                className={`prompt-row-previews${item.inputImageAssetId && item.previewMimeType ? " has-flow" : ""}`}
+                aria-label={item.inputImageAssetId && item.previewMimeType ? "输入图到效果图" : item.inputImageAssetId ? "输入图" : "效果图"}
+              >
+                {item.inputImageAssetId && (
+                  <span className="prompt-row-preview-wrap">
+                    <img
+                      className="prompt-row-preview prompt-row-input-preview"
+                      src={props.thumbnailUrl(item.inputImageAssetId)}
+                      alt={`${item.name} 输入图`}
+                    />
+                    <button
+                      type="button"
+                      className="prompt-row-preview-zoom"
+                      aria-label={`放大查看 ${item.name} 输入图`}
+                      title="放大查看"
+                      onClick={() => setImagePreview({ url: props.contentUrl(item.inputImageAssetId!), title: `${item.name} 输入图` })}
+                    >
+                      <Icon name="expand" size={13} />
+                    </button>
+                  </span>
+                )}
+                {item.inputImageAssetId && item.previewMimeType && (
+                  <span className="prompt-row-preview-arrow" aria-hidden="true">→</span>
+                )}
+                {item.previewMimeType && (
+                  <span className="prompt-row-preview-wrap">
+                    <img
+                      className="prompt-row-preview prompt-row-output-preview"
+                      src={versionedUrl(props.previewUrl(item.id), item.updatedAt)}
+                      alt={`${item.name} 效果图`}
+                    />
+                    <button
+                      type="button"
+                      className="prompt-row-preview-zoom"
+                      aria-label={`放大查看 ${item.name} 效果图`}
+                      title="放大查看"
+                      onClick={() => setImagePreview({ url: versionedUrl(props.previewUrl(item.id), item.updatedAt), title: `${item.name} 效果图` })}
+                    >
+                      <Icon name="expand" size={13} />
+                    </button>
+                  </span>
+                )}
+              </div>
             )}
             <div className="prompt-row-main">
               <div className="prompt-row-title">
@@ -363,6 +404,8 @@ export function PromptLibraryPage(props: PromptLibraryPageProps) {
           <strong>没有符合条件的模板</strong>
         </div>
       )}
+
+      {imagePreview && <PromptImagePreviewDialog {...imagePreview} onClose={() => setImagePreview(null)} />}
 
       {editing && (
         <PromptDialog

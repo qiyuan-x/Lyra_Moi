@@ -41,7 +41,7 @@ class LauncherPaths:
                     return version.strip()
             except (OSError, ValueError):
                 pass
-        return "0.0.7"
+        return "0.1.0"
 
     @property
     def update_manifest_url(self) -> str | None:
@@ -70,6 +70,12 @@ class LauncherPaths:
             legacy.unlink(missing_ok=True)
         except OSError:
             pass
+
+    @property
+    def update_history_url(self) -> str | None:
+        from urllib.parse import urljoin
+        configured = os.environ.get("LYRA_UPDATE_HISTORY_URL", "").strip()
+        return configured or (urljoin(self.update_manifest_url, "versions.json") if self.update_manifest_url else None)
 
     @property
     def update_helper_command(self) -> list[str]:

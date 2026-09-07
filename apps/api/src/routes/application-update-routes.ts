@@ -21,6 +21,16 @@ export const handleApplicationUpdateRoutes: BusinessRouteHandler = async ({
     writeJson(response, 200, await service.check(), requestId);
     return true;
   }
+  if (request.method === "GET" && url.pathname === `${UPDATE_ROUTE}/versions`) {
+    writeJson(response, 200, await service.history(), requestId);
+    return true;
+  }
+  if (request.method === "POST" && url.pathname === `${UPDATE_ROUTE}/install`) {
+    const version = url.searchParams.get("version");
+    if (!version) throw new Error("请选择目标版本。");
+    writeJson(response, 202, await service.apply(version), requestId);
+    return true;
+  }
   if (request.method === "POST" && url.pathname === `${UPDATE_ROUTE}/apply`) {
     writeJson(response, 202, await service.apply(), requestId);
     return true;

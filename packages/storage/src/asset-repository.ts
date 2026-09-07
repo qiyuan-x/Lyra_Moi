@@ -99,6 +99,7 @@ export class AssetRepository {
           now
         );
       this.#replaceTags(id, tags, now);
+      this.#database.projectChanged(input.projectId);
     });
 
     return {
@@ -279,6 +280,7 @@ export class AssetRepository {
         .prepare("UPDATE assets SET name = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL")
         .run(name, updatedAt, assetId);
       if (input.tags !== undefined) this.#replaceTags(assetId, tags, updatedAt);
+      this.#database.projectChanged(existing.projectId);
     });
     return toSnapshot({ ...existing, name, tags, updatedAt });
   }
@@ -289,6 +291,7 @@ export class AssetRepository {
     this.#database.connection
       .prepare("UPDATE assets SET deleted_at = ?, updated_at = ? WHERE id = ?")
       .run(now, now, assetId);
+    this.#database.projectChanged(existing.projectId);
     return toSnapshot({ ...existing, deletedAt: now, updatedAt: now });
   }
 

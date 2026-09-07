@@ -426,7 +426,7 @@ export function ModelingPage(props: ModelingPageProps) {
       <header className="modeling-toolbar">
         <div>
           <strong>生成 3D 模型</strong>
-          <span>支持图片生成和文字生成；网页使用 GLB 预览，其他格式可下载。</span>
+          <span>支持图片生成和文字生成；网页使用 GLB 预览，所有格式均保存在本地，可在素材库打开存放目录。</span>
         </div>
         <ProviderModelSelects
           className="modeling-model-picker"
@@ -445,7 +445,6 @@ export function ModelingPage(props: ModelingPageProps) {
           jobs={modelJobs}
           images={props.images}
           thumbnailUrl={props.thumbnailUrl}
-          contentUrl={props.contentUrl}
           selectedAssetId={selectedModelAsset?.id ?? ""}
           expanded={modelListExpanded}
           onCancel={props.onCancel}

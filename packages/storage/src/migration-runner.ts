@@ -33,6 +33,13 @@ export function applyMigrations(
     if (appliedVersions.has(migration.version)) continue;
     database.exec("BEGIN IMMEDIATE;");
     try {
+      // Another process may have migrated after the initial read while this one waited for the lock.
+      const lockedRows = readAppliedMigrations(database);
+      validateAppliedMigrations(lockedRows, migrations);
+      if (lockedRows.some((row) => row.version === migration.version)) {
+        database.exec("COMMIT;");
+        continue;
+      }
       database.exec(migration.sql);
       database
         .prepare("INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)")

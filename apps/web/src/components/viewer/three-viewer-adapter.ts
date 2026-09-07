@@ -4,6 +4,7 @@ import { DRACOLoader } from "three/examples/jsm/loaders/DRACOLoader.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
+
 import { Sky } from "three/examples/jsm/objects/Sky.js";
 import { collectModelStats, toMaterials } from "./model-viewer-stats.js";
 import type {
@@ -11,6 +12,10 @@ import type {
   ModelViewerAdapter,
   ViewerLightingSettings
 } from "./model-viewer-types.js";
+
+function preventContextMenu(event: MouseEvent): void {
+  event.preventDefault();
+}
 
 type TexturedMaterial = THREE.Material & {
   map?: THREE.Texture | null;
@@ -125,6 +130,12 @@ export class ThreeViewerAdapter implements ModelViewerAdapter {
     this.#controls.autoRotateSpeed = 1.5;
     this.#controls.minDistance = 0.05;
     this.#controls.maxDistance = 500;
+    // Browser right-click is reserved for the context menu/gesture. Pan with
+    // the middle button (and therefore also Shift+middle) instead.
+    this.#controls.mouseButtons.LEFT = THREE.MOUSE.ROTATE;
+    this.#controls.mouseButtons.MIDDLE = THREE.MOUSE.PAN;
+    this.#controls.mouseButtons.RIGHT = null;
+    this.#renderer.domElement.addEventListener("contextmenu", preventContextMenu);
 
     this.#resizeObserver = new ResizeObserver(() => this.#resize());
     this.#resizeObserver.observe(container);
@@ -213,6 +224,7 @@ export class ThreeViewerAdapter implements ModelViewerAdapter {
     cancelAnimationFrame(this.#animationFrame);
     this.#resizeObserver.disconnect();
     this.#controls.dispose();
+    this.#renderer.domElement.removeEventListener("contextmenu", preventContextMenu);
     this.#removeModel();
     this.#grid.geometry.dispose();
     this.#ground.geometry.dispose();

@@ -6,9 +6,17 @@
     "tsBuildInfoFile": "dist/tsconfig.tsbuildinfo"
   },
   "references": [
-    { "path": "../agent-engine" },
-    { "path": "../contracts" },
-    { "path": "../core" }
+    {
+      "path": "../contracts"
+    },
+    {
+      "path": "../core"
+    },
+    {
+      "path": "../agent-runtime"
+    }
   ],
-  "include": ["src/**/*.ts"]
+  "include": [
+    "src/**/*.ts"
+  ]
 }

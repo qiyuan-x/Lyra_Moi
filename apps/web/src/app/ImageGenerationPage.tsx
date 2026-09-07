@@ -115,7 +115,6 @@ export function ImageGenerationPage(props: ImageGenerationPageProps) {
       >
         <AssetRail
           assets={props.assets}
-          generationModelByAssetId={props.generationModelByAssetId}
           attachmentOrder={props.attachmentOrder}
           collapsed={props.assetRailCollapsed}
           thumbnailUrl={props.thumbnailUrl}

@@ -35,6 +35,7 @@ export interface ApplicationUpdateServiceOptions {
   stateFile: string;
   requestFile: string;
   manifestUrl?: string;
+  historyUrl?: string;
   helperCommand?: string[];
   deploymentMode?: string;
   fetchManifest?: (url: string) => Promise<unknown>;
@@ -49,6 +50,7 @@ export class ApplicationUpdateService {
   private readonly stateFile: string;
   private readonly requestFile: string;
   private readonly manifestUrl: string | undefined;
+  private readonly historyUrl: string | undefined;
   private readonly helperCommand: readonly string[];
   private readonly fetchManifest: (url: string) => Promise<unknown>;
   private readonly launchHelper: (command: readonly string[], requestFile: string) => void;
@@ -56,6 +58,7 @@ export class ApplicationUpdateService {
   private readonly enabled: boolean;
   private readonly port: number;
   private operation: Promise<ApplicationUpdateSnapshot> | undefined;
+  private applying = false;
 
   constructor(options: ApplicationUpdateServiceOptions) {
     this.currentVersion = requireVersion(options.currentVersion, "Current version");
@@ -63,6 +66,7 @@ export class ApplicationUpdateService {
     this.stateFile = resolve(options.stateFile);
     this.requestFile = resolve(options.requestFile);
     this.manifestUrl = options.manifestUrl?.trim() || undefined;
+    this.historyUrl = options.historyUrl?.trim() || (this.manifestUrl ? new URL("versions.json", this.manifestUrl).toString() : undefined);
     this.helperCommand = (options.helperCommand ?? []).map((item) => item.trim()).filter(Boolean);
     this.fetchManifest = options.fetchManifest ?? fetchManifest;
     this.launchHelper = options.launchHelper ?? launchDetachedHelper;
@@ -84,6 +88,7 @@ export class ApplicationUpdateService {
 
   async check(): Promise<ApplicationUpdateSnapshot> {
     if (!this.enabled) return this.defaultSnapshot();
+    if (this.applying) return this.snapshot();
     if (this.operation) return this.operation;
     this.operation = this.performCheck().finally(() => {
       this.operation = undefined;
@@ -91,9 +96,40 @@ export class ApplicationUpdateService {
     return this.operation;
   }
 
-  async apply(): Promise<ApplicationUpdateSnapshot> {
+  async history(): Promise<import("@lyra/contracts").ApplicationVersionList> {
+    if (!this.historyUrl) throw new Error("历史版本接口尚未配置。");
+    const value = await this.fetchManifest(this.historyUrl);
+    if (!isRecord(value) || value.schemaVersion !== 1 || !Array.isArray(value.versions) || value.versions.length > 100) {
+      throw new Error("历史版本列表格式无效。");
+    }
+    const versions = value.versions.map(parseManifest);
+    if (new Set(versions.map((version) => version.version)).size !== versions.length) throw new Error("历史版本列表含重复版本。");
+    const latestVersion = requireVersion(value.latestVersion, "Latest version");
+    if (!Number.isSafeInteger(value.retentionLimit) || value.retentionLimit < 1 || value.retentionLimit > 100) throw new Error("历史版本保留数量无效。");
+    return { schemaVersion: 1, latestVersion, retentionLimit: value.retentionLimit,
+      versions: versions.sort((a, b) => compareVersions(b.version, a.version)) };
+  }
+
+  async apply(targetVersion?: string): Promise<ApplicationUpdateSnapshot> {
+    if (this.applying || this.operation) throw new Error("已有版本操作正在执行。");
+    this.applying = true;
+    try { return await this.schedule(targetVersion); }
+    finally { this.applying = false; }
+  }
+
+  private async schedule(targetVersion?: string): Promise<ApplicationUpdateSnapshot> {
     if (!this.enabled) throw new Error("Automatic updates are not configured.");
-    const state = await this.readState();
+    let state = await this.readState();
+    if (isInstalling(state.snapshot.status)) throw new Error("已有安装任务正在执行。");
+    if (targetVersion !== undefined) {
+      const version = requireVersion(targetVersion, "Target version");
+      const selected = (await this.history()).versions.find((item) => item.version === version);
+      if (!selected) throw new Error("选定版本已不在服务器列表中，请刷新后重试。");
+      // Explicit selection installs the selected artifact, irrespective of version ordering.
+      state = { schemaVersion: 1, candidate: { version, artifact: selected.artifacts[APPLICATION_UPDATE_PLATFORM] },
+        snapshot: { ...state.snapshot, status: "available", releaseNotes: selected.releaseNotes,
+          artifactSize: selected.artifacts[APPLICATION_UPDATE_PLATFORM].size, publishedAt: selected.publishedAt } };
+    }
     if (state.snapshot.status !== "available" || !state.candidate) {
       throw new Error("No checked application update is available.");
     }
@@ -114,7 +150,7 @@ export class ApplicationUpdateService {
         ...state.snapshot,
         status: "scheduled",
         progress: 0,
-        message: "升级任务已提交，正在启动更新程序。"
+        message: `版本 ${state.candidate.version} 安装任务已提交，正在启动更新程序。`
       }
     };
     await this.writeState(scheduled);
@@ -139,6 +175,7 @@ export class ApplicationUpdateService {
 
   private async performCheck(): Promise<ApplicationUpdateSnapshot> {
     const previous = await this.readState();
+    if (isInstalling(previous.snapshot.status)) return previous.snapshot;
     await this.writeState({
       ...previous,
       snapshot: {
@@ -222,6 +259,10 @@ export class ApplicationUpdateService {
   private writeState(state: StoredUpdateState): Promise<void> {
     return writeJsonAtomic(this.stateFile, state);
   }
+}
+
+function isInstalling(status: string): boolean {
+  return ["scheduled", "downloading", "verifying", "installing", "restarting", "rolling_back"].includes(status);
 }
 
 export function compareVersions(left: string, right: string): number {

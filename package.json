@@ -1,6 +1,6 @@
 {
   "name": "lyra-moi",
-  "version": "0.0.7",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@11.9.0",
@@ -9,13 +9,13 @@
   },
   "scripts": {
     "clean": "node scripts/clean.mjs",
-    "typecheck": "tsc -b --pretty false && pnpm clean",
+    "typecheck": "node node_modules/typescript/bin/tsc -b --pretty false",
     "test": "vitest run",
     "test:launcher": "python -m unittest discover -s tests/launcher -p \"test_*.py\"",
     "test:e2e": "python tests/e2e/run_browser_flow.py",
     "test:live": "vitest run tests/live",
-    "build": "pnpm clean && tsc -b --pretty false && pnpm build:web",
-    "build:web": "pnpm --filter @lyra/web build",
+    "build": "node scripts/clean.mjs && node node_modules/typescript/bin/tsc -b --pretty false && node apps/web/node_modules/vite/bin/vite.js build apps/web",
+    "build:web": "node apps/web/node_modules/vite/bin/vite.js build apps/web",
     "package:windows": "python scripts/stop-launcher-services.py && pnpm build && python scripts/build-release.py",
     "check": "pnpm typecheck && pnpm test && pnpm test:launcher && pnpm build",
     "db:migrate": "pnpm build && node scripts/migrate-database.mjs"

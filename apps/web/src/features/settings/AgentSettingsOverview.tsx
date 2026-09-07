@@ -25,7 +25,7 @@ export function AgentSettingsOverview(props: AgentSettingsOverviewProps) {
         />
         <AgentSettingsRow
           icon="settings"
-          title="其他设置"
+          title="Agent 运行参数"
           description="配置 Agent 单轮可调用工具的最大次数。"
           summary="运行参数"
           onOpen={props.onOpenRuntime}

@@ -6,7 +6,6 @@ import { Icon } from "../Icon.js";
 interface ModelViewerHeaderProps {
   asset: AssetSnapshot | null;
   stats: ModelStats | null;
-  contentUrl: string;
   onResetCamera: () => void;
   onFullscreen: () => void;
 }
@@ -44,14 +43,6 @@ export function ModelViewerHeader(props: ModelViewerHeaderProps) {
           >
             <Icon name="expand" size={16} />
           </button>
-          <a
-            className="icon-button"
-            title="下载 GLB"
-            href={props.contentUrl}
-            download={props.asset.name}
-          >
-            <Icon name="download" size={16} />
-          </a>
         </div>
       )}
     </header>

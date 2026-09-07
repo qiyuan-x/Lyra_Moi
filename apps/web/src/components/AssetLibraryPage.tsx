@@ -1,5 +1,7 @@
 import { useMemo, useState, type DragEvent, type FormEvent } from "react";
-import type { AssetSnapshot, JobSnapshot } from "@lyra/contracts";
+import type { AssetLibrarySection, AssetSnapshot, JobSnapshot } from "@lyra/contracts";
+import { AssetDirectoryPath } from "../features/assets/AssetDirectoryPath.js";
+import { DownloadAssetsButton } from "../features/assets/DownloadAssetsButton.js";
 import { Icon } from "./Icon.js";
 import { ConfirmDialog } from "./ConfirmDialog.js";
 import {
@@ -7,7 +9,6 @@ import {
   ModelAssetLibrary
 } from "../features/assets/ModelAssetLibrary.js";
 
-type LibrarySection = "upload" | "generated" | "models";
 
 interface AssetLibraryPageProps {
   assets: AssetSnapshot[];
@@ -16,6 +17,7 @@ interface AssetLibraryPageProps {
   generationModelByAssetId: Map<string, string>;
   thumbnailUrl: (assetId: string) => string;
   contentUrl: (assetId: string) => string;
+  onGetDirectory: (section: AssetLibrarySection) => Promise<string>;
   onAttach: (asset: AssetSnapshot) => void;
   onPreview: (asset: AssetSnapshot) => void;
   onViewModel: (assetId: string) => void;
@@ -28,7 +30,7 @@ interface AssetLibraryPageProps {
 
 export function AssetLibraryPage(props: AssetLibraryPageProps) {
   const [search, setSearch] = useState("");
-  const [source, setSource] = useState<LibrarySection>("upload");
+  const [source, setSource] = useState<AssetLibrarySection>("upload");
   const [tag, setTag] = useState("");
   const [editing, setEditing] = useState<AssetSnapshot | null>(null);
   const [deleting, setDeleting] = useState<AssetSnapshot | null>(null);
@@ -100,9 +102,11 @@ export function AssetLibraryPage(props: AssetLibraryPageProps) {
     >
       <header className="page-heading">
         <div><h1>素材库</h1><p>统一查看当前项目的图片素材、生成图片和 AI 模型。</p></div>
-        {source !== "models" && (
-          <button type="button" className="button button-primary" onClick={props.onUpload}><Icon name="plus" size={16} />上传图片</button>
-        )}
+        <div className="page-heading-actions">
+          {source !== "models" && (
+            <button type="button" className="button button-primary" onClick={props.onUpload}><Icon name="plus" size={16} />上传图片</button>
+          )}
+        </div>
       </header>
       <div className="asset-source-tabs" role="tablist" aria-label="素材分类">
         <button type="button" role="tab" aria-selected={source === "upload"} onClick={() => { setSource("upload"); setTag(""); }}>
@@ -153,6 +157,7 @@ export function AssetLibraryPage(props: AssetLibraryPageProps) {
               {asset.tags.length > 0 && <div className="asset-tag-row">{asset.tags.map((item) => <button type="button" key={item} onClick={() => setTag(item)}>{item}</button>)}</div>}
               <footer>
                 <button type="button" className="button button-secondary" onClick={() => props.onAttach(asset)}>引用并生成</button>
+                <DownloadAssetsButton assets={[asset]} contentUrl={props.contentUrl} />
                 <button type="button" className="icon-button" aria-label={`编辑 ${asset.name}`} onClick={() => setEditing(asset)}><Icon name="manual" size={15} /></button>
                 <button type="button" className="icon-button danger-button" aria-label={`删除 ${asset.name}`} onClick={() => setDeleting(asset)}><Icon name="close" size={15} /></button>
               </footer>
@@ -160,6 +165,8 @@ export function AssetLibraryPage(props: AssetLibraryPageProps) {
           ))}
         </div>
       )}
+
+      <AssetDirectoryPath key={source} onGetPath={() => props.onGetDirectory(source)} />
 
       {editing && <AssetEditDialog asset={editing} busy={busy} onClose={() => setEditing(null)} onSave={async (input) => { setBusy(true); try { await props.onUpdate(editing.id, input); setEditing(null); } catch { /* The parent displays the API error. */ } finally { setBusy(false); } }} />}
       {deleting && (

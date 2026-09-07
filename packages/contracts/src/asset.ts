@@ -2,6 +2,7 @@ import type { EntityId, UtcDateTime } from "./common.js";
 
 export type AssetKind = "image" | "model" | "file";
 export type AssetSource = "upload" | "generated";
+export type AssetLibrarySection = "upload" | "generated" | "models";
 
 export interface AssetSnapshot {
   id: EntityId;

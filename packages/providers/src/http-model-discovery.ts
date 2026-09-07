@@ -1,3 +1,4 @@
+import { systemProxyFetch } from "./system-proxy.js";
 import type {
   DiscoveredProviderModel,
   ProviderAdapterType,
@@ -31,7 +32,7 @@ export interface HttpProviderRegistryOptions {
 export function createHttpProviderRegistry(
   options: HttpProviderRegistryOptions = {}
 ): ProviderRegistry {
-  const fetchImplementation = options.fetchImplementation ?? globalThis.fetch.bind(globalThis);
+  const fetchImplementation = options.fetchImplementation ?? systemProxyFetch;
   const timeoutMs = options.timeoutMs ?? 15_000;
   const client = new ProviderHttpClient({ fetchImplementation, timeoutMs, maxResponseBytes: 8 * 1024 * 1024 });
   return new ProviderRegistry()
@@ -64,13 +65,17 @@ class AnthropicModelDiscoveryAdapter implements ProviderDiscoveryAdapter {
     if (!input.apiKey) {
       throw new ProviderConnectionError("MISSING_API_KEY", "Provider API key is not configured.");
     }
+    const oauth = isImportedCredential(input.profile);
+    const headers: Record<string, string> = {
+      Accept: "application/json",
+      ...(oauth
+        ? { Authorization: `Bearer ${input.apiKey}`, "anthropic-beta": "oauth-2025-04-20" }
+        : { "x-api-key": input.apiKey }),
+      "anthropic-version": "2023-06-01"
+    };
     const body = await this.#client.getJson(
       `${input.profile.baseUrl}/models`,
-      {
-        Accept: "application/json",
-        "x-api-key": input.apiKey,
-        "anthropic-version": "2023-06-01"
-      },
+      headers,
       input.signal
     );
     if (!isRecord(body) || !Array.isArray(body.data)) {
@@ -113,6 +118,16 @@ class OpenAiModelDiscoveryAdapter implements ProviderDiscoveryAdapter {
   async discoverModels(input: ProviderDiscoveryInput): Promise<DiscoveredProviderModel[]> {
     if ((this.#requiresApiKey || input.profile.serviceType === "model") && !input.apiKey) {
       throw new ProviderConnectionError("MISSING_API_KEY", "Provider API key is not configured.");
+    }
+    // Codex OAuth credentials are not OpenAI API keys.  The public
+    // api.openai.com/v1/models endpoint rejects them, while the Codex
+    // subscription exposes its model manifest through ChatGPT's backend.
+    // Keep API-key discovery unchanged and use the same account binding as
+    // the usage endpoint for imported OAuth/token credentials.
+    if (input.profile.serviceType === "llm" &&
+        isImportedCredential(input.profile) &&
+        isOfficialOpenAiApi(input.profile.baseUrl)) {
+      return this.#discoverCodexModels(input);
     }
     const headers: Record<string, string> = { Accept: "application/json" };
     if (input.apiKey) headers.Authorization = `Bearer ${input.apiKey}`;
@@ -165,6 +180,40 @@ class OpenAiModelDiscoveryAdapter implements ProviderDiscoveryAdapter {
       })
     );
   }
+
+  async #discoverCodexModels(input: ProviderDiscoveryInput): Promise<DiscoveredProviderModel[]> {
+    const settings = input.profile.settings;
+    const accountId = typeof settings.credentialAccountId === "string"
+      ? settings.credentialAccountId.trim()
+      : "";
+    const headers: Record<string, string> = {
+      Accept: "application/json",
+      Authorization: `Bearer ${input.apiKey}`,
+      Originator: "Codex Desktop"
+    };
+    if (accountId) headers["ChatGPT-Account-Id"] = accountId;
+    const body = await this.#client.getJson(
+      "https://chatgpt.com/backend-api/codex/models?client_version=0.91.0",
+      headers,
+      input.signal
+    );
+    if (!isRecord(body) || !Array.isArray(body.models)) {
+      throw new ProviderConnectionError("INVALID_RESPONSE", "Codex 模型清单响应格式无效。");
+    }
+    return uniqueAndSortModels(body.models.flatMap((value): DiscoveredProviderModel[] => {
+      if (!isRecord(value)) return [];
+      const remoteModelId = typeof value.slug === "string" && value.slug.trim()
+        ? value.slug.trim()
+        : typeof value.id === "string" && value.id.trim() ? value.id.trim() : "";
+      if (!remoteModelId) return [];
+      const displayName = typeof value.display_name === "string" && value.display_name.trim()
+        ? value.display_name.trim()
+        : typeof value.displayName === "string" && value.displayName.trim()
+          ? value.displayName.trim()
+          : remoteModelId;
+      return [{ remoteModelId, displayName, metadata: value }];
+    }));
+  }
 }
 
 class GeminiModelDiscoveryAdapter implements ProviderDiscoveryAdapter {
@@ -189,7 +238,9 @@ class GeminiModelDiscoveryAdapter implements ProviderDiscoveryAdapter {
       if (pageToken) url.searchParams.set("pageToken", pageToken);
       const body = await this.#client.getJson(
         url.toString(),
-        { Accept: "application/json", "x-goog-api-key": input.apiKey },
+        isImportedCredential(input.profile)
+          ? { Accept: "application/json", Authorization: `Bearer ${input.apiKey}` }
+          : { Accept: "application/json", "x-goog-api-key": input.apiKey },
         input.signal
       );
       if (!isRecord(body) || !Array.isArray(body.models)) {
@@ -238,6 +289,18 @@ class GeminiModelDiscoveryAdapter implements ProviderDiscoveryAdapter {
       "INVALID_RESPONSE",
       "Provider model list exceeded the pagination limit."
     );
+  }
+}
+
+function isImportedCredential(profile: ProviderDiscoveryInput["profile"]): boolean {
+  return ["oauth", "token", "json"].includes(String(profile.settings.authMode));
+}
+
+function isOfficialOpenAiApi(baseUrl: string): boolean {
+  try {
+    return new URL(baseUrl).origin === "https://api.openai.com";
+  } catch {
+    return false;
   }
 }
 

@@ -64,7 +64,7 @@ export class AgentConversationService {
     this.#settings = options.settings;
     this.#assets = options.assets;
     this.#events = options.events;
-    this.#systemPromptVersion = options.systemPromptVersion ?? "lyra-agent-v1";
+    this.#systemPromptVersion = options.systemPromptVersion ?? "lyra-agent-v3";
   }
 
   createConversation(projectId: string, title = ""): ConversationSnapshot {
@@ -168,6 +168,10 @@ export class AgentConversationService {
     const requestStep = this.#agentSteps.findWaitingUserInput(agentRunId);
     if (!requestStep) throw new Error(`Agent user input request is missing: ${agentRunId}`);
     validateChoice(input, requestStep.payload);
+    if (requestStep.payload.runtimeVersion === 3 && requestStep.payload.approvalHash &&
+      input.choiceId !== "approve" && input.choiceId !== "reject") {
+      throw new Error("请明确选择批准或拒绝，补充文字不能替代操作审核。");
+    }
 
     return this.#database.transaction(() => {
       const message = this.#conversations.createMessage({

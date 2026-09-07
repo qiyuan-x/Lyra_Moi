@@ -1,3 +1,4 @@
+import { ANTHROPIC_OAUTH_SETTINGS, CODEX_OAUTH_SETTINGS, GEMINI_OAUTH_SETTINGS } from "@lyra/contracts";
 import type {
   ProviderAdapterType,
   ProviderModelSnapshot,
@@ -53,9 +54,12 @@ const GEMINI_GUIDE =
 
 export const providerPresets: Record<ProviderServiceType, ProviderPreset[]> = {
   llm: [
-    preset("openai", "llm", "OpenAI", "GPT", "openai", "openai", "https://api.openai.com/v1", ["openai", "chatgpt"], "https://platform.openai.com/api-keys", OPENAI_GUIDE),
-    preset("anthropic", "llm", "Claude", "C", "anthropic", "anthropic", "https://api.anthropic.com/v1", ["anthropic", "claude"], "https://platform.claude.com/settings/keys", "1. 登录 Claude Platform。\n2. 在 API Keys 页面创建密钥。\n3. 复制密钥后返回 Lyra 执行连通性测试。"),
-    preset("gemini", "llm", "Gemini", "G", "gemini", "gemini", "https://generativelanguage.googleapis.com/v1beta", ["gemini", "google"], "https://aistudio.google.com/app/apikey", GEMINI_GUIDE),
+    {
+      ...preset("openai", "llm", "OpenAI", "GPT", "openai", "openai", "https://api.openai.com/v1", ["openai", "chatgpt"], "https://platform.openai.com/api-keys", OPENAI_GUIDE),
+      settings: CODEX_OAUTH_SETTINGS
+    },
+    { ...preset("anthropic", "llm", "Claude", "C", "anthropic", "anthropic", "https://api.anthropic.com/v1", ["anthropic", "claude"], "https://platform.claude.com/settings/keys", "1. 登录 Claude Platform。\n2. 在 API Keys 页面创建密钥。\n3. 复制密钥后返回 Lyra 执行连通性测试。"), settings: ANTHROPIC_OAUTH_SETTINGS },
+    { ...preset("gemini", "llm", "Gemini", "G", "gemini", "gemini", "https://generativelanguage.googleapis.com/v1beta", ["gemini", "google"], "https://aistudio.google.com/app/apikey", GEMINI_GUIDE), settings: GEMINI_OAUTH_SETTINGS },
     preset("deepseek", "llm", "DeepSeek", "DS", "openai-compatible", "openai-compatible", "https://api.deepseek.com/v1", ["deepseek"], "https://platform.deepseek.com/api_keys", "1. 登录 DeepSeek 开放平台。\n2. 在 API Keys 页面创建密钥。\n3. 确认账户可用后返回 Lyra 执行连通性测试。"),
     preset("frostapi", "llm", "FrostAPI", "Frost", "openai-compatible", "openai-compatible", "https://api.linfrsot.cloud", ["frostapi", "frost", "frsotapi"], "https://api.linfrsot.cloud", "1. 在 FrostAPI 控制台创建 API Key。\n2. 复制密钥后返回 Lyra。\n3. 使用默认端点执行连通性测试。"),
     preset("qwen-llm", "llm", "通义千问", "QW", "openai-compatible", "openai-compatible", "https://dashscope.aliyuncs.com/compatible-mode/v1", ["qwen", "通义", "千问", "dashscope"], "https://bailian.console.aliyun.com/?tab=model", "1. 登录阿里云百炼控制台。\n2. 开通模型服务并创建 API Key。\n3. 复制密钥后返回 Lyra 执行连通性测试。"),

@@ -12,10 +12,12 @@ import { handleJobGenerationRoutes } from "./routes/job-generation-routes.js";
 import { handleProjectConversationRoutes } from "./routes/project-conversation-routes.js";
 import { handleProjectAnimationRoutes } from "./routes/project-animation-routes.js";
 import { handleProviderRoutes } from "./routes/provider-routes.js";
+import { handleTaskRuntimeSettingsRoutes } from "./routes/task-runtime-settings-routes.js";
 
 const businessRouteHandlers: BusinessRouteHandler[] = [
   handleApplicationUpdateRoutes,
   handleAgentSettingsRoutes,
+  handleTaskRuntimeSettingsRoutes,
   handleCommunitySettingsRoutes,
   handleProjectConversationRoutes,
   handleProjectAnimationRoutes,

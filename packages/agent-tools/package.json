@@ -1,6 +1,6 @@
 {
   "name": "@lyra/agent-tools",
-  "version": "0.0.7",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
@@ -16,8 +16,8 @@
     "typecheck": "tsc -b --pretty false"
   },
   "dependencies": {
-    "@lyra/agent-engine": "workspace:*",
     "@lyra/contracts": "workspace:*",
-    "@lyra/core": "workspace:*"
+    "@lyra/core": "workspace:*",
+    "@lyra/agent-runtime": "workspace:*"
   }
 }

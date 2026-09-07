@@ -4,6 +4,7 @@ import { Icon } from "../../components/Icon.js";
 interface ProviderRowProps {
   menuOpen: boolean;
   name: string;
+  accountLabel?: string | null;
   shortName: string;
   presetId: ProviderPreset["id"];
   interfaceLabel: string;
@@ -25,6 +26,7 @@ export function ProviderRow(props: ProviderRowProps) {
         <div>
           <strong title={props.name}>{props.name}</strong>
           <small>{props.configured ? "已配置" : "尚未配置"}</small>
+          {props.accountLabel && <small title={props.accountLabel}>{props.accountLabel}</small>}
         </div>
       </div>
       <span>{props.interfaceLabel}</span>

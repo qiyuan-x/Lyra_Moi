@@ -13,9 +13,9 @@ from tkinter import messagebox, ttk
 
 from .paths import LauncherPaths
 from .process_manager import LogTailer, ProcessManager, ServiceStatus
-from .update_manager import DesktopUpdateCheck, DesktopUpdateClient
+from .update_manager import DesktopUpdateCandidate, DesktopUpdateCheck, DesktopUpdateClient
 
-LYRA_VERSION = "0.0.7"
+LYRA_VERSION = "0.1.0"
 
 COLORS = {
     "background": "#0f172a",
@@ -71,6 +71,8 @@ class LyraLauncher(tk.Tk):
         self._update_messages: queue.Queue[tuple[str, object, bool]] = queue.Queue()
         self._update_result: DesktopUpdateCheck | None = None
         self._update_busy = False
+        self._history_versions: tuple[DesktopUpdateCandidate, ...] = ()
+        self._selected_history: DesktopUpdateCandidate | None = None
         self._update_window: tk.Toplevel | None = None
         self.auto_open_var = tk.BooleanVar(value=True)
         self._log_tailer = LogTailer(self.manager.paths)
@@ -403,6 +405,13 @@ class LyraLauncher(tk.Tk):
             pady=10,
         )
         self.update_notes.grid(row=2, column=0, sticky="nsew")
+        history = tk.Frame(content, background=COLORS["background"])
+        history.grid(row=3, column=0, sticky="ew", pady=(10, 0))
+        history.columnconfigure(0, weight=1)
+        self.history_select = ttk.Combobox(history, state="readonly", values=[item.version for item in self._history_versions])
+        self.history_select.grid(row=0, column=0, sticky="ew")
+        self.history_select.bind("<<ComboboxSelected>>", self._select_history_version)
+        tk.Button(history, text="历史版本", command=self._load_history).grid(row=0, column=1, padx=(8, 0))
 
         actions = tk.Frame(window, background=COLORS["surface_soft"])
         actions.grid(row=2, column=0, sticky="ew")
@@ -463,15 +472,32 @@ class LyraLauncher(tk.Tk):
 
         threading.Thread(target=execute, name="lyra-update-check", daemon=True).start()
 
+    def _load_history(self) -> None:
+        if self._update_busy:
+            return
+        self._update_busy = True
+        self._render_update_result()
+        def execute() -> None:
+            try:
+                self._update_messages.put(("history", self._update_client.history(), False))
+            except Exception as error:
+                self._update_messages.put(("error", error, False))
+        threading.Thread(target=execute, name="lyra-history-check", daemon=True).start()
+
+    def _select_history_version(self, _event: object = None) -> None:
+        version = self.history_select.get()
+        self._selected_history = next((item for item in self._history_versions if item.version == version), None)
+        self._render_update_result()
+
     def _install_available_update(self) -> None:
-        candidate = self._update_result.candidate if self._update_result else None
+        candidate = self._selected_history or (self._update_result.candidate if self._update_result else None)
         if candidate is None or self._update_busy:
             return
         notes = "\n".join(f"• {note}" for note in candidate.release_notes)
-        prompt = f"将 Lyra 升级到 v{candidate.version}。\n\n升级时会自动停止并重启服务。"
+        prompt = f"将 Lyra 安装为 v{candidate.version}。\n\n升级时会自动停止并重启服务。"
         if notes:
             prompt += f"\n\n更新说明：\n{notes}"
-        if not messagebox.askyesno("确认升级", prompt, parent=self._update_window or self):
+        if not messagebox.askyesno("确认安装版本", prompt, parent=self._update_window or self):
             return
         self._update_busy = True
         self.footer_status.set("正在启动更新程序…")
@@ -494,6 +520,12 @@ class LyraLauncher(tk.Tk):
             while True:
                 kind, value, silent = self._update_messages.get_nowait()
                 self._update_busy = False
+                if kind == "history":
+                    self._history_versions = value
+                    if self._update_window is not None and self._update_window.winfo_exists():
+                        self.history_select.configure(values=[item.version for item in self._history_versions])
+                    self._render_update_result()
+                    continue
                 if kind == "success" and isinstance(value, DesktopUpdateCheck):
                     self._update_result = value
                     if value.update_available:
@@ -529,6 +561,9 @@ class LyraLauncher(tk.Tk):
         if self._update_busy:
             self.update_dialog_title.configure(text="正在检查更新")
             self.update_dialog_message.configure(text="正在连接更新服务器，请稍候。")
+        elif self._selected_history is not None:
+            self.update_dialog_title.configure(text=f"安装指定版本 v{self._selected_history.version}")
+            self.update_dialog_message.configure(text=f"安装包大小：{_format_bytes(self._selected_history.artifact_size)}；安装失败将恢复原版本。")
         elif self._update_result is None:
             self.update_dialog_title.configure(text="尚未检查更新")
             self.update_dialog_message.configure(text="点击“检查更新”获取最新版本。")
@@ -544,7 +579,7 @@ class LyraLauncher(tk.Tk):
             self.update_dialog_title.configure(text="自动更新未配置")
             self.update_dialog_message.configure(text="当前发布包没有配置更新清单地址。")
 
-        notes = self._update_result.release_notes if self._update_result else ()
+        notes = self._selected_history.release_notes if self._selected_history else (self._update_result.release_notes if self._update_result else ())
         self.update_notes.configure(state="normal")
         self.update_notes.delete("1.0", "end")
         self.update_notes.insert(
@@ -553,8 +588,7 @@ class LyraLauncher(tk.Tk):
         )
         self.update_notes.configure(state="disabled")
         can_install = bool(
-            self._update_result
-            and self._update_result.candidate
+            (self._selected_history or (self._update_result and self._update_result.candidate))
             and not self._update_busy
         )
         self.update_check_button.configure(
@@ -562,6 +596,7 @@ class LyraLauncher(tk.Tk):
             cursor="arrow" if self._update_busy else "hand2",
         )
         self.update_install_button.configure(
+            text="安装选定版本" if self._selected_history else "一键升级",
             state="normal" if can_install else "disabled",
             cursor="hand2" if can_install else "arrow",
         )

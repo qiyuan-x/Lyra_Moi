@@ -301,12 +301,18 @@ export class FrostApiModelProvider implements BinaryModelProvider {
         ? { Authorization: `Bearer ${this.#apiKey}` }
         : {};
       const response = await this.#client.getBinary(url, headers, signal);
+      const objArchive = format === "obj" && isZipArchive(response.data);
+      const extension = objArchive ? "zip" : format;
       files.push({
         data: response.data,
         format,
-        extension: format,
-        mimeType: format === "glb" ? "model/gltf-binary" : "application/octet-stream",
-        name: `model-${Date.now()}.${format}`
+        extension,
+        mimeType: objArchive
+          ? "application/zip"
+          : format === "glb" ? "model/gltf-binary" : "application/octet-stream",
+        name: objArchive
+          ? `model-${Date.now()}-obj.zip`
+          : `model-${Date.now()}.${format}`
       });
     }
     return files;
@@ -354,4 +360,9 @@ function readModelOutputFormat(value: unknown): ModelOutputFormat | null {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isZipArchive(data: Buffer): boolean {
+  if (data.length < 4) return false;
+  return [0x04034b50, 0x06054b50, 0x08074b50].includes(data.readUInt32LE(0));
 }

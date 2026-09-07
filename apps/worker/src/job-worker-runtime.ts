@@ -36,6 +36,7 @@ export interface JobWorkerRuntimeOptions {
   executionTimeoutMs?: number | null;
   kinds?: readonly JobKind[];
   workerKind?: WorkerKind;
+  canClaim?: () => boolean;
 }
 
 class WorkerStoppingError extends Error {
@@ -74,9 +75,11 @@ export class JobWorkerRuntime {
   readonly #executionTimeoutMs: number | null;
   readonly #kinds: readonly JobKind[];
   readonly #workerKind: WorkerKind;
+  readonly #canClaim: () => boolean;
   #running = false;
   #stopping = false;
   #loopPromise: Promise<void> | null = null;
+  #stopPromise: Promise<void> | null = null;
   #activeController: AbortController | null = null;
   #heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -103,6 +106,7 @@ export class JobWorkerRuntime {
     );
     this.#kinds = options.kinds?.length ? [...options.kinds] : ["image.generate"];
     this.#workerKind = options.workerKind ?? "image";
+    this.#canClaim = options.canClaim ?? (() => true);
     this.#executionTimeoutMs = options.executionTimeoutMs === null
       ? null
       : options.executionTimeoutMs === undefined && this.#workerKind === "image"
@@ -115,6 +119,10 @@ export class JobWorkerRuntime {
 
   get isRunning(): boolean {
     return this.#running;
+  }
+
+  get isBusy(): boolean {
+    return this.#activeController !== null;
   }
 
   start(): void {
@@ -143,21 +151,27 @@ export class JobWorkerRuntime {
 
   async stop(): Promise<void> {
     if (!this.#running) return;
+    if (this.#stopPromise) return this.#stopPromise;
     this.#stopping = true;
-    if (this.#heartbeatTimer) clearInterval(this.#heartbeatTimer);
-    this.#heartbeatTimer = null;
     this.#activeController?.abort(new WorkerStoppingError());
-    await this.#loopPromise;
-    this.#jobs.interruptOwned(this.id);
-    this.#agentRuns?.interruptOwned(this.id);
-    this.#workers.stop(this.id);
-    this.#loopPromise = null;
-    this.#running = false;
-    this.#stopping = false;
+    this.#stopPromise = (async () => {
+      await this.#loopPromise;
+      if (this.#heartbeatTimer) clearInterval(this.#heartbeatTimer);
+      this.#heartbeatTimer = null;
+      this.#jobs.interruptOwned(this.id);
+      this.#agentRuns?.interruptOwned(this.id);
+      this.#workers.stop(this.id);
+      this.#loopPromise = null;
+      this.#running = false;
+      this.#stopping = false;
+      this.#stopPromise = null;
+    })();
+    return this.#stopPromise;
   }
 
   async processNext(): Promise<boolean> {
     if (!this.#running) throw new Error(`Worker ${this.id} is not running.`);
+    if (this.#stopping || this.isBusy || !this.#canClaim()) return false;
     const job = this.#jobs.claimNext(this.id, this.#kinds);
     if (!job) return false;
     const controller = new AbortController();

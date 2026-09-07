@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, resolve, sep } from "node:path";
 import type { AssetSource } from "@lyra/contracts";
@@ -62,15 +63,27 @@ export class ImmutableBlobStore {
     const target = this.#resolveKey(key);
     await mkdir(dirname(target), { recursive: true });
     try {
-      await writeFile(target, data, { flag: "wx", mode: 0o600 });
-      return { key, created: true };
-    } catch (error) {
-      if (!isAlreadyExistsError(error)) throw error;
       const existing = await stat(target);
-      if (existing.size !== data.length) {
-        throw new Error("Existing Blob does not match the expected content size.");
-      }
+      if (existing.size !== data.length) throw new Error("Existing Blob does not match the expected content size.");
       return { key, created: false };
+    } catch (error) {
+      if (!isMissingFileError(error)) throw error;
+    }
+    // Publish only complete files. A competing writer must not observe a newly opened, empty Blob.
+    const temporary = `${target}.${process.pid}.${randomUUID()}.tmp`;
+    try {
+      await writeFile(temporary, data, { flag: "wx", mode: 0o600 });
+      try {
+        await rename(temporary, target);
+        return { key, created: true };
+      } catch (error) {
+        if (!isAlreadyExistsError(error) && getErrorCode(error) !== "EPERM") throw error;
+        const existing = await readFile(target).catch(() => null);
+        if (!existing?.equals(data)) throw error;
+        return { key, created: false };
+      }
+    } finally {
+      await rm(temporary, { force: true });
     }
   }
 
@@ -81,6 +94,14 @@ export class ImmutableBlobStore {
       if (!this.legacyRoot || !isMissingFileError(error)) throw error;
       return readFile(resolveStoreKey(this.legacyRoot, key));
     }
+  }
+
+  path(key: string): string {
+    return this.#resolveKey(key);
+  }
+
+  modelDirectory(projectId: string): string {
+    return this.#resolveKey(`${scopePrefix({ projectId, source: "generated" })}/models`);
   }
 
   #resolveKey(key: string): string {
@@ -101,13 +122,16 @@ export class ThumbnailStore {
     validateChecksum(checksumSha256);
     const target = this.#path(checksumSha256, scope);
     await mkdir(dirname(target), { recursive: true });
-    const temporary = `${target}.${process.pid}.tmp`;
+    const temporary = `${target}.${process.pid}.${randomUUID()}.tmp`;
     try {
       await writeFile(temporary, data, { flag: "wx", mode: 0o600 });
       try {
         await rename(temporary, target);
       } catch (error) {
-        if (!isAlreadyExistsError(error)) throw error;
+        // Windows can report EPERM when another writer published the same thumbnail.
+        if (!isAlreadyExistsError(error) && getErrorCode(error) !== "EPERM") throw error;
+        const existing = await readFile(target).catch(() => null);
+        if (!existing?.equals(data)) throw error;
       }
     } catch (error) {
       if (!isAlreadyExistsError(error)) throw error;

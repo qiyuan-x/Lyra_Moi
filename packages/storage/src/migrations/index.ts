@@ -20,6 +20,8 @@ import { promptTemplatePreviewsMigration } from "./018-prompt-template-previews.
 import { starterProviderProfilesMigration } from "./019-starter-provider-profiles.js";
 import { frostApiModelAdapterMigration } from "./020-frostapi-model-adapter.js";
 import { hunyuanTokenHubMigration } from "./021-hunyuan-tokenhub.js";
+import { promptTemplateInputImageMigration } from "./022-prompt-template-input-image.js";
+import { agentSubrunsMigration } from "./023-agent-subruns.js";
 
 export const lyraMigrations: readonly DatabaseMigration[] = [
   initialSchemaMigration,
@@ -42,5 +44,7 @@ export const lyraMigrations: readonly DatabaseMigration[] = [
   promptTemplatePreviewsMigration,
   starterProviderProfilesMigration,
   frostApiModelAdapterMigration,
-  hunyuanTokenHubMigration
+  hunyuanTokenHubMigration,
+  promptTemplateInputImageMigration,
+  agentSubrunsMigration
 ];

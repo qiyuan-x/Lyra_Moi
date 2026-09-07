@@ -192,24 +192,27 @@ export class AgentStepRepository {
       .prepare(`
         SELECT s.id, s.agent_run_id, s.sequence, s.type, s.status, s.tool_name,
                s.payload_json, s.child_job_id, s.created_at, s.updated_at,
+               json_extract(s.payload_json, '$.childRunId') AS child_run_id,
                j.status AS job_status
         FROM agent_steps s
         JOIN agent_runs r ON r.id = s.agent_run_id
-        JOIN jobs j ON j.id = s.child_job_id
+        LEFT JOIN jobs j ON j.id = s.child_job_id
+        LEFT JOIN agent_runs child ON child.id = json_extract(s.payload_json, '$.childRunId')
         WHERE r.status = 'waiting_tool'
           AND s.type = 'tool_call'
           AND s.status = 'waiting'
-          AND j.status IN ('succeeded', 'failed', 'cancelled', 'interrupted')
+          AND (j.status IN ('succeeded', 'failed', 'cancelled', 'interrupted')
+            OR child.status IN ('completed', 'failed', 'cancelled', 'interrupted'))
         ORDER BY r.created_at, s.sequence
         LIMIT ?
       `)
       .all(limit) as unknown as Array<
-        AgentStepRow & { job_status: ResumableToolStep["jobStatus"] }
+      AgentStepRow & { job_status: ResumableToolStep["jobStatus"] | null; child_run_id: string | null }
       >;
     return rows.map((row) => ({
       step: mapStep(row),
-      jobId: row.child_job_id!,
-      jobStatus: row.job_status
+      jobId: row.child_job_id ?? row.child_run_id!,
+      jobStatus: row.job_status ?? "succeeded"
     }));
   }
 }

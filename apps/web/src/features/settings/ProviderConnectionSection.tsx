@@ -1,6 +1,8 @@
+import { providerOAuthSettings } from "@lyra/contracts";
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import type {
   FrostApiUsageSnapshot,
+  ProviderAccountSnapshot,
   ProviderAdapterType,
   ProviderConnectionTestResult,
   ProviderProfileSnapshot,
@@ -51,20 +53,66 @@ interface ProviderConnectionSectionProps {
   onSave: (value: ProviderFormValue) => Promise<ProviderProfileSnapshot>;
   onTest: (value: ProviderFormValue) => Promise<ProviderConnectionTestResult>;
   onQueryFrostApiUsage: (profileId: string) => Promise<FrostApiUsageSnapshot>;
+  onQueryProviderAccount?: (profileId: string) => Promise<ProviderAccountSnapshot>;
+  onDeleteCredential?: (profileId: string) => Promise<ProviderProfileSnapshot>;
+  onImportCredential?: (profileId: string, value: unknown) => Promise<ProviderProfileSnapshot>;
+  onStartOAuth?: (profileId: string, redirectUri: string) => Promise<{ state: string; authorizationUrl: string }>;
+  onCompleteOAuth?: (state: string, code: string) => Promise<ProviderProfileSnapshot>;
+  onOAuthStatus?: (profileId: string, state: string) => Promise<ProviderProfileSnapshot | null>;
 }
 
 export function ProviderConnectionSection(props: ProviderConnectionSectionProps) {
   const initialProtocol = props.preset?.protocol ?? props.profile?.protocol ?? "openai-compatible";
   const initialAdapter = props.preset?.adapterType ?? props.profile?.adapterType ??
     (props.serviceType === "model" ? "frostapi-3d" : initialProtocol);
-  const initialGuide = readProviderMetadata(
-    props.profile?.settings ?? props.preset?.settings ?? {},
-    props.preset
-  );
+  const baseSettings = providerOAuthSettings({
+    settings: props.profile?.settings ?? props.preset?.settings ?? {},
+    baseUrl: props.profile?.baseUrl ?? props.preset?.baseUrl ?? "",
+    serviceType: props.serviceType,
+    adapterType: initialAdapter
+  });
+  const savedSettings = useRef(baseSettings);
+  const [credentialProfile, setCredentialProfile] = useState(props.profile);
+  const [credentialBusy, setCredentialBusy] = useState(false);
+  const credentialBusyRef = useRef(false);
+  const initialGuide = readProviderMetadata(baseSettings, props.preset);
   const [name, setName] = useState(props.profile?.name ?? props.preset?.name ?? "");
   const [protocol, setProtocol] = useState<ProviderProtocol>(initialProtocol);
   const [adapterType, setAdapterType] = useState<ProviderAdapterType>(initialAdapter);
   const [baseUrl, setBaseUrl] = useState(props.profile?.baseUrl ?? props.preset?.baseUrl ?? "");
+  const oauthDefaults = baseSettings;
+  const [oauthAuthorizeUrl, setOauthAuthorizeUrl] = useState(readString(oauthDefaults.oauthAuthorizeUrl) ?? "");
+  const [oauthTokenUrl, setOauthTokenUrl] = useState(readString(oauthDefaults.oauthTokenUrl) ?? "");
+  const [oauthClientId, setOauthClientId] = useState(readString(oauthDefaults.oauthClientId) ?? "");
+  const [oauthCallbackUrl, setOauthCallbackUrl] = useState("");
+  const [oauthSession, setOauthSession] = useState<{ profileId: string; state: string } | null>(null);
+  useEffect(() => {
+    if (!oauthSession || !props.onOAuthStatus) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const deadline = Date.now() + 10 * 60_000;
+    const poll = async () => {
+      try {
+        const profile = await props.onOAuthStatus!(oauthSession.profileId, oauthSession.state);
+        if (cancelled) return;
+        if (profile) {
+          markSaved(currentValue(), profile);
+          setOauthSession(null);
+          setAuthorizationUrl("");
+          setOauthCallbackUrl("");
+          setStatus({ type: "success", text: "OAuth 授权成功，账号已自动保存，无需粘贴回调地址" });
+          void loadAccount(profile.id);
+          return;
+        }
+      } catch { /* Keep manual callback available after transient network errors. */ }
+      if (!cancelled && Date.now() < deadline) timer = setTimeout(() => void poll(), 1500);
+    };
+    timer = setTimeout(() => void poll(), 1500);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [oauthSession, props.onOAuthStatus]);
+  const [authorizationUrl, setAuthorizationUrl] = useState("");
+  const [tokenJson, setTokenJson] = useState("");
+  const tokenFileInputRef = useRef<HTMLInputElement>(null);
   const [apiKey, setApiKey] = useState("");
   const [hasSavedApiKey, setHasSavedApiKey] = useState(Boolean(props.profile?.hasApiKey));
   const [savedApiKeyMask, setSavedApiKeyMask] = useState(props.profile?.apiKeyMask ?? null);
@@ -78,6 +126,11 @@ export function ProviderConnectionSection(props: ProviderConnectionSectionProps)
   );
   const [clearSecondaryApiKey, setClearSecondaryApiKey] = useState(false);
   const [enabled, setEnabled] = useState(props.profile?.enabled ?? true);
+  type CredentialMode = "oauth" | "token" | "apikey";
+  const [credentialMode, setCredentialMode] = useState<CredentialMode>(
+    readString(props.profile?.settings.authMode) === "oauth" ? "oauth" :
+      ["token", "json"].includes(readString(props.profile?.settings.authMode) ?? "") ? "token" : "apikey"
+  );
   const [pendingEnable, setPendingEnable] = useState(
     () => Boolean(props.enableAfterConnection)
   );
@@ -87,6 +140,9 @@ export function ProviderConnectionSection(props: ProviderConnectionSectionProps)
   const [usage, setUsage] = useState<FrostApiUsageSnapshot | null>(null);
   const [usageStatus, setUsageStatus] = useState<"idle" | "loading" | "error">("idle");
   const [usageError, setUsageError] = useState("");
+  const [account, setAccount] = useState<ProviderAccountSnapshot | null>(null);
+  const [accountStatus, setAccountStatus] = useState<"idle" | "loading" | "error">("idle");
+  const [accountError, setAccountError] = useState("");
   const pairCredentials = props.preset?.credentialMode === "pair" || adapterType === "hunyuan-image";
   const requiresApiKey = Boolean(props.preset) || props.serviceType === "model";
   const keepsExistingKey = hasSavedApiKey && !clearApiKey;
@@ -94,15 +150,29 @@ export function ProviderConnectionSection(props: ProviderConnectionSectionProps)
     hasSavedSecondaryApiKey && !clearSecondaryApiKey
   );
   const validationEnabled = enabled || pendingEnable;
-  const missingConfiguredKey = requiresApiKey && !keepsExistingKey && !apiKey.trim();
+  const missingConfiguredKey = credentialMode === "apikey" && requiresApiKey && !keepsExistingKey && !apiKey.trim();
   const missingConfiguredSecondaryKey =
-    pairCredentials && !keepsExistingSecondaryKey && !secondaryApiKey.trim();
+    credentialMode === "apikey" && pairCredentials && !keepsExistingSecondaryKey && !secondaryApiKey.trim();
   const missingRequiredKey = validationEnabled && missingConfiguredKey;
   const missingRequiredSecondaryKey =
     validationEnabled && missingConfiguredSecondaryKey;
   const missingUsageKey = !keepsExistingKey && !apiKey.trim();
   const lastPersisted = useRef("");
   const frostApi = isFrostApiProfile(props.profile, props.preset, adapterType);
+  const canUseOAuth = Boolean(
+    isHttpUrl(oauthAuthorizeUrl) && isHttpUrl(oauthTokenUrl) && oauthClientId.trim()
+  );
+  // Only providers with an explicit OAuth configuration expose the OAuth/JSON
+  // login flows.  A regular provider remains API-key-only unless it already
+  // has an imported credential that needs to be managed.
+  const savedAuthMode = readString(props.profile?.settings.authMode);
+  const supportsTokenImport = canUseOAuth || credentialMode === "token" || savedAuthMode === "token" || savedAuthMode === "json";
+
+  useEffect(() => {
+    if (!canUseOAuth && credentialMode === "oauth") {
+      setCredentialMode(supportsTokenImport ? "token" : "apikey");
+    }
+  }, [canUseOAuth, credentialMode, supportsTokenImport]);
 
   useEffect(() => {
     lastPersisted.current = connectionSignature(initialValue());
@@ -125,10 +195,14 @@ export function ProviderConnectionSection(props: ProviderConnectionSectionProps)
       adapterType: initialAdapter,
       baseUrl: props.profile?.baseUrl ?? props.preset?.baseUrl ?? "",
       settings: withProviderMetadata(
-        props.profile?.settings ?? props.preset?.settings ?? {},
+        savedSettings.current,
         initialGuide.website,
         initialGuide.steps,
-        props.preset?.id
+        props.preset?.id,
+        oauthAuthorizeUrl,
+        oauthTokenUrl,
+        oauthClientId,
+        apiKey.trim() ? "apikey" : readString(savedSettings.current.authMode) ?? "apikey"
       ),
       apiKey: "",
       clearApiKey: false,
@@ -145,10 +219,14 @@ export function ProviderConnectionSection(props: ProviderConnectionSectionProps)
       adapterType,
       baseUrl: baseUrl.trim(),
       settings: withProviderMetadata(
-        props.profile?.settings ?? props.preset?.settings ?? {},
+        savedSettings.current,
         apiKeyWebsite,
         apiKeyGuide,
-        props.preset?.id
+        props.preset?.id,
+        oauthAuthorizeUrl,
+        oauthTokenUrl,
+        oauthClientId,
+        apiKey.trim() ? "apikey" : readString(savedSettings.current.authMode) ?? "apikey"
       ),
       apiKey: apiKey.trim(),
       clearApiKey,
@@ -172,10 +250,15 @@ export function ProviderConnectionSection(props: ProviderConnectionSectionProps)
       : value;
     lastPersisted.current = connectionSignature(savedValue);
     if (profile) {
+      savedSettings.current = providerOAuthSettings(profile);
+      setCredentialProfile(profile);
       setName(profile.name);
       setProtocol(profile.protocol);
       setAdapterType(profile.adapterType);
       setBaseUrl(profile.baseUrl);
+      setOauthAuthorizeUrl(readString(savedSettings.current.oauthAuthorizeUrl) ?? "");
+      setOauthTokenUrl(readString(savedSettings.current.oauthTokenUrl) ?? "");
+      setOauthClientId(readString(savedSettings.current.oauthClientId) ?? "");
       setHasSavedApiKey(profile.hasApiKey);
       setSavedApiKeyMask(profile.apiKeyMask);
       setHasSavedSecondaryApiKey(profile.hasSecondaryApiKey);
@@ -216,10 +299,11 @@ export function ProviderConnectionSection(props: ProviderConnectionSectionProps)
       !value.baseUrl ||
       missingConfiguredKey ||
       missingConfiguredSecondaryKey ||
-      props.busy
+      props.busy || credentialBusyRef.current
     ) return;
     setStatus({ type: "saving", text: "正在自动保存…" });
     const timer = window.setTimeout(() => {
+      if (credentialBusyRef.current) return;
       void props.onSave(value)
         .then((profile) => {
           markSaved(value, profile);
@@ -245,7 +329,12 @@ export function ProviderConnectionSection(props: ProviderConnectionSectionProps)
     props.busy,
     protocol,
     adapterType,
-    secondaryApiKey
+    secondaryApiKey,
+    oauthAuthorizeUrl,
+    oauthTokenUrl,
+    oauthClientId,
+    credentialMode,
+    credentialBusy
   ]);
 
   async function test() {
@@ -293,6 +382,176 @@ export function ProviderConnectionSection(props: ProviderConnectionSectionProps)
       setUsage(null);
       setUsageError(toErrorMessage(error));
       setUsageStatus("error");
+    }
+  }
+
+  async function queryProviderAccount() {
+    if (!props.profile || !props.onQueryProviderAccount || props.busy || accountStatus === "loading") return;
+    setAccountStatus("loading");
+    setAccountError("");
+    try {
+      setAccount(await props.onQueryProviderAccount(props.profile.id));
+      setAccountStatus("idle");
+    } catch (error) {
+      setAccount(null);
+      setAccountError(toErrorMessage(error));
+      setAccountStatus("error");
+    }
+  }
+
+  async function startOAuth() {
+    if (!props.onStartOAuth || props.busy || credentialBusyRef.current || !canUseOAuth) return;
+    credentialBusyRef.current = true;
+    setCredentialBusy(true);
+    try {
+      const value = currentValue();
+      const saved = await props.onSave(value);
+      markSaved(value, saved);
+      const result = await props.onStartOAuth(saved.id, `${window.location.origin}${window.location.pathname}`);
+      setAuthorizationUrl(result.authorizationUrl);
+      setOauthSession({ profileId: saved.id, state: result.state });
+      setStatus({ type: "success", text: "授权链接已生成，可复制或在浏览器中打开（10 分钟内有效）" });
+    } catch (error) {
+      setStatus({ type: "error", text: toErrorMessage(error) });
+    } finally {
+      credentialBusyRef.current = false;
+      setCredentialBusy(false);
+    }
+  }
+
+  async function copyAuthorizationUrl() {
+    if (!authorizationUrl) return;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(authorizationUrl);
+      } else {
+        throw new Error("clipboard unavailable");
+      }
+      setStatus({ type: "success", text: "授权链接已复制" });
+    } catch {
+      // Clipboard API is unavailable on plain HTTP or in some embedded
+      // browsers. Use the same fallback as desktop OAuth clients.
+      const textarea = document.createElement("textarea");
+      textarea.value = authorizationUrl;
+      textarea.setAttribute("readonly", "true");
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.select();
+      const copied = document.execCommand("copy");
+      textarea.remove();
+      setStatus(copied
+        ? { type: "success", text: "授权链接已复制" }
+        : { type: "error", text: "复制失败，请手动选择并复制授权链接。" });
+    }
+  }
+
+  async function loadAccount(profileId: string) {
+    if (!props.onQueryProviderAccount) return;
+    setAccountStatus("loading");
+    setAccountError("");
+    try {
+      setAccount(await props.onQueryProviderAccount(profileId));
+      setAccountStatus("idle");
+    } catch (error) {
+      // The saved credential card stays visible even when quota lookup fails.
+      setAccountError(toErrorMessage(error));
+      setAccountStatus("error");
+    }
+  }
+
+  async function importTokenJson() {
+    if (!props.onImportCredential || props.busy || credentialBusyRef.current || !tokenJson.trim()) return;
+    credentialBusyRef.current = true;
+    setCredentialBusy(true);
+    try {
+      setStatus({ type: "saving", text: "正在导入凭据…" });
+      const saved = props.profile ?? await props.onSave(currentValue());
+      const profile = await props.onImportCredential(saved.id, tokenJson.trim());
+      setTokenJson("");
+      setAccount(null);
+      markSaved(currentValue(), profile);
+      setStatus({ type: "success", text: "凭据已导入并安全保存" });
+      await loadAccount(profile.id);
+    } catch (error) {
+      setStatus({ type: "error", text: toErrorMessage(error) });
+    } finally {
+      credentialBusyRef.current = false;
+      setCredentialBusy(false);
+    }
+  }
+
+  async function deleteCredential() {
+    if (!credentialProfile || !props.onDeleteCredential || props.busy || credentialBusyRef.current) return;
+    credentialBusyRef.current = true;
+    setCredentialBusy(true);
+    try {
+      const profile = await props.onDeleteCredential(credentialProfile.id);
+      markSaved(currentValue(), profile);
+      setAccount(null);
+      setAccountError("");
+      setUsage(null);
+      setAuthorizationUrl("");
+      setOauthCallbackUrl("");
+      setPendingEnable(false);
+      setStatus({ type: "success", text: "访问令牌、刷新令牌和账号信息已删除" });
+    } catch (error) {
+      setStatus({ type: "error", text: toErrorMessage(error) });
+    } finally {
+      credentialBusyRef.current = false;
+      setCredentialBusy(false);
+    }
+  }
+
+  async function importTokenFile(file: File) {
+    if (!props.onImportCredential || props.busy) return;
+    try {
+      const raw = (await file.text()).trim();
+      if (!raw) throw new Error("JSON 文件为空。");
+      const parsed = JSON.parse(raw) as unknown;
+      if (typeof parsed === "string") {
+        setTokenJson(parsed);
+      } else if (parsed && typeof parsed === "object") {
+        setTokenJson(JSON.stringify(parsed, null, 2));
+      } else {
+        throw new Error("凭据文件必须是 JSON 对象或 Token 字符串。");
+      }
+      setStatus({ type: "success", text: `已读取 ${file.name}，请点击导入 Token JSON。` });
+    } catch (error) {
+      setStatus({ type: "error", text: error instanceof SyntaxError ? "凭据文件必须是有效 JSON。" : toErrorMessage(error) });
+    } finally {
+      if (tokenFileInputRef.current) tokenFileInputRef.current.value = "";
+    }
+  }
+
+  async function completeManualOAuth() {
+    if (!props.onCompleteOAuth || props.busy || credentialBusyRef.current) return;
+    const raw = oauthCallbackUrl.trim();
+    if (!raw) {
+      setStatus({ type: "error", text: "请粘贴授权完成后的回调地址。" });
+      return;
+    }
+    try {
+      const url = new URL(raw.includes("://") ? raw : `http://localhost/?${raw.replace(/^\?/, "")}`);
+      const state = url.searchParams.get("state");
+      const code = url.searchParams.get("code");
+      if (!state || !code) throw new Error("回调地址中缺少 code 或 state。 ");
+      credentialBusyRef.current = true;
+      setCredentialBusy(true);
+      setStatus({ type: "testing", text: "正在完成 OAuth 授权…" });
+      const profile = await props.onCompleteOAuth(state, code);
+      setOauthCallbackUrl("");
+      setCredentialMode("oauth");
+      markSaved(currentValue(), profile);
+      setAuthorizationUrl("");
+      setAccount(null);
+      setStatus({ type: "success", text: "OAuth 授权完成，凭据已保存" });
+      await loadAccount(profile.id);
+    } catch (error) {
+      setStatus({ type: "error", text: toErrorMessage(error) });
+    } finally {
+      credentialBusyRef.current = false;
+      setCredentialBusy(false);
     }
   }
 
@@ -458,20 +717,115 @@ export function ProviderConnectionSection(props: ProviderConnectionSectionProps)
               placeholder="https://api.example.com/v1"
             />
           </label>
-          <SecretField
-            id="provider-primary-key"
-            label={`${primaryLabel}${requiresApiKey ? "（必填）" : "（可选）"}`}
-            value={apiKey}
-            saved={hasSavedApiKey}
-            mask={savedApiKeyMask}
-            clearing={clearApiKey}
-            disabled={props.busy}
-            placeholder={primaryPlaceholder}
-            onChange={setApiKey}
-            onClear={() => void removePrimaryApiKey()}
-          />
+          <div className="settings-grid-wide provider-credential-mode" role="tablist" aria-label="登录方式">
+            {canUseOAuth && <button type="button" className={credentialMode === "oauth" ? "active" : ""} onClick={() => setCredentialMode("oauth")}>🌐 OAuth 授权</button>}
+            {supportsTokenImport && <button type="button" className={credentialMode === "token" ? "active" : ""} onClick={() => setCredentialMode("token")}>▤ Token / JSON</button>}
+            <button type="button" className={credentialMode === "apikey" ? "active" : ""} onClick={() => setCredentialMode("apikey")}>🔑 API Key</button>
+          </div>
+          {credentialMode === "apikey" && (
+            <SecretField
+              id="provider-primary-key"
+              label={`${primaryLabel}${requiresApiKey ? "（必填）" : "（可选）"}`}
+              value={apiKey}
+              saved={hasSavedApiKey}
+              mask={savedApiKeyMask}
+              clearing={clearApiKey}
+              disabled={props.busy}
+              placeholder={primaryPlaceholder}
+              onChange={setApiKey}
+              onClear={() => void (props.onDeleteCredential ? deleteCredential() : removePrimaryApiKey())}
+            />
+          )}
 
-          {pairCredentials && (
+          {credentialMode === "oauth" && (
+            <div className="settings-grid-wide settings-oauth-fields">
+              <p className="settings-oauth-hint">如你不明白在做什么请使用官方APIkey，使用导致的问题请自行解决；</p>
+              <button type="button" className="button button-primary" disabled={props.busy || credentialBusy || !canUseOAuth} onClick={() => void startOAuth()}>
+                {credentialBusy ? "处理中…" : authorizationUrl ? "重新生成授权链接" : "生成授权链接"}
+              </button>
+              {!canUseOAuth && <small>此供应商尚未配置 OAuth，请使用 API Key。</small>}
+              <div className="settings-oauth-link">
+                <label className="field">
+                  <span>授权链接</span>
+                  <div className="settings-oauth-link-row">
+                    <input value={authorizationUrl} readOnly aria-label="OAuth 授权链接" placeholder="点击上方按钮生成带 PKCE 校验的授权链接" onFocus={(event) => event.currentTarget.select()} />
+                    <button type="button" className="button button-secondary" disabled={!authorizationUrl} onClick={() => void copyAuthorizationUrl()}>复制</button>
+                  </div>
+                </label>
+                <a className={`button button-primary settings-oauth-open${authorizationUrl ? "" : " disabled"}`} href={authorizationUrl || undefined} aria-disabled={!authorizationUrl} target="_blank" rel="noopener noreferrer">在浏览器中打开</a>
+              </div>
+              <label className="field">
+                <span>手动输入回调地址</span>
+                <input value={oauthCallbackUrl} onChange={(event) => setOauthCallbackUrl(event.target.value)} placeholder="粘贴完整回调地址，包含 code 和 state" />
+              </label>
+              <small>OpenAI 授权结束后，复制浏览器地址栏中的 localhost:1455/auth/callback 地址，即使该页面未打开，也可在此粘贴完成授权。</small>
+              <details className="settings-oauth-advanced" open={!canUseOAuth}>
+                <summary>高级 OAuth 配置</summary>
+                <label className="field"><span>OAuth 授权地址</span><input value={oauthAuthorizeUrl} onChange={(event) => { setOauthAuthorizeUrl(event.target.value); setAuthorizationUrl(""); }} /></label>
+                <label className="field"><span>OAuth Token 地址</span><input value={oauthTokenUrl} onChange={(event) => { setOauthTokenUrl(event.target.value); setAuthorizationUrl(""); }} /></label>
+                <label className="field"><span>OAuth Client ID</span><input value={oauthClientId} onChange={(event) => { setOauthClientId(event.target.value); setAuthorizationUrl(""); }} /></label>
+              </details>
+            </div>
+          )}
+
+          {credentialMode === "token" && (
+            <div className="settings-grid-wide settings-token-import">
+              <label className="field">
+                <span>Token / JSON 凭据</span>
+                <textarea
+                  value={tokenJson}
+                  onChange={(event) => setTokenJson(event.target.value)}
+                  rows={5}
+                  spellCheck={false}
+                  placeholder={'粘贴 JSON，例如 {"access_token":"…","refresh_token":"…"}'}
+                />
+              </label>
+              <small>支持 access_token、refresh_token、expires_at 等字段；原文不会写入数据库。</small>
+              <input
+                ref={tokenFileInputRef}
+                type="file"
+                accept=".json,application/json,text/plain"
+                hidden
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (file) void importTokenFile(file);
+                }}
+              />
+              <button type="button" className="button button-secondary" disabled={props.busy} onClick={() => tokenFileInputRef.current?.click()}>
+                选择 JSON 文件
+              </button>
+              {hasSavedApiKey && <small className="settings-credential-status">已有 Token 凭据，重新导入可替换。</small>}
+            </div>
+          )}
+
+          {hasSavedApiKey && credentialProfile && (
+            <div className="settings-grid-wide provider-credential-status-card" aria-label="已保存的账号">
+              <div>
+                <strong>{account?.account ?? readString(credentialProfile.settings.credentialAccount) ?? credentialProfile.name}</strong>
+                <small>{readString(credentialProfile.settings.authMode) === "oauth" ? "OAuth" : ["token", "json"].includes(readString(credentialProfile.settings.authMode) ?? "") ? "Token / JSON" : "API Key"} · 已保存</small>
+                {(account?.accountId ?? readString(credentialProfile.settings.credentialAccountId)) && <small>账号 ID：{account?.accountId ?? readString(credentialProfile.settings.credentialAccountId)}</small>}
+                {(account?.plan ?? readString(credentialProfile.settings.credentialPlan)) && <small>套餐：{account?.plan ?? readString(credentialProfile.settings.credentialPlan)}</small>}
+                {readString(credentialProfile.settings.credentialExpiresAt) && <small>令牌到期：{new Date(String(credentialProfile.settings.credentialExpiresAt)).toLocaleString("zh-CN")}</small>}
+                <small>{credentialProfile.hasSecondaryApiKey ? (pairCredentials ? "已保存双密钥" : "已保存刷新令牌") : "未保存刷新令牌"}</small>
+                {account && <div className="provider-account-result" aria-live="polite">
+                  {account.subscriptionExpiresAt && <span>订阅到期：{new Date(account.subscriptionExpiresAt).toLocaleString("zh-CN")}</span>}
+                  {account.usage.supported ? account.usage.metrics.map((metric) => (
+                    <div className="provider-quota-metric" key={metric.key}>
+                      <span>{metric.label}：{formatUsageNumber(metric.value)} {metric.unit}</span>
+                      {metric.unit === "%" && <progress aria-label={metric.label} max={100} value={metric.value} />}
+                      {metric.resetAt && <small>重置于 {new Date(metric.resetAt).toLocaleString("zh-CN")}</small>}
+                    </div>
+                  )) : <span>{account.usage.reason}</span>}
+                </div>}
+
+              </div>
+              <button type="button" className="button button-danger" disabled={props.busy || credentialBusy || !props.onDeleteCredential} onClick={() => void deleteCredential()}>
+                删除凭据
+              </button>
+            </div>
+          )}
+
+          {pairCredentials && credentialMode === "apikey" && (
             <SecretField
               id="provider-secondary-key"
               label="SecretKey（必填）"
@@ -504,7 +858,18 @@ export function ProviderConnectionSection(props: ProviderConnectionSectionProps)
             {usageError}
           </p>
         )}
+        {accountStatus === "error" && <p className="connection-result connection-error">{accountError}</p>}
         <footer className="settings-connection-footer">
+          {credentialMode === "token" && props.onImportCredential && (
+            <button type="button" className="button button-secondary" disabled={props.busy || credentialBusy || !tokenJson.trim()} onClick={() => void importTokenJson()}>
+              导入 Token JSON
+            </button>
+          )}
+          {credentialMode === "oauth" && props.onCompleteOAuth && (
+            <button type="button" className="button button-secondary" disabled={props.busy || credentialBusy || !oauthCallbackUrl.trim()} onClick={() => void completeManualOAuth()}>
+              我已授权，继续
+            </button>
+          )}
           {frostApi && props.profile && (
             <button
               type="button"
@@ -521,6 +886,11 @@ export function ProviderConnectionSection(props: ProviderConnectionSectionProps)
               {usageStatus === "loading" ? "查询中…" : "查询余额"}
             </button>
           )}
+          {!frostApi && props.profile && props.onQueryProviderAccount && (
+            <button type="button" className="button button-secondary" disabled={props.busy || accountStatus === "loading"} onClick={() => void queryProviderAccount()}>
+              {accountStatus === "loading" ? "查询中…" : "查询账号/额度"}
+            </button>
+          )}
           <button
             type="button"
             className="button button-primary"
@@ -533,7 +903,7 @@ export function ProviderConnectionSection(props: ProviderConnectionSectionProps)
             }
             onClick={() => void test()}
           >
-            {status?.type === "testing" ? "测试中…" : "连通性测试并更新模型"}
+            {status?.type === "testing" ? "测试中…" : "连通性测试并同步上游模型"}
           </button>
         </footer>
       </section>
@@ -665,7 +1035,11 @@ function withProviderMetadata(
   source: Record<string, unknown>,
   website: string,
   steps: string,
-  providerKind?: string
+  providerKind?: string,
+  oauthAuthorizeUrl?: string,
+  oauthTokenUrl?: string,
+  oauthClientId?: string,
+  authMode?: string
 ): Record<string, unknown> {
   const settings = structuredClone(source);
   const existing = isRecord(settings[INTERNAL_SETTINGS_KEY])
@@ -678,6 +1052,10 @@ function withProviderMetadata(
   };
   if (providerKind) metadata.providerKind = providerKind;
   settings[INTERNAL_SETTINGS_KEY] = metadata;
+  if (oauthAuthorizeUrl !== undefined) settings.oauthAuthorizeUrl = oauthAuthorizeUrl.trim();
+  if (oauthTokenUrl !== undefined) settings.oauthTokenUrl = oauthTokenUrl.trim();
+  if (oauthClientId !== undefined) settings.oauthClientId = oauthClientId.trim();
+  if (authMode) settings.authMode = authMode;
   return settings;
 }
 

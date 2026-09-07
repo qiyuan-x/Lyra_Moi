@@ -229,6 +229,7 @@ export const createPromptTemplateRequestSchema = {
       maxItems: 50,
       items: { type: "string", minLength: 1, maxLength: 80 }
     },
+    inputImageAssetId: { anyOf: [{ type: "string", minLength: 1, maxLength: 100 }, { type: "null" }] },
     favorite: { type: "boolean" }
   }
 } as const satisfies JsonSchema;

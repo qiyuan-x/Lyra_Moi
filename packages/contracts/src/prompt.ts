@@ -7,6 +7,7 @@ export interface PromptTemplateSnapshot {
   note: string | null;
   content: string;
   variables: string[];
+  inputImageAssetId: EntityId | null;
   favorite: boolean;
   previewMimeType: string | null;
   createdAt: UtcDateTime;
@@ -26,6 +27,7 @@ export interface CreatePromptTemplateRequestBody {
   note?: string | null;
   content: string;
   variables?: string[];
+  inputImageAssetId?: EntityId | null;
   favorite?: boolean;
 }
 
@@ -35,5 +37,6 @@ export interface UpdatePromptTemplateRequestBody {
   note?: string | null;
   content?: string;
   variables?: string[];
+  inputImageAssetId?: EntityId | null;
   favorite?: boolean;
 }

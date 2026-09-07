@@ -6,6 +6,7 @@ import type {
   ApplicationDefaultModels,
   ApplicationUpdateSnapshot,
   AssetListQuery,
+  AssetLibrarySection,
   AssetSnapshot,
   CommunitySettingsSnapshot,
   ConversationSnapshot,
@@ -15,6 +16,7 @@ import type {
   CursorPage,
   DiscoveredProviderModel,
   FrostApiUsageSnapshot,
+  ProviderAccountSnapshot,
   JobSnapshot,
   ManualGenerationRequestBody,
   ManualModelGenerationInput,
@@ -30,9 +32,11 @@ import type {
   ProviderProfileSnapshot,
   ResumeAgentUserInputRequestBody,
   SendAgentMessageRequestBody,
+  TaskRuntimeSettingsSnapshot,
   UpdatePromptTemplateRequestBody,
   UpdateAgentPromptSettingsRequestBody,
   UpdateAgentRuntimeSettingsRequestBody,
+  UpdateTaskRuntimeSettingsRequestBody,
   UpdateCommunitySettingsRequestBody,
   UpdateProviderModelRequestBody,
   UpdateProviderProfileRequestBody
@@ -59,6 +63,14 @@ export class ApiClient {
       method: "PATCH",
       body: JSON.stringify(body)
     });
+  }
+
+  getApplicationVersions(): Promise<import("@lyra/contracts").ApplicationVersionList> {
+    return request("/api/v1/system/update/versions");
+  }
+
+  installApplicationVersion(version: string): Promise<ApplicationUpdateSnapshot> {
+    return request(`/api/v1/system/update/install?version=${encodeURIComponent(version)}`, { method: "POST" });
   }
 
   getApplicationUpdate(): Promise<ApplicationUpdateSnapshot> {
@@ -121,6 +133,28 @@ export class ApiClient {
     );
   }
 
+  getTaskRuntimeSettings(): Promise<TaskRuntimeSettingsSnapshot> {
+    return request<TaskRuntimeSettingsSnapshot>(
+      "/api/v1/settings/task-runtime"
+    );
+  }
+
+  updateTaskRuntimeSettings(
+    body: UpdateTaskRuntimeSettingsRequestBody
+  ): Promise<TaskRuntimeSettingsSnapshot> {
+    return request<TaskRuntimeSettingsSnapshot>(
+      "/api/v1/settings/task-runtime",
+      { method: "PATCH", body: JSON.stringify(body) }
+    );
+  }
+
+  resetTaskRuntimeSettings(): Promise<TaskRuntimeSettingsSnapshot> {
+    return request<TaskRuntimeSettingsSnapshot>(
+      "/api/v1/settings/task-runtime",
+      { method: "DELETE" }
+    );
+  }
+
   listProjects(): Promise<ProjectSnapshot[]> {
     return request<{ items: ProjectSnapshot[] }>("/api/v1/projects").then((value) => value.items);
   }
@@ -170,6 +204,41 @@ export class ApiClient {
     }).then((value) => value.profile);
   }
 
+  importProviderCredential(profileId: string, body: unknown): Promise<ProviderProfileSnapshot> {
+    return request<{ profile: ProviderProfileSnapshot }>(`/api/v1/providers/${encodeURIComponent(profileId)}/credentials`, { method: "POST", json: body }).then((value) => value.profile);
+  }
+
+  deleteProviderCredential(profileId: string): Promise<ProviderProfileSnapshot> {
+    return request<{ profile: ProviderProfileSnapshot }>(`/api/v1/providers/${encodeURIComponent(profileId)}/credentials`, { method: "DELETE" }).then((value) => value.profile);
+  }
+
+  getProviderCredentialStatus(profileId: string): Promise<{ authMode: string; hasAccessToken: boolean; hasRefreshToken: boolean; expiresAt: string | null }> {
+    return request<{ credential: { authMode: string; hasAccessToken: boolean; hasRefreshToken: boolean; expiresAt: string | null } }>(`/api/v1/providers/${encodeURIComponent(profileId)}/credentials`).then((value) => value.credential);
+  }
+
+  startProviderOAuth(profileId: string, redirectUri: string): Promise<{ state: string; authorizationUrl: string }> {
+    return request<{ state: string; authorizationUrl: string }>(`/api/v1/providers/${encodeURIComponent(profileId)}/oauth/start`, {
+      method: "POST",
+      json: { redirectUri }
+    });
+  }
+
+  completeProviderOAuth(state: string, code: string): Promise<ProviderProfileSnapshot> {
+    // The provider id is bound to the state server-side; only state and code are sent back.
+    return request<{ profile: ProviderProfileSnapshot }>("/api/v1/providers/oauth/callback", {
+      method: "POST",
+      json: { state, code }
+    }).then((value) => value.profile);
+  }
+
+  providerOAuthStatus(profileId: string, state: string): Promise<ProviderProfileSnapshot | null> {
+    return request<{ profile: ProviderProfileSnapshot | null }>(`/api/v1/providers/${encodeURIComponent(profileId)}/oauth/status?state=${encodeURIComponent(state)}`).then((value) => value.profile);
+  }
+
+  testProviderModel(profileId: string, modelId: string): Promise<{ ok: true; elapsedMs: number }> {
+    return request(`/api/v1/providers/${encodeURIComponent(profileId)}/test-model`, { method: "POST", json: { modelId } });
+  }
+
   deleteProvider(profileId: string): Promise<void> {
     return request(`/api/v1/providers/${encodeURIComponent(profileId)}`, { method: "DELETE" }).then(() => undefined);
   }
@@ -208,6 +277,12 @@ export class ApiClient {
     return request<{ usage: FrostApiUsageSnapshot }>(
       `/api/v1/providers/${encodeURIComponent(profileId)}/usage`
     ).then((value) => value.usage);
+  }
+
+  getProviderAccount(profileId: string): Promise<ProviderAccountSnapshot> {
+    return request<{ account: ProviderAccountSnapshot }>(
+      `/api/v1/providers/${encodeURIComponent(profileId)}/account`
+    ).then((value) => value.account);
   }
 
   setDefaultModel(serviceType: "llm" | "image" | "model", modelId: string | null): Promise<ApplicationDefaultModels> {
@@ -344,6 +419,13 @@ export class ApiClient {
     return request<{ asset: AssetSnapshot }>(`/api/v1/assets/${encodeURIComponent(assetId)}`, {
       method: "DELETE"
     }).then((value) => value.asset);
+  }
+
+  getAssetDirectory(projectId: string, section: AssetLibrarySection): Promise<string> {
+    return request<{ path: string }>(
+      `/api/v1/projects/${encodeURIComponent(projectId)}/asset-directories/${section}`,
+      { signal: AbortSignal.timeout(10_000) }
+    ).then((value) => value.path);
   }
 
   listPrompts(query: PromptTemplateListQuery = {}): Promise<PromptTemplateSnapshot[]> {

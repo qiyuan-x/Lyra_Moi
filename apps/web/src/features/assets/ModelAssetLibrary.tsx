@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import type { AssetSnapshot, JobSnapshot } from "@lyra/contracts";
 import { ConfirmDialog } from "../../components/ConfirmDialog.js";
 import { Icon } from "../../components/Icon.js";
+import { DownloadAssetsButton } from "./DownloadAssetsButton.js";
 
 interface ModelAssetLibraryProps {
   jobs: JobSnapshot[];
@@ -53,8 +54,21 @@ export function ModelAssetLibrary(props: ModelAssetLibraryProps) {
       })
       .sort((left, right) => right.job.createdAt.localeCompare(left.job.createdAt));
   }, [imagesById, modelAssetsById, props.jobs, props.search]);
+  // A project directory can be restored without its historical job rows. Keep
+  // the model assets visible in that case instead of reporting an empty
+  // library. The asset itself remains usable for preview/download.
+  const orphanAssets = useMemo(() => {
+    const related = new Set(entries.flatMap((entry) => entry.outputs.map((asset) => asset.id)));
+    const needle = props.search.trim().toLocaleLowerCase("zh-CN");
+    return props.modelAssets.filter((asset) => {
+      if (related.has(asset.id)) return false;
+      if (!needle) return true;
+      return `${asset.name} ${asset.originalName ?? ""} ${asset.tags.join(" ")}`
+        .toLocaleLowerCase("zh-CN").includes(needle);
+    });
+  }, [entries, props.modelAssets, props.search]);
 
-  if (entries.length === 0) {
+  if (entries.length === 0 && orphanAssets.length === 0) {
     return (
       <div className="library-empty">
         <Icon name="cube" size={28} />
@@ -101,19 +115,7 @@ export function ModelAssetLibrary(props: ModelAssetLibraryProps) {
               >
                 <Icon name="cube" size={14} />查看模型
               </button>
-              <details className="model-library-download">
-                <summary className="button button-secondary">
-                  <Icon name="download" size={14} />下载文件
-                </summary>
-                <div>
-                  {outputs.map((asset) => (
-                    <a href={props.contentUrl(asset.id)} download={asset.name} key={asset.id}>
-                      <span>{formatFromAsset(asset)}</span>
-                      <small>{formatBytes(asset.byteSize)}</small>
-                    </a>
-                  ))}
-                </div>
-              </details>
+              <DownloadAssetsButton assets={outputs} contentUrl={props.contentUrl} label="下载模型" archiveName={title} />
               <button
                 type="button"
                 className="icon-button danger-button"
@@ -130,6 +132,31 @@ export function ModelAssetLibrary(props: ModelAssetLibraryProps) {
           </article>
         );
       })}
+      {orphanAssets.map((asset) => (
+        <article className="model-library-card" key={`orphan-${asset.id}`}>
+          <div className="model-library-preview">
+            <span><Icon name="cube" size={30} /></span>
+            <b>项目素材</b>
+          </div>
+          <div className="model-library-copy">
+            <strong title={asset.name}>{asset.name}</strong>
+            <span>未关联历史任务</span>
+            <small>{formatDate(asset.createdAt)}</small>
+          </div>
+          <div className="model-library-formats" aria-label="模型输出格式">
+            <span>{formatFromAsset(asset)}</span>
+          </div>
+          <footer>
+            <button type="button" className="button button-primary" onClick={() => props.onView(asset.id)}>
+              <Icon name="cube" size={14} />查看模型
+            </button>
+            <DownloadAssetsButton assets={[asset]} contentUrl={props.contentUrl} label="下载模型" archiveName={asset.name} />
+            <button type="button" className="icon-button danger-button" title="删除模型" aria-label={`删除模型 ${asset.name}`} onClick={() => setDeleting({ title: asset.name, assetIds: [asset.id] })}>
+              <Icon name="trash" size={14} />
+            </button>
+          </footer>
+        </article>
+      ))}
       </div>
       {deleting && (
         <ConfirmDialog
@@ -154,14 +181,12 @@ export function ModelAssetLibrary(props: ModelAssetLibraryProps) {
 }
 
 export function countCompletedModels(
-  jobs: JobSnapshot[],
+  _jobs: JobSnapshot[],
   modelAssets: AssetSnapshot[]
 ): number {
-  const assetIds = new Set(modelAssets.map((asset) => asset.id));
-  return jobs.filter(
-    (job) => job.kind === "model.generate" &&
-      job.outputs.some((output) => assetIds.has(output.assetId))
-  ).length;
+  // Count stored model assets, not only jobs. Imported/restored project
+  // folders may intentionally have no historical job rows.
+  return modelAssets.length;
 }
 
 function formatFromAsset(asset: AssetSnapshot): string {

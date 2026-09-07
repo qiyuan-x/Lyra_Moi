@@ -191,6 +191,19 @@ export class AssetService {
     };
   }
 
+  getLocalContentPath(assetId: string): string {
+    const asset = this.#assets.requireStored(assetId);
+    return this.#blobs.path(asset.blobKey);
+  }
+
+  getLocalModelDirectory(assetId: string): string {
+    const asset = this.#assets.requireStored(assetId);
+    if (asset.kind !== "model" || asset.source !== "generated") {
+      throw new Error("Only generated models have a model directory.");
+    }
+    return this.#blobs.modelDirectory(asset.projectId);
+  }
+
   async getThumbnail(assetId: string): Promise<AssetThumbnailResult> {
     const asset = this.#assets.requireStored(assetId, true);
     if (asset.kind !== "image") throw new Error("Only image assets have thumbnails.");

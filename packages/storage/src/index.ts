@@ -22,3 +22,4 @@ export * from "./image-processor.js";
 export * from "./job-repository.js";
 export * from "./startup.js";
 export * from "./worker-instance-repository.js";
+export * from "./project-file-index.js";

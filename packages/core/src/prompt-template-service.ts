@@ -90,6 +90,7 @@ function normalizeCreate(input: CreatePromptTemplateRequestBody): CreatePromptTe
     ...(input.category === undefined ? {} : { category: input.category.trim() }),
     ...(input.note === undefined ? {} : { note: input.note === null ? null : input.note.trim() }),
     ...(input.variables === undefined ? {} : { variables: normalizeVariables(input.variables) }),
+    ...(input.inputImageAssetId === undefined ? {} : { inputImageAssetId: input.inputImageAssetId }),
     ...(input.favorite === undefined ? {} : { favorite: input.favorite })
   };
 }
@@ -101,6 +102,7 @@ function normalizeUpdate(input: UpdatePromptTemplateRequestBody): UpdatePromptTe
     ...(input.category === undefined ? {} : { category: input.category.trim() }),
     ...(input.note === undefined ? {} : { note: input.note === null ? null : input.note.trim() }),
     ...(input.variables === undefined ? {} : { variables: normalizeVariables(input.variables) }),
+    ...(input.inputImageAssetId === undefined ? {} : { inputImageAssetId: input.inputImageAssetId }),
     ...(input.favorite === undefined ? {} : { favorite: input.favorite })
   };
 }

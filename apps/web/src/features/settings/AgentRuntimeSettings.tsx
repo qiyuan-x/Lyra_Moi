@@ -87,18 +87,18 @@ export function AgentRuntimeSettings(props: AgentRuntimeSettingsProps) {
   return (
     <section className="agent-runtime-settings">
       <header className="settings-detail-heading agent-settings-detail-heading">
-        <button type="button" className="icon-button" aria-label="返回 Agent 设置" onClick={props.onBack}>
+        <button type="button" className="icon-button" aria-label="返回其他设置" onClick={props.onBack}>
           <Icon name="chevron" size={18} />
         </button>
         <div>
-          <h2>其他设置</h2>
+          <h2>Agent 运行参数</h2>
           <p>修改后自动保存，并从下一轮 Agent 任务开始生效。</p>
         </div>
       </header>
 
       {!snapshot ? (
         <div className="settings-loading">
-          {saveState === "error" ? "Agent 其他设置加载失败" : "正在加载 Agent 其他设置…"}
+          {saveState === "error" ? "Agent 运行参数加载失败" : "正在加载 Agent 运行参数…"}
         </div>
       ) : (
         <section className="settings-detail-section agent-runtime-section">

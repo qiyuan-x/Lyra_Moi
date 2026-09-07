@@ -58,6 +58,7 @@ export interface AgentRunSnapshot {
   createdAt: UtcDateTime;
   updatedAt: UtcDateTime;
   finishedAt: UtcDateTime | null;
+  parentRunId?: EntityId | null;
 }
 
 export interface AgentStepSnapshot {

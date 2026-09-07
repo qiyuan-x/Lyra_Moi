@@ -72,9 +72,9 @@ importers:
 
   apps/worker:
     dependencies:
-      '@lyra/agent-engine':
+      '@lyra/agent-runtime':
         specifier: workspace:*
-        version: link:../../packages/agent-engine
+        version: link:../../packages/agent-runtime
       '@lyra/agent-tools':
         specifier: workspace:*
         version: link:../../packages/agent-tools
@@ -91,20 +91,17 @@ importers:
         specifier: workspace:*
         version: link:../../packages/storage
 
-  packages/agent-engine:
+  packages/agent-runtime:
     dependencies:
-      '@lyra/contracts':
-        specifier: workspace:*
-        version: link:../contracts
       ajv:
         specifier: ^8.17.1
         version: 8.20.0
 
   packages/agent-tools:
     dependencies:
-      '@lyra/agent-engine':
+      '@lyra/agent-runtime':
         specifier: workspace:*
-        version: link:../agent-engine
+        version: link:../agent-runtime
       '@lyra/contracts':
         specifier: workspace:*
         version: link:../contracts
@@ -129,9 +126,9 @@ importers:
 
   packages/providers:
     dependencies:
-      '@lyra/agent-engine':
+      '@lyra/agent-runtime':
         specifier: workspace:*
-        version: link:../agent-engine
+        version: link:../agent-runtime
       '@lyra/contracts':
         specifier: workspace:*
         version: link:../contracts

@@ -14,6 +14,43 @@ import type { BusinessRouteHandler } from "./business-route-types.js";
 
 export const handleAssetPromptRoutes: BusinessRouteHandler =
   async ({ request, response, url, options, requestId }) => {
+    const libraryDirectoryInfo = matchPath(
+      url.pathname,
+      /^\/api\/v1\/projects\/([^/]+)\/asset-directories\/([^/]+)$/u
+    );
+    if (request.method === "GET" && libraryDirectoryInfo) {
+      if (request.headers.origin && new URL(request.headers.origin).host !== request.headers.host) {
+        throw new Error("请从应用本身查看文件目录。");
+      }
+      if (!["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(request.socket.remoteAddress ?? "")) {
+        throw new Error("请在运行 Lyra 的电脑上查看文件目录。");
+      }
+      // Directory paths are only available in local desktop deployments.
+      requireService(options.revealDirectory, "Local directory reveal");
+      const workspace = requireService(options.workspace, "Workspace");
+      const path = workspace.getAssetDirectory(libraryDirectoryInfo[0]!, libraryDirectoryInfo[1]);
+      writeJson(response, 200, { path }, requestId);
+      return true;
+    }
+
+    const libraryDirectory = matchPath(
+      url.pathname,
+      /^\/api\/v1\/projects\/([^/]+)\/asset-directories\/([^/]+)\/reveal$/u
+    );
+    if (request.method === "POST" && libraryDirectory) {
+      if (request.headers.origin && new URL(request.headers.origin).host !== request.headers.host) {
+        throw new Error("请从应用本身打开文件目录。");
+      }
+      if (!["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(request.socket.remoteAddress ?? "")) {
+        throw new Error("请在运行 Lyra 的电脑上打开文件目录。");
+      }
+      const revealDirectory = requireService(options.revealDirectory, "Local directory reveal");
+      const workspace = requireService(options.workspace, "Workspace");
+      await revealDirectory(workspace.getAssetDirectory(libraryDirectory[0]!, libraryDirectory[1]));
+      writeJson(response, 200, { ok: true }, requestId);
+      return true;
+    }
+
     const projectAssets = matchPath(
       url.pathname,
       /^\/api\/v1\/projects\/([^/]+)\/assets$/u
@@ -96,6 +133,28 @@ export const handleAssetPromptRoutes: BusinessRouteHandler =
           requestId
         );
       }
+      return true;
+    }
+
+    const assetReveal = matchPath(
+      url.pathname,
+      /^\/api\/v1\/assets\/([^/]+)\/reveal$/u
+    );
+    if (request.method === "POST" && assetReveal) {
+      if (request.headers.origin && new URL(request.headers.origin).host !== request.headers.host) {
+        throw new Error("请从应用本身打开文件目录。");
+      }
+      if (!["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(request.socket.remoteAddress ?? "")) {
+        throw new Error("请在运行 Lyra 的电脑上打开文件目录。");
+      }
+      const assets = requireService(options.assets, "Asset");
+      const revealDirectory = requireService(options.revealDirectory, "Local directory reveal");
+      const asset = assets.getAsset(assetReveal[0]!);
+      if (asset.kind !== "model" || asset.source !== "generated") {
+        throw new Error("Only generated model files can be opened in the file manager.");
+      }
+      await revealDirectory(assets.getLocalModelDirectory(asset.id));
+      writeJson(response, 200, { ok: true }, requestId);
       return true;
     }
 

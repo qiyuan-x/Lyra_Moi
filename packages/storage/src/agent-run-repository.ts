@@ -28,6 +28,7 @@ interface AgentRunRow {
   created_at: string;
   updated_at: string;
   finished_at: string | null;
+  parent_run_id: string | null;
 }
 
 export interface StoredAgentRun extends AgentRunSnapshot {
@@ -42,6 +43,7 @@ export interface StoredAgentRun extends AgentRunSnapshot {
   maxToolCalls: number;
   lockedBy: string | null;
   lockedAt: string | null;
+  parentRunId: string | null;
 }
 
 export interface CreateAgentRunInput {
@@ -57,6 +59,7 @@ export interface CreateAgentRunInput {
   optimizeImagePrompt?: boolean;
   systemPromptVersion: string;
   maxToolCalls?: number;
+  parentRunId?: string | null;
 }
 
 export class AgentRunNotFoundError extends Error {
@@ -96,12 +99,13 @@ export class AgentRunRepository {
           llm_provider_profile_id, llm_provider_model_id,
           default_image_profile_id, default_image_model_id,
           default_model_profile_id, default_model_model_id,
+          parent_run_id,
           optimize_image_prompt, system_prompt_version, max_tool_calls, tool_call_count, current_step,
           cancel_requested, locked_by, locked_at, error_code, error_message,
           created_at, updated_at, finished_at
         ) VALUES (
-          ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0,
-          NULL, NULL, NULL, NULL, ?, ?, NULL
+          ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+          0, 0, 0, NULL, NULL, NULL, NULL, ?, ?, NULL
         )
       `)
       .run(
@@ -115,6 +119,7 @@ export class AgentRunRepository {
         input.defaultImageModelId ?? null,
         input.defaultModelProfileId ?? null,
         input.defaultModelModelId ?? null,
+        input.parentRunId ?? null,
         input.optimizeImagePrompt === false ? 0 : 1,
         requireText(input.systemPromptVersion, "System prompt version"),
         maxToolCalls,
@@ -152,7 +157,19 @@ export class AgentRunRepository {
       const row = this.#database.connection
         .prepare(`
           ${AGENT_RUN_SELECT}
-          WHERE status IN ('queued', 'resuming') AND cancel_requested = 0
+          WHERE status IN ('queued', 'resuming') AND cancel_requested = 0 AND locked_by IS NULL
+            AND NOT EXISTS (
+              SELECT 1 FROM agent_runs sibling
+              WHERE sibling.conversation_id = agent_runs.conversation_id AND sibling.id <> agent_runs.id
+                AND sibling.status IN ('queued', 'thinking', 'calling_tool', 'resuming', 'waiting_tool', 'awaiting_user')
+                -- A delegated child may run while its parent waits; sibling children
+                -- share the parent's concurrency budget and must not block each other.
+                AND NOT (
+                  agent_runs.parent_run_id IS NOT NULL
+                  AND (sibling.id = agent_runs.parent_run_id OR sibling.parent_run_id = agent_runs.parent_run_id)
+                )
+                AND (sibling.rowid < agent_runs.rowid OR sibling.locked_by IS NOT NULL)
+            )
           ORDER BY created_at, id
           LIMIT 1
         `)
@@ -164,7 +181,7 @@ export class AgentRunRepository {
         .prepare(`
           UPDATE agent_runs
           SET status = ?, locked_by = ?, locked_at = ?, updated_at = ?
-          WHERE id = ? AND status = ? AND cancel_requested = 0
+          WHERE id = ? AND status = ? AND cancel_requested = 0 AND locked_by IS NULL
         `)
         .run(nextStatus, normalizedWorkerId, now, now, row.id, row.status);
       if (result.changes !== 1) return null;
@@ -274,6 +291,7 @@ export class AgentRunRepository {
       const now = new Date().toISOString();
       if (
         existing.status === "queued" ||
+        (existing.status === "resuming" && !existing.lockedBy) ||
         existing.status === "waiting_tool" ||
         existing.status === "awaiting_user"
       ) {
@@ -316,6 +334,27 @@ export class AgentRunRepository {
       `)
       .all(cutoff) as unknown as AgentRunRow[];
     return this.#interruptRows(rows, "locked_at < ?", cutoff);
+  }
+
+  /** Only new-runtime checkpoints can be replayed; legacy runs keep their existing recovery policy. */
+  recoverSessionRuns(filter: { workerId: string } | { cutoff: string }): number {
+    const condition = "workerId" in filter ? "locked_by = ?" : "locked_at < ?";
+    const value = "workerId" in filter ? filter.workerId : filter.cutoff;
+    return this.#database.transaction(() => {
+      const rows = this.#database.connection.prepare(`${AGENT_RUN_SELECT}
+        WHERE status IN ('thinking', 'calling_tool', 'resuming') AND ${condition}
+          AND EXISTS (SELECT 1 FROM agent_steps s WHERE s.agent_run_id = agent_runs.id
+            AND json_extract(s.payload_json, '$.runtimeCheckpoint') = 3)
+      `).all(value) as unknown as AgentRunRow[];
+      for (const row of rows) {
+        const now = new Date().toISOString();
+        const status = row.cancel_requested ? "cancelled" : "resuming";
+        this.#database.connection.prepare(`UPDATE agent_runs SET status = ?, locked_by = NULL, locked_at = NULL,
+          updated_at = ?, finished_at = ? WHERE id = ?`).run(status, now, row.cancel_requested ? now : null, row.id);
+        this.#appendEvent(row, "agent.updated", { status, recovered: true }, now);
+      }
+      return rows.length;
+    });
   }
 
   #transitionClaimed(
@@ -420,6 +459,33 @@ export class AgentRunRepository {
       createdAt
     });
   }
+
+  countActiveChildren(parentRunId: string): number {
+    const row = this.#database.connection.prepare(`
+      SELECT COUNT(*) AS count FROM agent_runs
+      WHERE parent_run_id = ? AND status NOT IN ('completed','failed','cancelled','interrupted')
+    `).get(parentRunId) as { count: number };
+    return Number(row?.count ?? 0);
+  }
+
+  listChildren(parentRunId: string): AgentRunSnapshot[] {
+    const rows = this.#database.connection.prepare(`${AGENT_RUN_SELECT} WHERE parent_run_id = ? ORDER BY created_at ASC`).all(parentRunId) as unknown as AgentRunRow[];
+    return rows.map((row) => toSnapshot(mapStoredAgentRun(row)));
+  }
+
+  delegationDepth(runId: string): number {
+    let depth = 0;
+    let current = this.findStoredById(runId);
+    const seen = new Set<string>();
+    while (current?.parentRunId) {
+      if (seen.has(current.parentRunId)) throw new Error("Agent 子任务关系出现循环。");
+      seen.add(current.parentRunId);
+      depth += 1;
+      current = this.findStoredById(current.parentRunId);
+      if (depth > 8) throw new Error("Agent 子任务层级无效。");
+    }
+    return depth;
+  }
 }
 
 const AGENT_RUN_SELECT = `
@@ -428,7 +494,7 @@ const AGENT_RUN_SELECT = `
          default_image_model_id, default_model_profile_id, default_model_model_id,
          optimize_image_prompt, system_prompt_version, max_tool_calls,
          tool_call_count, current_step, cancel_requested, locked_by, locked_at,
-         error_code, error_message, created_at, updated_at, finished_at
+         error_code, error_message, created_at, updated_at, finished_at, parent_run_id
   FROM agent_runs
 `;
 
@@ -457,7 +523,8 @@ function mapStoredAgentRun(row: AgentRunRow): StoredAgentRun {
     systemPromptVersion: row.system_prompt_version,
     maxToolCalls: row.max_tool_calls,
     lockedBy: row.locked_by,
-    lockedAt: row.locked_at
+    lockedAt: row.locked_at,
+    parentRunId: row.parent_run_id
   };
 }
 
@@ -474,6 +541,7 @@ function toSnapshot(run: StoredAgentRun): AgentRunSnapshot {
     maxToolCalls: _maxToolCalls,
     lockedBy: _lockedBy,
     lockedAt: _lockedAt,
+    parentRunId: _parentRunId,
     ...snapshot
   } = run;
   return structuredClone(snapshot);

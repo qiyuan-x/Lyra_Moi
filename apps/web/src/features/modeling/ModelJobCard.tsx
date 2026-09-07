@@ -7,9 +7,9 @@ export function ModelJobCard(props: {
   source: AssetSnapshot | undefined;
   textureSource: AssetSnapshot | undefined;
   outputs: AssetSnapshot[];
+  previewOnly?: boolean;
   selectedAssetId: string;
   thumbnailUrl: (assetId: string) => string;
-  contentUrl: (assetId: string) => string;
   onCancel: (jobId: string) => Promise<void>;
   onRetry: (jobId: string) => Promise<void>;
   onDismiss: (jobId: string) => Promise<void>;
@@ -65,14 +65,10 @@ export function ModelJobCard(props: {
         <div className="model-job-progress"><span style={{ width: `${Math.max(2, props.job.progress)}%` }} /></div>
       )}
       {props.job.errorMessage && <p>{props.job.errorMessage}</p>}
-      <footer>
-        {props.outputs.map((asset) => asset.mimeType === "model/gltf-binary" ? (
-          <button type="button" className={`button button-secondary${asset.id === props.selectedAssetId ? " active" : ""}`} key={asset.id} onClick={() => props.onSelectOutput(asset.id)}>查看 GLB</button>
-        ) : (
-          <a className="button button-secondary" key={asset.id} href={props.contentUrl(asset.id)} download={asset.name}>
-            下载 {formatFromAsset(asset)}
-          </a>
-        ))}
+      {!props.previewOnly && <footer>
+        {viewableOutput && (
+          <button type="button" className="button button-secondary" onClick={() => props.onSelectOutput(viewableOutput.id)}>查看 GLB</button>
+        )}
         {active && <button type="button" className="button button-secondary" onClick={() => void props.onCancel(props.job.id)}>停止本地等待</button>}
         {(props.job.status === "failed" || props.job.status === "cancelled" || props.job.status === "interrupted") && (
           <>
@@ -85,21 +81,9 @@ export function ModelJobCard(props: {
             <Icon name="trash" size={14} />
           </button>
         )}
-      </footer>
+      </footer>}
     </article>
   );
-}
-
-function formatFromAsset(asset: AssetSnapshot): string {
-  if (asset.mimeType === "model/gltf-binary") return "GLB";
-  const tagged = asset.tags.find((tag) =>
-    ["OBJ", "FBX", "STL", "USDZ", "3MF"].includes(tag.toUpperCase())
-  );
-  if (tagged) return asset.mimeType === "application/zip"
-    ? `${tagged.toUpperCase()} 压缩包`
-    : tagged.toUpperCase();
-  const match = asset.name.match(/\.([A-Za-z0-9]+)$/u);
-  return match?.[1]?.toUpperCase() ?? "MODEL";
 }
 
 function jobStatusLabel(job: JobSnapshot): string {

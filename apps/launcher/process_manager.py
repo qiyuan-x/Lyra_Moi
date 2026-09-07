@@ -258,6 +258,10 @@ class ProcessManager:
         entry = self.paths.api_entry if role == "api" else self.paths.worker_entry
         command = [str(self.paths.node_executable), str(entry)]
         environment = os.environ.copy()
+        # Keep deployment configuration beside the source/executable. Explicit
+        # process environment values always win; .env only supplies missing
+        # ordinary application configuration.
+        environment.update(_read_env_file(self.paths.base_dir / ".env", environment))
         environment.update(
             {
                 "LYRA_DEPLOYMENT_MODE": "desktop",
@@ -279,6 +283,8 @@ class ProcessManager:
         )
         if self.paths.update_manifest_url:
             environment["LYRA_UPDATE_MANIFEST_URL"] = self.paths.update_manifest_url
+        if self.paths.update_history_url:
+            environment["LYRA_UPDATE_HISTORY_URL"] = self.paths.update_history_url
         log_path = self.paths.log_file(role)
         log_path.parent.mkdir(parents=True, exist_ok=True)
         creation_flags = 0
@@ -544,6 +550,33 @@ def _wait_for_process_token(process: subprocess.Popen[bytes]) -> str:
         time.sleep(0.02)
     process.terminate()
     raise RuntimeError("Could not record the child process identity.")
+
+
+def _read_env_file(path: Path, existing: dict[str, str]) -> dict[str, str]:
+    if not path.is_file():
+        return {}
+    values: dict[str, str] = {}
+    try:
+        lines = path.read_text(encoding="utf-8-sig").splitlines()
+    except OSError:
+        return {}
+    for raw in lines:
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[7:].lstrip()
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        if not key or key in existing:
+            continue
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+            value = value[1:-1]
+        values[key] = value
+    return values
 
 
 def _windows_process_token(pid: int) -> str | None:

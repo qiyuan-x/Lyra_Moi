@@ -10,7 +10,7 @@ export default defineConfig({
     alias: {
       "@lyra/contracts": workspacePath("./packages/contracts/src/index.ts"),
       "@lyra/core": workspacePath("./packages/core/src/index.ts"),
-      "@lyra/agent-engine": workspacePath("./packages/agent-engine/src/index.ts"),
+      "@lyra/agent-runtime": workspacePath("./packages/agent-runtime/src/index.ts"),
       "@lyra/agent-tools": workspacePath("./packages/agent-tools/src/index.ts"),
       "@lyra/providers": workspacePath("./packages/providers/src/index.ts"),
       "@lyra/storage": workspacePath("./packages/storage/src/index.ts"),

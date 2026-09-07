@@ -7,10 +7,11 @@ import type {
   ManualGenerationService,
   ModelGenerationService,
   PromptTemplateService,
+  TaskRuntimeSettingsService,
   RuntimeEventFeed,
   WorkspaceQueryService
 } from "@lyra/core";
-import type { ProviderSettingsService } from "@lyra/providers";
+import type { ProviderAccountService, ProviderOAuthService, ProviderSettingsService } from "@lyra/providers";
 import type { ProjectAnimationStore } from "@lyra/storage";
 import type { ApplicationUpdateService } from "./application-update-service.js";
 
@@ -23,9 +24,12 @@ export interface CreateApiServerOptions {
   assets?: AssetService;
   projectAnimations?: ProjectAnimationStore;
   providers?: ProviderSettingsService;
+  providerAccounts?: ProviderAccountService;
+  providerOAuth?: ProviderOAuthService;
   prompts?: PromptTemplateService;
   agentPromptSettings?: AgentPromptSettingsService;
   agentRuntimeSettings?: AgentRuntimeSettingsService;
+  taskRuntimeSettings?: TaskRuntimeSettingsService;
   communitySettings?: CommunitySettingsService;
   applicationUpdates?: ApplicationUpdateService;
   isReady?: () => boolean;
@@ -37,4 +41,5 @@ export interface CreateApiServerOptions {
   maxAnimationBodyBytes?: number;
   webRoot?: string;
   accessToken?: string;
+  revealDirectory?: (directoryPath: string) => void | Promise<void>;
 }

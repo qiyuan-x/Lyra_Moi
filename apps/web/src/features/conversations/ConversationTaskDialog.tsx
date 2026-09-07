@@ -87,7 +87,6 @@ export function ConversationTaskDialog(props: ConversationTaskDialogProps) {
                     key={job.id}
                     job={job}
                     modelAssetsById={props.modelAssetsById}
-                    contentUrl={props.contentUrl}
                     onViewModel={(assetId) => {
                       props.onViewModel(assetId);
                       props.onClose();
@@ -108,7 +107,6 @@ export function ConversationTaskDialog(props: ConversationTaskDialogProps) {
 function ConversationModelTask(props: {
   job: JobSnapshot;
   modelAssetsById: Map<string, AssetSnapshot>;
-  contentUrl: (assetId: string) => string;
   onViewModel: (assetId: string) => void;
   onRetry: (jobId: string) => Promise<void>;
   onDismiss: (jobId: string) => Promise<void>;
@@ -118,6 +116,7 @@ function ConversationModelTask(props: {
     const asset = props.modelAssetsById.get(output.assetId);
     return asset ? [asset] : [];
   });
+  const viewableOutput = outputs.find((asset) => asset.mimeType === "model/gltf-binary");
   return (
     <article className={`conversation-model-task status-${props.job.status}`}>
       <header>
@@ -131,11 +130,9 @@ function ConversationModelTask(props: {
       {props.job.errorMessage && <p>{props.job.errorMessage}</p>}
       {(outputs.length > 0 || ["failed", "cancelled", "interrupted"].includes(props.job.status)) && (
         <footer>
-          {outputs.map((asset) => asset.mimeType === "model/gltf-binary" ? (
-            <button type="button" className="button button-secondary" key={asset.id} onClick={() => props.onViewModel(asset.id)}>查看模型</button>
-          ) : (
-            <a className="button button-secondary" key={asset.id} href={props.contentUrl(asset.id)} download={asset.name}>下载文件</a>
-          ))}
+          {viewableOutput && (
+            <button type="button" className="button button-secondary" onClick={() => props.onViewModel(viewableOutput.id)}>查看模型</button>
+          )}
           {["failed", "cancelled", "interrupted"].includes(props.job.status) && (
             <>
               <button type="button" className="button button-secondary" onClick={() => void props.onRetry(props.job.id)}><Icon name="retry" size={14} />重试</button>

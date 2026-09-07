@@ -1,6 +1,6 @@
 {
   "name": "@lyra/worker",
-  "version": "0.0.7",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
@@ -15,11 +15,11 @@
     "start": "node dist/run.js"
   },
   "dependencies": {
-    "@lyra/agent-engine": "workspace:*",
     "@lyra/agent-tools": "workspace:*",
     "@lyra/contracts": "workspace:*",
     "@lyra/core": "workspace:*",
     "@lyra/providers": "workspace:*",
-    "@lyra/storage": "workspace:*"
+    "@lyra/storage": "workspace:*",
+    "@lyra/agent-runtime": "workspace:*"
   }
 }

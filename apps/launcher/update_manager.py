@@ -149,6 +149,33 @@ class DesktopUpdateClient:
             options["start_new_session"] = True
         subprocess.Popen(command, **options)
 
+    def history(self) -> tuple[DesktopUpdateCandidate, ...]:
+        url = self.paths.update_history_url
+        if not url:
+            raise RuntimeError("历史版本接口尚未配置。")
+        request = urllib.request.Request(url, headers={"Accept": "application/json", "User-Agent": "Lyra-Launcher/1"})
+        with urllib.request.urlopen(request, timeout=15) as response:
+            value = json.load(response)
+        if not isinstance(value, dict) or value.get("schemaVersion") != 1 or not isinstance(value.get("versions"), list):
+            raise ValueError("历史版本列表格式无效。")
+        if len(value["versions"]) > 100:
+            raise ValueError("历史版本列表过长。")
+        retention = value.get("retentionLimit")
+        if type(retention) is not int or not 1 <= retention <= 100:
+            raise ValueError("历史版本保留数量无效。")
+        _compare_versions(value.get("latestVersion", ""), self.paths.application_version)
+        candidates = tuple(_parse_update_manifest(item) for item in value["versions"])
+        if len({item.version for item in candidates}) != len(candidates):
+            raise ValueError("历史版本列表含重复版本。")
+        return tuple(sorted(candidates, key=lambda item: tuple(map(int, item.version.split("."))), reverse=True))
+
+    def install_version(self, version: str, port: int) -> None:
+        candidate = next((item for item in self.history() if item.version == version), None)
+        if candidate is None:
+            raise RuntimeError("选定版本已不在服务器列表中，请刷新后重试。")
+        # Manual installation deliberately does not compare with the current version.
+        self.start_update(candidate, port)
+
 
 class DesktopUpdateInstaller:
     def __init__(

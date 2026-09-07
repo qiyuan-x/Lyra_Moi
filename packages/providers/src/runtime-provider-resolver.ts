@@ -1,4 +1,6 @@
-import type { LlmProvider } from "@lyra/agent-engine";
+import type { ModelClient } from "@lyra/agent-runtime";
+import { HttpAgentModelClient } from "./agent-model-client.js";
+import { AgentModelTransport } from "./agent-model-transport.js";
 import type { AssetService, BinaryImageProvider } from "@lyra/core";
 import type {
   ProviderRepository,
@@ -8,17 +10,14 @@ import type {
 import type {
   ProviderAdapterType,
   ProviderModelSnapshot,
-  ProviderProtocol,
   ProviderServiceType
 } from "@lyra/contracts";
-import { AnthropicLlmProvider } from "./anthropic-llm-provider.js";
 import { GeminiImageProvider } from "./gemini-image-provider.js";
-import { GeminiInteractionsLlmProvider } from "./gemini-llm-provider.js";
 import { DashScopeImageProvider } from "./dashscope-image-provider.js";
 import { HunyuanImageProvider } from "./hunyuan-image-provider.js";
 import { HunyuanModelProvider } from "./hunyuan-model-provider.js";
 import type { ProviderAssetLoader } from "./image-provider-types.js";
-import type { LlmProviderAssetLoader } from "./llm-provider-types.js";
+import type { AgentAssetLoader } from "./agent-model-codec.js";
 import { MeshyModelProvider } from "./meshy-model-provider.js";
 import type {
   BinaryModelProvider,
@@ -26,11 +25,6 @@ import type {
 } from "./model-provider-types.js";
 import { OpenAiImageProvider } from "./openai-image-provider.js";
 import type { OpenAiImageProviderOptions } from "./openai-image-provider.js";
-import {
-  OpenAiCompatibleLlmProvider,
-  OpenAiResponsesLlmProvider
-} from "./openai-llm-provider.js";
-import type { OpenAiLlmProviderOptions } from "./openai-llm-provider.js";
 import { ProviderConnectionError } from "./provider-errors.js";
 import {
   createImageProviderHttpClient,
@@ -41,7 +35,6 @@ import { StabilityModelProvider } from "./stability-model-provider.js";
 import { TripoModelProvider } from "./tripo-model-provider.js";
 import { FrostApiModelProvider } from "./frostapi-model-provider.js";
 
-type RuntimeLlmProviderOptions = OpenAiLlmProviderOptions;
 type RuntimeImageProviderOptions = OpenAiImageProviderOptions & {
   secondaryApiKey: string | null;
 };
@@ -54,15 +47,6 @@ type RuntimeModelProviderOptions = {
   client?: ProviderHttpClient;
 };
 
-const llmProviderFactories: Record<
-  ProviderProtocol,
-  (options: RuntimeLlmProviderOptions) => LlmProvider
-> = {
-  openai: (options) => new OpenAiResponsesLlmProvider(options),
-  anthropic: (options) => new AnthropicLlmProvider(options),
-  gemini: (options) => new GeminiInteractionsLlmProvider(options),
-  "openai-compatible": (options) => new OpenAiCompatibleLlmProvider(options)
-};
 
 const imageProviderFactories: Partial<Record<
   ProviderAdapterType,
@@ -94,33 +78,33 @@ const modelProviderFactories: Partial<Record<
 };
 
 export interface RuntimeProviderFactoryOptions {
+  agentTransport?: AgentModelTransport;
   providers: ProviderRepository;
   secrets: SecretStore;
   assets: AssetService;
-  llmClient?: ProviderHttpClient;
   imageClient?: ProviderHttpClient;
   modelClient?: ProviderHttpClient;
   client?: ProviderHttpClient;
 }
 
 export class RuntimeProviderFactory {
+  readonly #agentTransport: AgentModelTransport;
   readonly #providers: ProviderRepository;
   readonly #secrets: SecretStore;
   readonly #assetLoader: ProviderAssetLoader;
   readonly #modelAssetLoader: ModelProviderAssetLoader;
-  readonly #llmAssetLoader: LlmProviderAssetLoader;
-  readonly #llmClient: ProviderHttpClient;
+  readonly #llmAssetLoader: AgentAssetLoader;
   readonly #imageClient: ProviderHttpClient;
   readonly #modelClient: ProviderHttpClient;
 
   constructor(options: RuntimeProviderFactoryOptions) {
+    this.#agentTransport = options.agentTransport ?? new AgentModelTransport();
     this.#providers = options.providers;
     this.#secrets = options.secrets;
     const assetLoader = new AssetServiceLoader(options.assets);
     this.#assetLoader = assetLoader;
     this.#modelAssetLoader = assetLoader;
     this.#llmAssetLoader = assetLoader;
-    this.#llmClient = options.llmClient ?? options.client ?? new ProviderHttpClient();
     this.#imageClient = options.imageClient
       ?? options.client
       ?? createImageProviderHttpClient();
@@ -132,18 +116,14 @@ export class RuntimeProviderFactory {
       });
   }
 
-  async createLlmProvider(profileId: string, modelId: string): Promise<LlmProvider> {
+  async createAgentModel(profileId: string, modelId: string): Promise<ModelClient> {
     const resolved = await this.#resolve(profileId, modelId, "llm");
-    const options = {
-      baseUrl: resolved.profile.baseUrl,
-      apiKey: resolved.apiKey,
-      secondaryApiKey: resolved.secondaryApiKey,
-      model: resolved.model.remoteModelId,
-      settings: resolved.model.settings,
-      assetLoader: this.#llmAssetLoader,
-      client: this.#llmClient
-    };
-    return llmProviderFactories[resolved.profile.protocol](options);
+    return new HttpAgentModelClient({
+      protocol: resolved.profile.protocol, baseUrl: agentBaseUrl(resolved.profile),
+      apiKey: resolved.apiKey, model: resolved.model.remoteModelId,
+      settings: resolved.model.settings, assetLoader: this.#llmAssetLoader, transport: this.#agentTransport,
+      headers: importedCredentialHeaders(resolved.profile.settings, resolved.apiKey)
+    });
   }
 
   async createImageProvider(
@@ -243,18 +223,6 @@ export class RuntimeProviderFactory {
   }
 }
 
-export class RuntimeLlmProviderResolver {
-  readonly #factory: RuntimeProviderFactory;
-
-  constructor(factory: RuntimeProviderFactory) {
-    this.#factory = factory;
-  }
-
-  resolve(providerProfileId: string, providerModelId: string): Promise<LlmProvider> {
-    return this.#factory.createLlmProvider(providerProfileId, providerModelId);
-  }
-}
-
 export class RuntimeImageProviderResolver {
   readonly #factory: RuntimeProviderFactory;
 
@@ -282,7 +250,7 @@ export class RuntimeModelProviderResolver {
 class AssetServiceLoader implements
   ProviderAssetLoader,
   ModelProviderAssetLoader,
-  LlmProviderAssetLoader {
+  AgentAssetLoader {
   readonly #assets: AssetService;
 
   constructor(assets: AssetService) {
@@ -332,6 +300,28 @@ function createAttachmentName(name: string, mimeType: string): string {
   if (/\.[A-Za-z0-9]{2,5}$/u.test(safeName)) return safeName;
   const extension = mimeType === "image/jpeg" ? "jpg" : mimeType === "image/webp" ? "webp" : "png";
   return `${safeName}.${extension}`;
+}
+
+export function importedCredentialHeaders(settings: Record<string, unknown>, token: string | null): Record<string, string> {
+  if (!token || !["oauth", "token", "json"].includes(String(settings.authMode))) return {};
+  return {
+    Authorization: `Bearer ${token}`,
+    ...(typeof settings.credentialAccountId === "string" && settings.credentialAccountId.trim()
+      ? { "ChatGPT-Account-Id": settings.credentialAccountId.trim() }
+      : {}),
+    ...(settings.authMode === "oauth" ? { "anthropic-beta": "oauth-2025-04-20" } : {})
+  };
+}
+
+export function agentBaseUrl(profile: StoredProviderProfile): string {
+  if (profile.protocol === "openai" && ["oauth", "token", "json"].includes(String(profile.settings.authMode))) {
+    try {
+      if (new URL(profile.baseUrl).origin === "https://api.openai.com") {
+        return "https://chatgpt.com/backend-api/codex";
+      }
+    } catch { /* Base URL validation is handled by the profile service. */ }
+  }
+  return profile.baseUrl;
 }
 
 function requireSecret(value: string | null, label: string): string {

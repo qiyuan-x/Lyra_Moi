@@ -1,11 +1,13 @@
 import { clearProcessStopFile, watchProcessStopFile } from "@lyra/storage";
 import { createApiRuntime } from "./runtime.js";
+import { fileURLToPath } from "node:url";
 
 const host = process.env.LYRA_HOST?.trim() || "127.0.0.1";
 const port = parsePort(process.env.LYRA_PORT);
 const stopFile = process.env.LYRA_STOP_FILE;
 const deploymentMode = process.env.LYRA_DEPLOYMENT_MODE?.trim() || "development";
 const accessToken = process.env.LYRA_ACCESS_TOKEN?.trim();
+
 
 try {
   if (deploymentMode === "server" && !accessToken) {
@@ -14,7 +16,7 @@ try {
   const updateHelperCommand = parseHelperCommand(process.env.LYRA_UPDATE_HELPER_COMMAND);
   await clearProcessStopFile(stopFile);
   const runtime = await createApiRuntime({
-    ...(process.env.LYRA_DATA_DIR ? { dataDirectory: process.env.LYRA_DATA_DIR } : {}),
+    dataDirectory: process.env.LYRA_DATA_DIR?.trim() || fileURLToPath(new URL("../../../data", import.meta.url)),
     ...(process.env.LYRA_WEB_DIST ? { webRoot: process.env.LYRA_WEB_DIST } : {}),
     ...(process.env.LYRA_WORKER_VERSION ? { workerVersion: process.env.LYRA_WORKER_VERSION } : {}),
     ...(process.env.LYRA_APP_VERSION ? { appVersion: process.env.LYRA_APP_VERSION } : {}),
@@ -26,6 +28,7 @@ try {
     ...(process.env.LYRA_UPDATE_MANIFEST_URL
       ? { updateManifestUrl: process.env.LYRA_UPDATE_MANIFEST_URL }
       : {}),
+    ...(process.env.LYRA_UPDATE_HISTORY_URL ? { updateHistoryUrl: process.env.LYRA_UPDATE_HISTORY_URL } : {}),
     ...(updateHelperCommand
       ? { updateHelperCommand }
       : {}),
@@ -34,7 +37,7 @@ try {
       : {}),
     ...(process.env.LYRA_AGENT_SYSTEM_PROMPT_FILE
       ? { systemPromptFile: process.env.LYRA_AGENT_SYSTEM_PROMPT_FILE }
-      : {}),
+      : { systemPromptFile: fileURLToPath(new URL("../../../resources/prompts/agent-system-v1.txt", import.meta.url)) }),
     ...(accessToken ? { accessToken } : {})
   });
   let shuttingDown = false;

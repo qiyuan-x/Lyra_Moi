@@ -31,10 +31,12 @@ export function PromptDialog(props: PromptDialogProps) {
   const [note, setNote] = useState(props.prompt?.note ?? "");
   const [content, setContent] = useState(props.prompt?.content ?? "");
   const [favorite, setFavorite] = useState(props.prompt?.favorite ?? false);
+  const [inputImageAssetId, setInputImageAssetId] = useState(props.prompt?.inputImageAssetId ?? "__none");
   const [previewChoice, setPreviewChoice] = useState(
     props.prompt?.previewMimeType ? "__keep" : "__none"
   );
   const [previewPickerOpen, setPreviewPickerOpen] = useState(false);
+  const [inputPickerOpen, setInputPickerOpen] = useState(false);
 
   function submit(event: FormEvent) {
     event.preventDefault();
@@ -49,6 +51,7 @@ export function PromptDialog(props: PromptDialogProps) {
       category: category.trim(),
       note: note.trim() || null,
       content: content.trim(),
+      inputImageAssetId: inputImageAssetId === "__none" ? null : inputImageAssetId,
       favorite
     }, preview);
   }
@@ -111,6 +114,26 @@ export function PromptDialog(props: PromptDialogProps) {
             />
           </label>
           <div className="field form-wide prompt-preview-field">
+            <span>输入图（可选）</span>
+            <button
+              type="button"
+              className="prompt-preview-trigger"
+              aria-label="选择输入图"
+              onClick={() => setInputPickerOpen(true)}
+            >
+              {(() => {
+                const selected = props.generatedImages.find((item) => item.id === inputImageAssetId);
+                return selected ? <img src={props.thumbnailUrl(selected.id)} alt="" /> : <span className="prompt-preview-trigger-placeholder"><Icon name="image" size={24} /></span>;
+              })()}
+              <span>
+                <strong>{props.generatedImages.find((item) => item.id === inputImageAssetId)?.name ?? "不使用输入图"}</strong>
+                <small>插入模板时自动带入这张参考图</small>
+              </span>
+              <Icon name="chevron" size={17} />
+            </button>
+            <small>可从当前项目图片中选择，生成时作为参考图。</small>
+          </div>
+          <div className="field form-wide prompt-preview-field">
             <span>效果图（可选）</span>
             <button
               type="button"
@@ -171,6 +194,22 @@ export function PromptDialog(props: PromptDialogProps) {
             onConfirm={(selectedId) => {
               setPreviewChoice(selectedId);
               setPreviewPickerOpen(false);
+            }}
+          />
+        )}
+        {inputPickerOpen && (
+          <PromptPreviewPickerDialog
+            images={props.generatedImages}
+            selectedId={inputImageAssetId}
+            currentPreview={null}
+            allowCurrent={false}
+            title="选择输入图"
+            description="从当前项目图片中选择参考图"
+            thumbnailUrl={props.thumbnailUrl}
+            onClose={() => setInputPickerOpen(false)}
+            onConfirm={(selectedId) => {
+              setInputImageAssetId(selectedId);
+              setInputPickerOpen(false);
             }}
           />
         )}

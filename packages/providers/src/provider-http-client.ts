@@ -1,3 +1,4 @@
+import { systemProxyFetch } from "./system-proxy.js";
 import { Agent, type Dispatcher } from "undici";
 import { ProviderConnectionError, type ProviderConnectionErrorCode } from "./provider-errors.js";
 import type { FetchLike } from "./provider-types.js";
@@ -16,7 +17,7 @@ export class ProviderHttpClient {
   readonly #dispatcher: Dispatcher | null;
 
   constructor(options: ProviderHttpClientOptions = {}) {
-    this.#fetch = options.fetchImplementation ?? globalThis.fetch.bind(globalThis);
+    this.#fetch = options.fetchImplementation ?? systemProxyFetch;
     this.#timeoutMs = options.timeoutMs === null
       ? null
       : positiveInteger(options.timeoutMs ?? 120_000, "Provider timeout");
@@ -149,7 +150,12 @@ export class ProviderHttpClient {
           "Provider response body timed out."
         );
       }
-      throw new ProviderConnectionError("UNREACHABLE", "Provider could not be reached.");
+      const host = safeHost(url);
+      const detail = undiciCode ? ` (${undiciCode})` : "";
+      throw new ProviderConnectionError(
+        "UNREACHABLE",
+        `Provider could not be reached: ${host}${detail}. Check network connectivity.`
+      );
     } finally {
       if (timer) clearTimeout(timer);
       signal?.removeEventListener("abort", onAbort);
@@ -278,4 +284,12 @@ function readNestedErrorCode(error: unknown): string | null {
     current = "cause" in current ? current.cause : null;
   }
   return null;
+}
+
+function safeHost(value: string): string {
+  try {
+    return new URL(value).host || "unknown host";
+  } catch {
+    return "unknown host";
+  }
 }

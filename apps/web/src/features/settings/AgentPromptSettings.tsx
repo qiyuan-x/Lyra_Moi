@@ -124,7 +124,7 @@ export function AgentPromptSettings(
 
   const heading = (
     <header className="settings-detail-heading agent-settings-detail-heading">
-      <button type="button" className="icon-button" aria-label="返回 Agent 设置" onClick={props.onBack}>
+      <button type="button" className="icon-button" aria-label="返回其他设置" onClick={props.onBack}>
         <Icon name="chevron" size={18} />
       </button>
       <div>

@@ -16,6 +16,7 @@ interface PromptTemplateRow {
   variables_json: string | null;
   favorite: number;
   preview_mime_type: string | null;
+  input_image_asset_id: string | null;
   created_at: string;
   updated_at: string;
   deleted_at: string | null;
@@ -52,7 +53,7 @@ export class PromptTemplateRepository {
     const rows = this.#database.connection
       .prepare(`
         SELECT id, name, category, note, content, variables_json,
-               favorite, preview_mime_type, created_at, updated_at, deleted_at
+               favorite, preview_mime_type, input_image_asset_id, created_at, updated_at, deleted_at
         FROM prompt_templates
         WHERE ${where.join(" AND ")}
         ORDER BY favorite DESC, updated_at DESC, name
@@ -65,7 +66,7 @@ export class PromptTemplateRepository {
     const row = this.#database.connection
       .prepare(`
         SELECT id, name, category, note, content, variables_json,
-               favorite, preview_mime_type, created_at, updated_at, deleted_at
+               favorite, preview_mime_type, input_image_asset_id, created_at, updated_at, deleted_at
         FROM prompt_templates
         WHERE id = ? AND deleted_at IS NULL
       `)
@@ -86,8 +87,8 @@ export class PromptTemplateRepository {
       .prepare(`
         INSERT INTO prompt_templates (
           id, name, category, note, content, variables_json,
-          favorite, created_at, updated_at, deleted_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+          favorite, input_image_asset_id, created_at, updated_at, deleted_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
       `)
       .run(
         id,
@@ -97,6 +98,7 @@ export class PromptTemplateRepository {
         input.content,
         JSON.stringify(normalizeVariables(input.variables ?? [])),
         input.favorite ? 1 : 0,
+        input.inputImageAssetId ?? null,
         now,
         now
       );
@@ -110,7 +112,7 @@ export class PromptTemplateRepository {
       .prepare(`
         UPDATE prompt_templates
         SET name = ?, category = ?, note = ?, content = ?, variables_json = ?,
-            favorite = ?, updated_at = ?
+            favorite = ?, input_image_asset_id = ?, updated_at = ?
         WHERE id = ? AND deleted_at IS NULL
       `)
       .run(
@@ -120,6 +122,7 @@ export class PromptTemplateRepository {
         input.content ?? existing.content,
         JSON.stringify(input.variables === undefined ? existing.variables : normalizeVariables(input.variables)),
         (input.favorite ?? existing.favorite) ? 1 : 0,
+        input.inputImageAssetId === undefined ? existing.inputImageAssetId : input.inputImageAssetId,
         updatedAt,
         promptId
       );
@@ -162,6 +165,7 @@ function mapPrompt(row: PromptTemplateRow): PromptTemplateSnapshot {
     content: row.content,
     variables,
     favorite: row.favorite === 1,
+    inputImageAssetId: row.input_image_asset_id ?? null,
     previewMimeType: row.preview_mime_type,
     createdAt: row.created_at,
     updatedAt: row.updated_at,

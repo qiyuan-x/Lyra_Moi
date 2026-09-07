@@ -170,13 +170,13 @@ export function ModelViewer(props: {
       <ModelViewerHeader
         asset={props.asset}
         stats={stats}
-        contentUrl={props.contentUrl}
         onResetCamera={() => adapterRef.current?.resetCamera()}
         onFullscreen={() => void containerRef.current?.requestFullscreen()}
       />
 
       <div className="model-viewer-stage">
         <div className="three-viewer-canvas" ref={canvasHostRef} />
+        {props.asset && <span className="model-viewer-controls-hint">左键旋转 · 中键/Shift+中键平移 · 滚轮缩放</span>}
 
         {props.asset && (
           <div className="model-viewer-floating-tools">

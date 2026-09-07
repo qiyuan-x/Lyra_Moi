@@ -64,6 +64,7 @@ export class ProjectRepository {
         project.createdAt,
         project.updatedAt
       );
+    this.#database.projectChanged(project.id);
     return structuredClone(project);
   }
 
@@ -79,14 +80,15 @@ export class ProjectRepository {
   }
 
   listActive(): ProjectSnapshot[] {
+    const defaultProjectId = this.#readDefaultProjectId();
     const rows = this.#database.connection
       .prepare(`
         SELECT id, name, description, last_image_mode, created_at, updated_at, deleted_at
         FROM projects
         WHERE deleted_at IS NULL
-        ORDER BY updated_at DESC, id
+        ORDER BY CASE WHEN id = ? THEN 0 ELSE 1 END, updated_at DESC, id
       `)
-      .all() as unknown as ProjectRow[];
+      .all(defaultProjectId ?? "") as unknown as ProjectRow[];
     return rows.map(mapProject);
   }
 
@@ -112,6 +114,7 @@ export class ProjectRepository {
       `)
       .run(name, description, lastImageMode, updatedAt, projectId);
     if (result.changes !== 1) throw new Error(`Project not found: ${projectId}`);
+    this.#database.projectChanged(projectId);
     return this.findById(projectId)!;
   }
 

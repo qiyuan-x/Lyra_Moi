@@ -1,4 +1,6 @@
+import { ManualModelDialog } from "../features/settings/ManualModelDialog.js";
 import { useEffect, useState } from "react";
+import { ApplicationUpdateControl } from "./ApplicationUpdateControl.js";
 import type {
   ProviderConnectionTestResult,
   ProviderModelSnapshot,
@@ -12,6 +14,7 @@ import { AgentPromptSettings } from "../features/settings/AgentPromptSettings.js
 import { AgentRuntimeSettings } from "../features/settings/AgentRuntimeSettings.js";
 import { AgentSettingsOverview } from "../features/settings/AgentSettingsOverview.js";
 import { CommunitySettings } from "../features/settings/CommunitySettings.js";
+import { TaskRuntimeSettings } from "../features/settings/TaskRuntimeSettings.js";
 import {
   ModelDialog,
   ModelList
@@ -57,11 +60,13 @@ type ProviderDialogState = {
 export function SettingsPage(props: SettingsPageProps) {
   const [serviceType, setServiceType] = useState<ProviderServiceType>("llm");
   const [specialSection, setSpecialSection] =
-    useState<"agent" | "community" | "display" | null>(null);
+    useState<"other" | null>(null);
   const [agentDetail, setAgentDetail] =
     useState<"prompts" | "runtime" | null>(null);
   const [detailTarget, setDetailTarget] = useState<ProviderDialogState | null>(null);
+  const [detailKey, setDetailKey] = useState(0);
   const [modelDialog, setModelDialog] = useState<ProviderModelSnapshot | null>(null);
+  const [manualDialog, setManualDialog] = useState<"add" | "test" | null>(null);
   const [deletingProvider, setDeletingProvider] = useState<ProviderProfileSnapshot | null>(null);
   const [deletingModel, setDeletingModel] = useState<ProviderModelSnapshot | null>(null);
   const [connectionFeedback, setConnectionFeedback] = useState<ConnectionStatus | null>(null);
@@ -165,6 +170,7 @@ export function SettingsPage(props: SettingsPageProps) {
   }
 
   function openPreset(preset: ProviderPreset) {
+    setDetailKey((value) => value + 1);
     setOpenProviderMenuId(null);
     setProviderPickerOpen(false);
     setDetailTarget({ profile: null, preset });
@@ -175,6 +181,7 @@ export function SettingsPage(props: SettingsPageProps) {
     profile: ProviderProfileSnapshot,
     enableAfterConnection = false
   ) {
+    setDetailKey((value) => value + 1);
     setOpenProviderMenuId(null);
     setDetailTarget({
       profile,
@@ -287,9 +294,9 @@ export function SettingsPage(props: SettingsPageProps) {
           ))}
           <button
             type="button"
-            className={specialSection === "community" ? "active" : ""}
+            className={specialSection === "other" ? "active" : ""}
             onClick={() => {
-              setSpecialSection("community");
+              setSpecialSection("other");
               setAgentDetail(null);
               setDetailTarget(null);
               setConnectionFeedback(null);
@@ -297,51 +304,12 @@ export function SettingsPage(props: SettingsPageProps) {
               setProviderPickerOpen(false);
             }}
           >
-            社区设置
-          </button>
-          <button
-            type="button"
-            className={specialSection === "agent" ? "active" : ""}
-            onClick={() => {
-              setSpecialSection("agent");
-              setAgentDetail(null);
-              setDetailTarget(null);
-              setConnectionFeedback(null);
-              setOpenProviderMenuId(null);
-              setProviderPickerOpen(false);
-            }}
-          >
-            Agent 设置
-          </button>
-          <button
-            type="button"
-            className={specialSection === "display" ? "active" : ""}
-            onClick={() => {
-              setSpecialSection("display");
-              setAgentDetail(null);
-              setDetailTarget(null);
-              setConnectionFeedback(null);
-              setOpenProviderMenuId(null);
-              setProviderPickerOpen(false);
-            }}
-          >
-            显示设置
+            其他设置
           </button>
         </nav>
 
         <div className="settings-window-content">
-          {specialSection === "community" ? (
-            <CommunitySettings
-              api={props.api}
-              onError={props.onError}
-              onChanged={props.onCommunityChanged}
-            />
-          ) : specialSection === "display" ? (
-            <AppearanceSettings
-              mode={props.appearanceMode}
-              onChange={props.onAppearanceChange}
-            />
-          ) : specialSection === "agent" ? (
+          {specialSection === "other" ? (
             agentDetail === "prompts" ? (
               <AgentPromptSettings
                 api={props.api}
@@ -355,10 +323,19 @@ export function SettingsPage(props: SettingsPageProps) {
                 onError={props.onError}
               />
             ) : (
-              <AgentSettingsOverview
-                onOpenPrompts={() => setAgentDetail("prompts")}
-                onOpenRuntime={() => setAgentDetail("runtime")}
-              />
+              <div className="other-settings-groups">
+                <section className="settings-update-setting">
+                  <strong>应用版本 / 历史版本</strong>
+                  <ApplicationUpdateControl api={props.api} collapsed={false} />
+                </section>
+                <TaskRuntimeSettings api={props.api} onError={props.onError} />
+                <CommunitySettings api={props.api} onError={props.onError} onChanged={props.onCommunityChanged} />
+                <AgentSettingsOverview
+                  onOpenPrompts={() => setAgentDetail("prompts")}
+                  onOpenRuntime={() => setAgentDetail("runtime")}
+                />
+                <AppearanceSettings mode={props.appearanceMode} onChange={props.onAppearanceChange} />
+              </div>
             )
           ) : !detailTarget ? (
             <>
@@ -397,6 +374,7 @@ export function SettingsPage(props: SettingsPageProps) {
                       key={profile.id}
                       menuOpen={openProviderMenuId === `${serviceType}:${profile.id}`}
                       name={profile.name}
+                      accountLabel={profile.hasApiKey && typeof profile.settings.credentialAccount === "string" ? profile.settings.credentialAccount : null}
                       shortName={preset?.shortName ?? "API"}
                       presetId={preset?.id ?? "custom"}
                       interfaceLabel={adapterLabel(profile.adapterType)}
@@ -441,7 +419,7 @@ export function SettingsPage(props: SettingsPageProps) {
               </header>
 
               <ProviderConnectionSection
-                key={selected?.id ?? detailPreset?.id ?? "custom"}
+                key={`${serviceType}:${detailKey}`}
                 profile={selected ?? null}
                 preset={detailPreset}
                 enableAfterConnection={Boolean(detailTarget.enableAfterConnection)}
@@ -451,20 +429,33 @@ export function SettingsPage(props: SettingsPageProps) {
                 onSave={saveConnection}
                 onTest={testConnection}
                 onQueryFrostApiUsage={(profileId) => props.api.getFrostApiUsage(profileId)}
+                onQueryProviderAccount={(profileId) => props.api.getProviderAccount(profileId)}
+                onDeleteCredential={async (profileId) => {
+                  const next = await props.api.deleteProviderCredential(profileId);
+                  await refresh();
+                  return next;
+                }}
+                onImportCredential={async (profileId, value) => {
+                  const next = await props.api.importProviderCredential(profileId, value);
+                  await refresh();
+                  setConnectionFeedback({ type: "success", text: "凭据已导入并保存" });
+                  return next;
+                }}
+                onStartOAuth={(profileId, redirectUri) => props.api.startProviderOAuth(profileId, redirectUri)}
+                onOAuthStatus={async (profileId, state) => {
+                  const profile = await props.api.providerOAuthStatus(profileId, state);
+                  return profile;
+                }}
+                onCompleteOAuth={async (state, code) => {
+                  const next = await props.api.completeProviderOAuth(state, code);
+                  await refresh();
+                  setConnectionFeedback({ type: "success", text: "OAuth 登录成功，凭据已保存" });
+                  return next;
+                }}
                 afterConnection={selected ? (
                   <section className="settings-detail-section settings-model-section">
                     <header>
                       <div><strong>{serviceSettings[serviceType].label.replace("设置", "模型")}</strong><span>连通性测试成功后自动同步此能力可用的远程模型。</span></div>
-                      <div className="settings-section-actions">
-                        <button type="button" className="button button-secondary" disabled={busy} onClick={() => void run(async () => {
-                          const result = await props.api.testProvider(selected.id);
-                          await refresh();
-                          setConnectionFeedback({
-                            type: "success",
-                            text: `已同步 ${result.modelCount} 个可用模型`
-                          });
-                        })}>检测并同步模型</button>
-                      </div>
                     </header>
                     <label className="field settings-detail-default">
                       <span>当前使用模型</span>
@@ -481,6 +472,10 @@ export function SettingsPage(props: SettingsPageProps) {
                         ))}
                       </select>
                     </label>
+                    <div className="settings-manual-model">
+                      <button type="button" className="button button-secondary" disabled={busy} onClick={() => setManualDialog("add")}>添加模型</button>
+                      {serviceType === "llm" && <button type="button" className="button button-secondary" disabled={busy || !selectedModels.length} onClick={() => setManualDialog("test")}>测试模型</button>}
+                    </div>
                     <ModelList
                       models={selectedModels}
                       defaultId={props.catalog.defaults[serviceType]}
@@ -518,6 +513,23 @@ export function SettingsPage(props: SettingsPageProps) {
         />
       )}
 
+      {manualDialog && selected && (
+        <ManualModelDialog
+          mode={manualDialog}
+          models={selectedModels}
+          initialModelId={manualDialog === "test" ? (selectedModels.find((model) => model.id === props.catalog.defaults[serviceType]) ?? selectedModels[0])?.remoteModelId ?? "" : ""}
+          canTest={serviceType === "llm"}
+          onClose={() => setManualDialog(null)}
+          onTest={(modelId) => props.api.testProviderModel(selected.id, modelId)}
+          onAdd={async (remoteModelId) => {
+            if (selectedModels.some((model) => model.remoteModelId === remoteModelId)) throw new Error("此模型已添加。");
+            await props.api.createProviderModel(selected.id, {
+              serviceType, remoteModelId, displayName: remoteModelId, enabled: true, settings: { manuallyAdded: true }
+            });
+            await refresh();
+          }}
+        />
+      )}
       {modelDialog && (
         <ModelDialog
           serviceType={serviceType}

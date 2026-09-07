@@ -21,6 +21,22 @@ export function ApplicationUpdateControl({ api, collapsed }: ApplicationUpdateCo
   const [snapshot, setSnapshot] = useState<ApplicationUpdateSnapshot | null>(null);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [versions, setVersions] = useState<import("@lyra/contracts").ApplicationUpdateManifest[]>([]);
+  const [selectedVersion, setSelectedVersion] = useState("");
+  const [error, setError] = useState("");
+  const loadVersions = async () => {
+    setBusy(true); setError("");
+    try { setVersions((await api.getApplicationVersions()).versions); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+    finally { setBusy(false); }
+  };
+  const install = async () => {
+    if (!selectedVersion || !window.confirm(`安装 v${selectedVersion}？服务会停止并重启。当前数据会备份，安装失败将恢复原版本。`)) return;
+    setBusy(true); setError("");
+    try { setSnapshot(await api.installApplicationVersion(selectedVersion)); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+    finally { setBusy(false); }
+  };
   const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -69,7 +85,8 @@ export function ApplicationUpdateControl({ api, collapsed }: ApplicationUpdateCo
     setBusy(true);
     try {
       setSnapshot(await api.checkApplicationUpdate());
-    } finally {
+    } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+    finally {
       setBusy(false);
     }
   };
@@ -109,6 +126,19 @@ export function ApplicationUpdateControl({ api, collapsed }: ApplicationUpdateCo
             ) : null}
           </div>
           <p>{snapshot?.message ?? "正在读取版本信息。"}</p>
+          {error && <p role="alert">{error}</p>}
+          <button type="button" disabled={busy || active || !snapshot?.enabled} onClick={() => void loadVersions()}>历史版本</button>
+          {versions.length > 0 && <div className="application-update-release">
+            <label>选择版本 <select value={selectedVersion} disabled={busy || active} onChange={(event) => setSelectedVersion(event.target.value)}>
+              <option value="">请选择</option>
+              {versions.map((item) => <option key={item.version} value={item.version}>v{item.version}{item.version === version ? "（当前）" : ""}</option>)}
+            </select></label>
+            {versions.filter((item) => item.version === selectedVersion).map((item) => <div key={item.version}>
+              <p>{formatBytes(item.artifacts["windows-x64"].size)}</p>
+              <ul>{item.releaseNotes.map((note, index) => <li key={index}>{note}</li>)}</ul>
+              <button type="button" disabled={busy || active} onClick={() => void install()}>下载并安装此版本</button>
+            </div>)}
+          </div>}
           {snapshot?.latestVersion && snapshot.updateAvailable && (
             <div className="application-update-release">
               <strong>新版本 v{snapshot.latestVersion}</strong>

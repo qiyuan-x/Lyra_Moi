@@ -115,17 +115,25 @@ interface RunCardProps {
 function RunCard({ run, steps, onSubmitInput, onCancel }: RunCardProps) {
   const [input, setInput] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [inputError, setInputError] = useState("");
   const active = !["completed", "failed", "cancelled", "interrupted"].includes(run.status);
   const visibleSteps = steps.filter((step) => ["tool_call", "tool_result", "user_input_request"].includes(step.type));
   const waitingStep = [...steps].reverse().find((step) => step.type === "user_input_request" && step.status === "waiting");
   const request = readInputRequest(waitingStep?.payload.request);
+  const planValue = [...steps].reverse().find((step) => step.payload.kind === "plan")?.payload.steps;
+  const plan = Array.isArray(planValue) ? planValue.filter(isRecord).filter((step) =>
+    typeof step.id === "string" && typeof step.text === "string" && ["pending", "running", "completed"].includes(String(step.status))) : [];
+  const progress = [...steps].reverse().find((step) => step.payload.kind === "progress")?.payload.text;
 
   async function submit(choiceId?: string) {
     if (submitting || (!choiceId && !input.trim())) return;
     setSubmitting(true);
+    setInputError("");
     try {
       await onSubmitInput(run.id, input.trim(), choiceId);
       setInput("");
+    } catch (error) {
+      setInputError(error instanceof Error ? error.message : String(error));
     } finally {
       setSubmitting(false);
     }
@@ -140,6 +148,15 @@ function RunCard({ run, steps, onSubmitInput, onCancel }: RunCardProps) {
           <button type="button" onClick={() => void onCancel(run.id)}>停止</button>
         )}
       </div>
+      {plan.length > 0 && (
+        <ol className="agent-plan" aria-label="执行计划">
+          {plan.map((step) => <li key={String(step.id)} data-status={String(step.status)}>
+            <span>{step.status === "completed" ? "已完成" : step.status === "running" ? "执行中" : "待执行"}</span>
+            <span>{String(step.text)}</span>
+          </li>)}
+        </ol>
+      )}
+      {active && typeof progress === "string" && progress && <p className="message-text agent-progress" aria-live="polite">{progress}</p>}
       {visibleSteps.length > 0 && (
         <details className="run-steps" open={active}>
           <summary>{visibleSteps.length} 条执行记录</summary>
@@ -172,12 +189,13 @@ function RunCard({ run, steps, onSubmitInput, onCancel }: RunCardProps) {
               ))}
             </div>
           )}
-          <div className="question-input">
+          {request.metadata?.kind !== "approval" && <div className="question-input">
             <input value={input} onChange={(event) => setInput(event.target.value)} placeholder="补充说明" />
             <button type="button" disabled={submitting || !input.trim()} onClick={() => void submit()}>
               <Icon name="send" size={15} />
             </button>
-          </div>
+          </div>}
+          {inputError && <p className="inline-error">{inputError}</p>}
         </div>
       )}
     </div>

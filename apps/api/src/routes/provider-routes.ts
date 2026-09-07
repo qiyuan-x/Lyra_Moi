@@ -130,6 +130,79 @@ export const handleProviderRoutes: BusinessRouteHandler =
       return true;
     }
 
+    const providerCredential = matchPath(url.pathname, /^\/api\/v1\/providers\/([^/]+)\/credentials$/u);
+    if (providerCredential) {
+      const providers = requireService(options.providers, "Provider");
+      if (request.method === "POST") {
+        options.providerOAuth?.cancel(providerCredential[0]!);
+        writeJson(response, 200, { profile: await providers.importCredential(providerCredential[0]!, await readJsonBody(request, options.maxJsonBodyBytes)) }, requestId);
+        return true;
+      }
+      if (request.method === "GET") {
+        writeJson(response, 200, { credential: await providers.credentialStatus(providerCredential[0]!) }, requestId);
+        return true;
+      }
+      if (request.method === "DELETE") {
+        options.providerOAuth?.cancel(providerCredential[0]!);
+        writeJson(response, 200, { profile: await providers.deleteCredential(providerCredential[0]!) }, requestId);
+        return true;
+      }
+    }
+
+    const oauthStart = matchPath(url.pathname, /^\/api\/v1\/providers\/([^/]+)\/oauth\/start$/u);
+    const modelTest = matchPath(url.pathname, /^\/api\/v1\/providers\/([^/]+)\/test-model$/u);
+    if (modelTest && request.method === "POST") {
+      const body = await readJsonBody(request, options.maxJsonBodyBytes);
+      if (!isRecord(body) || typeof body.modelId !== "string") throw new Error("modelId is required.");
+      writeJson(response, 200, await requireService(options.providers, "Provider").testModel(modelTest[0]!, body.modelId), requestId);
+      return true;
+    }
+    const oauthStatus = matchPath(url.pathname, /^\/api\/v1\/providers\/([^/]+)\/oauth\/status$/u);
+    if (oauthStatus && request.method === "GET") {
+      const oauth = requireService(options.providerOAuth, "Provider OAuth");
+      const id = oauth.completedProfile(url.searchParams.get("state") ?? "", oauthStatus[0]!);
+      writeJson(response, 200, { profile: id ? await requireService(options.providers, "Provider").getProfile(id) : null }, requestId);
+      return true;
+    }
+    if (oauthStart && request.method === "POST") {
+      const oauth = requireService(options.providerOAuth, "Provider OAuth");
+      const body = await readJsonBody(request, options.maxJsonBodyBytes);
+      if (!isRecord(body) || typeof body.redirectUri !== "string") throw new Error("redirectUri is required.");
+      writeJson(response, 200, oauth.start(oauthStart[0]!, body.redirectUri), requestId); return true;
+    }
+    const oauthCallback = matchPath(url.pathname, /^\/api\/v1\/providers\/([^/]+)\/oauth\/callback$/u);
+    if (oauthCallback && request.method === "POST") {
+      const oauth = requireService(options.providerOAuth, "Provider OAuth");
+      const providers = requireService(options.providers, "Provider");
+      const body = await readJsonBody(request, options.maxJsonBodyBytes);
+      if (!isRecord(body) || typeof body.state !== "string" || typeof body.code !== "string") throw new Error("state and code are required.");
+      const updated = await oauth.callback(body.state, body.code, oauthCallback[0]!) as { id?: string };
+      if (!updated?.id) throw new Error("OAuth 回调未返回供应商配置。");
+      writeJson(response, 200, { profile: await providers.getProfile(updated.id) }, requestId); return true;
+    }
+
+    const providerAccount = matchPath(url.pathname, /^\/api\/v1\/providers\/([^/]+)\/account$/u);
+    if (providerAccount && request.method === "GET") {
+      const accounts = requireService(options.providerAccounts, "Provider account");
+      writeJson(response, 200, { account: await accounts.getAccount(providerAccount[0]!) }, requestId);
+      return true;
+    }
+
+    // Callback endpoint that resolves the provider from the signed OAuth state.
+    // This allows browser redirects to return without exposing the provider id.
+    if (request.method === "POST" && url.pathname === "/api/v1/providers/oauth/callback") {
+      const oauth = requireService(options.providerOAuth, "Provider OAuth");
+      const providers = requireService(options.providers, "Provider");
+      const body = await readJsonBody(request, options.maxJsonBodyBytes);
+      if (!isRecord(body) || typeof body.state !== "string" || typeof body.code !== "string") {
+        throw new Error("state and code are required.");
+      }
+      const updated = await oauth.callback(body.state, body.code) as { id?: string };
+      if (!updated?.id) throw new Error("OAuth 回调未返回供应商配置。");
+      writeJson(response, 200, { profile: await providers.getProfile(updated.id) }, requestId);
+      return true;
+    }
+
     const provider = matchPath(
       url.pathname,
       /^\/api\/v1\/providers\/([^/]+)$/u
@@ -160,6 +233,7 @@ export const handleProviderRoutes: BusinessRouteHandler =
         return true;
       }
       if (request.method === "DELETE") {
+        options.providerOAuth?.cancel(provider[0]!);
         await providers.deleteProfile(provider[0]!);
         writeJson(response, 200, { deleted: true }, requestId);
         return true;

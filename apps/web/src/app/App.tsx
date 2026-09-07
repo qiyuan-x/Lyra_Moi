@@ -417,11 +417,30 @@ export function App() {
     void initializeApplication();
   }, [initializeApplication]);
 
+  // Handle OAuth redirects even when the settings detail view was not restored.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get("code");
+    const state = params.get("state");
+    if (!code || !state) return;
+    window.history.replaceState({}, document.title, window.location.pathname + window.location.hash);
+    void api.completeProviderOAuth(state, code)
+      .then(async () => {
+        setCatalog(await api.listProviders());
+        pushNotice("success", "OAuth 登录成功，凭据已保存");
+      })
+      .catch(reportError);
+  }, [reportError, pushNotice]);
+
   useEffect(() => {
     if (!projectId) return;
     setEditingImageJob(null);
     setPreview(null);
+    setAssets([]);
     setModelAssets([]);
+    setJobs([]);
+    setConversations([]);
+    setConversationId("");
     setManualAttachments([]);
     setRequestedModelAssetId("");
     void refreshProject(projectId).catch(reportError);
@@ -644,7 +663,10 @@ export function App() {
           page={page}
           projects={projects}
           projectId={projectId}
-          onProjectSelect={setProjectId}
+          onProjectSelect={(nextProjectId) => {
+            setRequestedModelAssetId("");
+            setProjectId(nextProjectId);
+          }}
           onProjectCreate={() => setProjectManagerMode("create")}
           onProjectManage={() => setProjectManagerMode("manage")}
         />
@@ -761,12 +783,14 @@ export function App() {
           />
         ) : page === "assets" ? (
           <AssetLibraryPage
+            key={projectId}
+            contentUrl={(assetId) => api.assetContentUrl(assetId)}
+            onGetDirectory={(section) => api.getAssetDirectory(projectId, section)}
             assets={assets}
             modelAssets={modelAssets}
             jobs={jobs}
             generationModelByAssetId={generationModelByAssetId}
             thumbnailUrl={(assetId) => api.assetThumbnailUrl(assetId)}
-            contentUrl={(assetId) => api.assetContentUrl(assetId)}
             onAttach={(asset) => {
               setManualAttachments((current) => addUniqueAsset(current, asset));
               setPage("generation");
@@ -820,8 +844,7 @@ export function App() {
         ) : page === "prompts" ? (
           <PromptLibraryPage
             prompts={prompts}
-            generatedImages={assets.filter((asset) =>
-              asset.kind === "image" && asset.source === "generated")}
+            generatedImages={assets.filter((asset) => asset.kind === "image")}
             thumbnailUrl={(assetId) => api.assetThumbnailUrl(assetId)}
             contentUrl={(assetId) => api.assetContentUrl(assetId)}
             previewUrl={(promptId) => api.promptPreviewUrl(promptId)}

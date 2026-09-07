@@ -69,6 +69,7 @@ export interface CreateStoredProviderProfileInput {
 }
 
 export interface UpdateStoredProviderProfileInput {
+  secondaryApiKeyEnvironmentVariable?: string;
   name?: string;
   protocol?: ProviderProtocol;
   baseUrl?: string;
@@ -166,6 +167,7 @@ export class ProviderRepository {
       protocol: input.protocol ?? existing.protocol,
       adapterType: input.adapterType ?? existing.adapterType,
       baseUrl: input.baseUrl ?? existing.baseUrl,
+      secondaryApiKeyEnvironmentVariable: input.secondaryApiKeyEnvironmentVariable ?? existing.secondaryApiKeyEnvironmentVariable,
       settings: structuredClone(input.settings ?? existing.settings),
       enabled: input.enabled ?? existing.enabled,
       updatedAt: new Date().toISOString()
@@ -175,7 +177,7 @@ export class ProviderRepository {
         .prepare(`
           UPDATE provider_profiles
           SET name = ?, protocol = ?, adapter_type = ?, base_url = ?,
-              settings_json = ?, enabled = ?, updated_at = ?
+              settings_json = ?, enabled = ?, updated_at = ?, secondary_api_key_env = ?
           WHERE id = ? AND deleted_at IS NULL
         `)
         .run(
@@ -186,6 +188,7 @@ export class ProviderRepository {
           JSON.stringify(updated.settings),
           updated.enabled ? 1 : 0,
           updated.updatedAt,
+          updated.secondaryApiKeyEnvironmentVariable,
           profileId
         );
       return structuredClone(updated);

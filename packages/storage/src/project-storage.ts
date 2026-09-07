@@ -2,7 +2,7 @@ import { constants, rmSync } from "node:fs";
 import { copyFile, mkdir, stat } from "node:fs/promises";
 import { mkdirSync } from "node:fs";
 import { dirname, resolve, sep } from "node:path";
-import type { AssetSource } from "@lyra/contracts";
+import type { AssetLibrarySection, AssetSource } from "@lyra/contracts";
 import type { LyraDatabase } from "./database.js";
 import type { RuntimeLayout } from "./runtime-layout.js";
 
@@ -41,6 +41,15 @@ export class ProjectDirectoryStore {
       recursive: true,
       force: true
     });
+  }
+
+  assetDirectory(projectId: string, section: AssetLibrarySection): string {
+    const folders = {
+      upload: ["uploads", "images"],
+      generated: ["generated", "images"],
+      models: ["generated", "models"]
+    } as const;
+    return resolve(resolveProjectRoot(this.root, projectId), ...folders[section]);
   }
 }
 

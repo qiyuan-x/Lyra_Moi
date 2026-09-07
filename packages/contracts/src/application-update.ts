@@ -44,3 +44,10 @@ export interface ApplicationUpdateSnapshot {
   releaseNotes: string[];
   artifactSize: number | null;
 }
+
+export interface ApplicationVersionList {
+  schemaVersion: 1;
+  latestVersion: string;
+  retentionLimit: number;
+  versions: ApplicationUpdateManifest[];
+}

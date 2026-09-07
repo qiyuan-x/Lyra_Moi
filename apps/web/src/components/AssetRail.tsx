@@ -5,7 +5,6 @@ import { AssetPickerDialog } from "./AssetPickerDialog.js";
 
 interface AssetRailProps {
   assets: AssetSnapshot[];
-  generationModelByAssetId: Map<string, string>;
   attachmentOrder: Map<string, number>;
   collapsed: boolean;
   thumbnailUrl: (assetId: string) => string;
@@ -82,6 +81,7 @@ export function AssetRail(props: AssetRailProps) {
           onEmptyClick={props.onUploadClick}
         />
         <AssetGroup
+          className="asset-group-generated"
           title="生成图片"
           assets={generated}
           emptyText="暂无结果"
@@ -89,7 +89,6 @@ export function AssetRail(props: AssetRailProps) {
           thumbnailUrl={props.thumbnailUrl}
           onToggleAttachment={props.onToggleAttachment}
           onPreview={props.onPreview}
-          generationModelByAssetId={props.generationModelByAssetId}
           action={(
             <button
               type="button"
@@ -128,7 +127,6 @@ function AssetGroup(props: {
   thumbnailUrl: (assetId: string) => string;
   onToggleAttachment: (asset: AssetSnapshot) => void;
   onPreview: (asset: AssetSnapshot) => void;
-  generationModelByAssetId?: Map<string, string>;
   action?: ReactNode;
   onEmptyClick?: () => void;
 }) {
@@ -151,7 +149,6 @@ function AssetGroup(props: {
           </button>
         ) : props.assets.slice(0, 6).map((asset) => {
           const order = props.attachmentOrder.get(asset.id);
-          const generationModel = props.generationModelByAssetId?.get(asset.id);
           return (
             <div className={`asset-tile${order ? " selected" : ""}`} key={asset.id}>
               <button
@@ -161,11 +158,6 @@ function AssetGroup(props: {
               >
                 <img src={props.thumbnailUrl(asset.id)} alt={asset.name} loading="lazy" />
                 {order && <span className="asset-reference-order">图{order}</span>}
-                {generationModel && (
-                  <span className="asset-model-badge" title={generationModel}>
-                    {generationModel}
-                  </span>
-                )}
               </button>
               <button
                 type="button"

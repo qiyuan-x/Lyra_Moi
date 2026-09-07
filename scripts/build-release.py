@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import os
@@ -19,12 +20,14 @@ APP_DIR = RELEASE_DIR / "app"
 UPDATE_MANIFEST_URL = "https://linfrsot.cloud/lyra/updates/latest.json"
 UPDATE_PACKAGE_BASE_URL = "https://linfrsot.cloud/lyra/updates/packages"
 RELEASE_NOTES = (
-    "更新 Meshy、Tripo、混元和 FrostAPI 3D 建模调用，并增加多视图输入。",
-    "动作参考增加 UE5 与其他骨骼动画导入、项目动作库和当前帧编辑。",
-    "完善图片预览、素材拖放、模板效果图和对话附件。",
-    "供应商支持同类型多配置、密钥清除和 FrostAPI 余额查询。",
-    "图片生成请求不再设置固定等待时长，保留手动取消和网络错误处理。",
-    "完善社区入口、Windows 在线更新和启动器单实例运行。",
+    "重新设计 Agent 运行时，支持自动计划、多工具调用、审核恢复和上下文压缩。",
+    "Agent 可调用应用项目、素材、任务、提示词、图片生成和 3D 建模功能。",
+    "Agent 支持子智能体任务、等待恢复、执行锁和持久化检查点。",
+    "供应商增加 OAuth、Token/JSON 导入、账号状态、额度查询和凭据删除。",
+    "完善供应商模型同步、手动模型添加、单模型连通性测试和系统代理跟随。",
+    "项目目录支持便携识别与数据恢复，升级时保留用户数据库和项目文件。",
+    "提示词库支持输入图与效果图预览，完善图片和模型查看交互。",
+    "更新器支持查询三个历史版本并直接选择旧版本回退。",
 )
 sys.path.insert(0, str(ROOT))
 
@@ -32,10 +35,14 @@ from apps.launcher.paths import LauncherPaths  # noqa: E402
 from apps.launcher.process_manager import ProcessManager  # noqa: E402
 
 
-def main() -> int:
-    _stop_existing_release()
+def main(argv: list[str] | None = None) -> int:
+    global RELEASE_DIR, APP_DIR
+    parser = argparse.ArgumentParser(description="Build a Windows release in an empty output directory.")
+    parser.add_argument("--output-dir", type=Path, default=RELEASE_DIR)
+    arguments = parser.parse_args(argv)
+    RELEASE_DIR = _validate_output_directory(arguments.output_dir)
+    APP_DIR = RELEASE_DIR / "app"
     _safe_remove(BUILD_DIR)
-    _safe_remove(RELEASE_DIR)
     (APP_DIR / "api").mkdir(parents=True)
     (APP_DIR / "worker" / "resources").mkdir(parents=True)
     (RELEASE_DIR / "data").mkdir(parents=True)
@@ -374,10 +381,17 @@ def _write_update_smoke_request(port: int) -> Path:
     return request_file
 
 
-def _stop_existing_release() -> None:
-    session = RELEASE_DIR / "data" / "run" / "launcher-session.json"
-    if session.exists():
-        ProcessManager(LauncherPaths.discover(RELEASE_DIR)).stop_services()
+def _validate_output_directory(path: Path) -> Path:
+    resolved = (ROOT / path).resolve()
+    release_root = (ROOT / "release").resolve()
+    if resolved != release_root and release_root not in resolved.parents:
+        raise ValueError(f"Release output must be under {release_root}: {resolved}")
+    if resolved.exists() and (not resolved.is_dir() or any(resolved.iterdir())):
+        raise RuntimeError(
+            f"Release output is not empty; existing files were preserved: {resolved}. "
+            "Choose a new --output-dir under release."
+        )
+    return resolved
 
 
 def _reset_release_data() -> None:

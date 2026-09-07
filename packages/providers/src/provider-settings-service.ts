@@ -1,4 +1,8 @@
 import { randomUUID } from "node:crypto";
+import { HttpAgentModelClient } from "./agent-model-client.js";
+import { agentBaseUrl, importedCredentialHeaders } from "./runtime-provider-resolver.js";
+import { parseImportedCredential } from "./imported-credential.js";
+import { withProviderCredentialLock } from "./provider-credential-lock.js";
 import type {
   ApplicationDefaultModels,
   CreateProviderModelRequestBody,
@@ -122,6 +126,40 @@ export class ProviderSettingsService {
     return this.#toSnapshot(this.#providers.requireProfile(profileId));
   }
 
+  /** Import OAuth/token JSON; token values remain in the secret store. */
+  async importCredential(profileId: string, value: unknown): Promise<ProviderProfileSnapshot> {
+    const profile = this.#providers.requireProfile(profileId);
+    const credential = parseImportedCredential(value);
+    return this.updateProfile(profileId, {
+      apiKey: credential.accessToken,
+      ...(credential.refreshToken ? { secondaryApiKey: credential.refreshToken } : { clearSecondaryApiKey: true }),
+      settings: { ...profile.settings, ...credential.settings }
+    });
+  }
+
+  async deleteCredential(profileId: string): Promise<ProviderProfileSnapshot> {
+    const profile = this.#providers.requireProfile(profileId);
+    const settings = { ...profile.settings };
+    for (const key of Object.keys(settings)) {
+      if (key.startsWith("credential")) delete settings[key];
+    }
+    delete settings.authMode;
+    return this.updateProfile(profileId, {
+      clearApiKey: true,
+      ...(profile.secondaryApiKeyEnvironmentVariable ? { clearSecondaryApiKey: true } : {}),
+      enabled: false,
+      settings
+    });
+  }
+
+  async credentialStatus(profileId: string): Promise<{ authMode: string; hasAccessToken: boolean; hasRefreshToken: boolean; expiresAt: string | null }> {
+    const profile = this.#providers.requireProfile(profileId);
+    return { authMode: typeof profile.settings.authMode === "string" ? profile.settings.authMode : "api_key",
+      hasAccessToken: Boolean(await this.#secrets.get(profile.apiKeyEnvironmentVariable)),
+      hasRefreshToken: Boolean(profile.secondaryApiKeyEnvironmentVariable && await this.#secrets.get(profile.secondaryApiKeyEnvironmentVariable)),
+      expiresAt: typeof profile.settings.credentialExpiresAt === "string" ? profile.settings.credentialExpiresAt : null };
+  }
+
   async listProfiles(): Promise<ProviderProfileSnapshot[]> {
     return Promise.all(this.#providers.listProfiles().map((profile) => this.#toSnapshot(profile)));
   }
@@ -130,11 +168,18 @@ export class ProviderSettingsService {
     profileId: string,
     value: unknown
   ): Promise<ProviderProfileSnapshot> {
+    return withProviderCredentialLock(profileId, () => this.#updateProfile(profileId, value));
+  }
+
+  async #updateProfile(profileId: string, value: unknown): Promise<ProviderProfileSnapshot> {
     const input = parseUpdateProviderProfileRequest(value);
-    const existing = this.#providers.requireProfile(profileId);
+    let existing = this.#providers.requireProfile(profileId);
     const changesSecret = input.apiKey !== undefined || input.clearApiKey === true;
     const changesSecondarySecret =
       input.secondaryApiKey !== undefined || input.clearSecondaryApiKey === true;
+    if (changesSecondarySecret && !existing.secondaryApiKeyEnvironmentVariable) {
+      existing = this.#providers.updateProfile(profileId, { secondaryApiKeyEnvironmentVariable: createSecondaryApiKeyEnvironmentVariable(profileId) });
+    }
     const previousSecret = changesSecret
       ? await this.#secrets.get(existing.apiKeyEnvironmentVariable)
       : null;
@@ -142,21 +187,20 @@ export class ProviderSettingsService {
       ? await this.#readSecondarySecret(existing)
       : null;
 
-    if (input.apiKey !== undefined) {
-      await this.#secrets.set(existing.apiKeyEnvironmentVariable, input.apiKey.trim());
-    } else if (input.clearApiKey === true) {
-      await this.#secrets.delete(existing.apiKeyEnvironmentVariable);
-    }
-    if (input.secondaryApiKey !== undefined) {
-      await this.#secrets.set(
-        requireSecondarySecretEnvironmentVariable(existing),
-        input.secondaryApiKey.trim()
-      );
-    } else if (input.clearSecondaryApiKey === true) {
-      await this.#secrets.delete(requireSecondarySecretEnvironmentVariable(existing));
-    }
-
     try {
+      if (input.apiKey !== undefined) {
+        await this.#secrets.set(existing.apiKeyEnvironmentVariable, input.apiKey.trim());
+      } else if (input.clearApiKey === true) {
+        await this.#secrets.delete(existing.apiKeyEnvironmentVariable);
+      }
+      if (input.secondaryApiKey !== undefined) {
+        await this.#secrets.set(
+          requireSecondarySecretEnvironmentVariable(existing),
+          input.secondaryApiKey.trim()
+        );
+      } else if (input.clearSecondaryApiKey === true) {
+        await this.#secrets.delete(requireSecondarySecretEnvironmentVariable(existing));
+      }
       const repositoryInput: UpdateStoredProviderProfileInput = {};
       if (input.name !== undefined) repositoryInput.name = input.name.trim();
       const protocol = input.protocol ?? existing.protocol;
@@ -204,6 +248,10 @@ export class ProviderSettingsService {
   }
 
   async deleteProfile(profileId: string): Promise<void> {
+    return withProviderCredentialLock(profileId, () => this.#deleteProfile(profileId));
+  }
+
+  async #deleteProfile(profileId: string): Promise<void> {
     const existing = this.#providers.requireProfile(profileId);
     const previousSecret = await this.#secrets.get(existing.apiKeyEnvironmentVariable);
     const previousSecondarySecret = await this.#readSecondarySecret(existing);
@@ -298,6 +346,25 @@ export class ProviderSettingsService {
     };
   }
 
+  async testModel(profileId: string, remoteModelId: string): Promise<{ ok: true; elapsedMs: number }> {
+    const profile = this.#providers.requireProfile(profileId);
+    if (profile.serviceType !== "llm") throw new Error("图片和 3D 模型需要创建实际生成任务才能验证，不会在连通测试中自动生成。");
+    if (!remoteModelId.trim() || remoteModelId.length > 256) throw new Error("模型 ID 无效。");
+    const token = await this.#secrets.get(profile.apiKeyEnvironmentVariable);
+    const client = new HttpAgentModelClient({
+      protocol: profile.protocol, baseUrl: agentBaseUrl(profile), model: remoteModelId.trim(), apiKey: token,
+      headers: importedCredentialHeaders(profile.settings, token), settings: { maxOutputTokens: 128 }
+    });
+    const started = performance.now();
+    let completed = false;
+    for await (const event of client.generate({ projectId: "model-connection-test", tools: [],
+      messages: [{ role: "user", parts: [{ type: "text", text: "hi" }] }], signal: AbortSignal.timeout(30_000) })) {
+      if (event.type === "response") completed = true;
+    }
+    if (!completed) throw new Error("模型未返回完整响应。");
+    return { ok: true, elapsedMs: Math.round(performance.now() - started) };
+  }
+
   async getFrostApiUsage(
     profileId: string,
     signal?: AbortSignal
@@ -324,6 +391,7 @@ export class ProviderSettingsService {
     const discoveredIds = new Set(discovered.map((model) => model.remoteModelId));
     const acceptedIds = new Set(models.map((model) => model.remoteModelId));
     for (const model of existing) {
+      if (model.settings.manuallyAdded === true) continue;
       // A successful /models response is authoritative for this provider.
       // Remove stale entries as well as models filtered out for this service.
       if (!discoveredIds.has(model.remoteModelId) || !acceptedIds.has(model.remoteModelId)) {

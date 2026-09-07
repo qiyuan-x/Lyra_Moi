@@ -121,6 +121,50 @@ export type FrostApiUsageSnapshot =
       };
     };
 
+/**
+ * Provider account/quota status returned by the optional account monitor.
+ * Unsupported providers are reported explicitly instead of returning made-up
+ * balances. Metrics are provider supplied values and are never persisted with
+ * credentials.
+ */
+export interface ProviderUsageMetric {
+  key: string;
+  label: string;
+  value: number;
+  unit?: string;
+  limit?: number;
+  remaining?: number;
+  resetAt?: UtcDateTime;
+}
+
+export type ProviderUsageSnapshot =
+  | {
+      supported: true;
+      adapterType: ProviderAdapterType;
+      fetchedAt: UtcDateTime;
+      metrics: ProviderUsageMetric[];
+    }
+  | {
+      supported: false;
+      adapterType: ProviderAdapterType;
+      fetchedAt: null;
+      reason: string;
+    };
+
+export interface ProviderAccountSnapshot {
+  profileId: EntityId;
+  account: string | null;
+  accountId: string | null;
+  provider: string | null;
+  plan: string | null;
+  subscriptionExpiresAt: UtcDateTime | null;
+  authMode: string;
+  hasAccessToken: boolean;
+  hasRefreshToken: boolean;
+  expiresAt: UtcDateTime | null;
+  usage: ProviderUsageSnapshot;
+}
+
 export interface ApplicationDefaultModels {
   llm: EntityId | null;
   image: EntityId | null;

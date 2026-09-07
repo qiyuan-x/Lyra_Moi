@@ -9,19 +9,18 @@ const targets = [
   "apps/worker/dist",
   "packages/contracts/dist",
   "packages/core/dist",
-  "packages/agent-engine/dist",
+  "packages/agent-runtime/dist",
   "packages/agent-tools/dist",
   "packages/providers/dist",
   "packages/storage/dist",
   "packages/contracts/tsconfig.tsbuildinfo",
   "packages/core/tsconfig.tsbuildinfo",
-  "packages/agent-engine/tsconfig.tsbuildinfo",
+  "packages/agent-runtime/tsconfig.tsbuildinfo",
   "packages/agent-tools/tsconfig.tsbuildinfo",
   "packages/providers/tsconfig.tsbuildinfo",
   "packages/storage/tsconfig.tsbuildinfo",
   "coverage",
-  "build",
-  "release"
+  "build"
 ];
 
 for (const relativePath of targets) {

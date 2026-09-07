@@ -15,14 +15,30 @@
     "sourceMap": true,
     "baseUrl": ".",
     "paths": {
-      "@lyra/contracts": ["packages/contracts/src/index.ts"],
-      "@lyra/core": ["packages/core/src/index.ts"],
-      "@lyra/agent-engine": ["packages/agent-engine/src/index.ts"],
-      "@lyra/agent-tools": ["packages/agent-tools/src/index.ts"],
-      "@lyra/providers": ["packages/providers/src/index.ts"],
-      "@lyra/storage": ["packages/storage/src/index.ts"],
-      "@lyra/api": ["apps/api/src/index.ts"],
-      "@lyra/worker": ["apps/worker/src/index.ts"]
+      "@lyra/contracts": [
+        "packages/contracts/src/index.ts"
+      ],
+      "@lyra/core": [
+        "packages/core/src/index.ts"
+      ],
+      "@lyra/agent-tools": [
+        "packages/agent-tools/src/index.ts"
+      ],
+      "@lyra/providers": [
+        "packages/providers/src/index.ts"
+      ],
+      "@lyra/storage": [
+        "packages/storage/src/index.ts"
+      ],
+      "@lyra/api": [
+        "apps/api/src/index.ts"
+      ],
+      "@lyra/worker": [
+        "apps/worker/src/index.ts"
+      ],
+      "@lyra/agent-runtime": [
+        "packages/agent-runtime/src/index.ts"
+      ]
     }
   }
 }

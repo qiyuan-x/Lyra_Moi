@@ -15,6 +15,7 @@ import type {
   AnimationModelInfo
 } from "./animation-model-viewer-adapter.js";
 import type { MannequinId, PoseCaptureOptions, PoseSnapshot } from "./pose-types.js";
+import { ProjectAnimationPickerDialog } from "./ProjectAnimationPickerDialog.js";
 
 interface AnimationModelWorkspaceProps {
   mode: "ue5" | "direct";
@@ -61,6 +62,8 @@ export function AnimationModelWorkspace(props: AnimationModelWorkspaceProps) {
   const [libraryLoading, setLibraryLoading] = useState(props.mode === "ue5");
   const [importSectionOpen, setImportSectionOpen] = useState(props.mode !== "ue5");
   const [projectLibraryOpen, setProjectLibraryOpen] = useState(false);
+  const [projectPickerOpen, setProjectPickerOpen] = useState(false);
+  const [selectedAnimationId, setSelectedAnimationId] = useState("");
 
   useEffect(() => {
     if (props.mode !== "ue5") return;
@@ -82,7 +85,7 @@ export function AnimationModelWorkspace(props: AnimationModelWorkspaceProps) {
   const totalFrames = Math.max(0, Math.ceil(duration * frameRate));
 
   useEffect(() => {
-    if (clipPickerOpen) return;
+    if (clipPickerOpen || projectPickerOpen) return;
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.code !== "Space" || event.repeat || loading || !selectedClip) return;
       if (isInteractiveKeyboardTarget(event.target)) return;
@@ -93,7 +96,7 @@ export function AnimationModelWorkspace(props: AnimationModelWorkspaceProps) {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [clipPickerOpen, loading, playing, selectedClip]);
+  }, [clipPickerOpen, projectPickerOpen, loading, playing, selectedClip]);
 
   async function loadFiles(fileList: FileList | readonly File[]) {
     const files = Array.from(fileList);
@@ -164,17 +167,23 @@ export function AnimationModelWorkspace(props: AnimationModelWorkspaceProps) {
     }
   }
 
-  async function openProjectAnimation(animation: ProjectAnimationSnapshot) {
-    if (loading) return;
+  async function openProjectAnimation(animation: ProjectAnimationSnapshot): Promise<boolean> {
+    if (loading) return false;
     setLoading(true);
     setError("");
     setSaveState("");
     try {
       const file = await props.api.downloadProjectAnimation(props.projectId, animation);
-      await viewportRef.current?.loadUe5Animation([file], mannequin);
+      const viewport = viewportRef.current;
+      if (!viewport) throw new Error("动画查看器尚未就绪。");
+      await viewport.loadUe5Animation([file], mannequin);
+      setSelectedAnimationId(animation.id);
+      return true;
     } catch (loadError) {
-      setLoading(false);
       setError(loadError instanceof Error ? loadError.message : "UE5 动画加载失败。");
+      return false;
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -182,6 +191,7 @@ export function AnimationModelWorkspace(props: AnimationModelWorkspaceProps) {
     try {
       await props.api.deleteProjectAnimation(props.projectId, animation.id);
       setProjectAnimations((current) => current.filter((item) => item.id !== animation.id));
+      setSelectedAnimationId((current) => current === animation.id ? "" : current);
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : "删除动作失败。");
     }
@@ -370,16 +380,28 @@ export function AnimationModelWorkspace(props: AnimationModelWorkspaceProps) {
         {props.mode === "ue5" && (
           <section className={`animation-project-library animation-sidebar-collapsible${projectLibraryOpen ? " open" : ""}`}>
             <header>
-              <button
-                type="button"
-                className="animation-sidebar-section-toggle"
-                aria-expanded={projectLibraryOpen}
-                onClick={() => setProjectLibraryOpen((open) => !open)}
-              >
-                <strong>项目动作库</strong>
+              <strong>项目动作库</strong>
+              <div className="animation-project-library-actions">
+                <button
+                  type="button"
+                  className="icon-button"
+                  title="查看全部项目动作"
+                  aria-label="查看全部项目动作"
+                  onClick={() => setProjectPickerOpen(true)}
+                >
+                  <Icon name="library" size={16} />
+                </button>
                 <span>{projectAnimations.length}</span>
-                <Icon name="chevron" size={15} />
-              </button>
+                <button
+                  type="button"
+                  className="icon-button animation-project-library-toggle"
+                  aria-label={projectLibraryOpen ? "收起项目动作库" : "展开项目动作库"}
+                  aria-expanded={projectLibraryOpen}
+                  onClick={() => setProjectLibraryOpen((open) => !open)}
+                >
+                  <Icon name="chevron" size={15} />
+                </button>
+              </div>
             </header>
             {projectLibraryOpen && <div className="animation-project-list">
               {libraryLoading && <span className="animation-library-empty">正在加载</span>}
@@ -442,6 +464,7 @@ export function AnimationModelWorkspace(props: AnimationModelWorkspaceProps) {
           captureOptions={captureOptions}
           onTogglePreview={() => setPreviewOpen((open) => !open)}
           onLoading={() => {
+            setSelectedAnimationId("");
             setModelInfo(null);
             setSelectedClipIndex(0);
             setTime(0);
@@ -574,6 +597,17 @@ export function AnimationModelWorkspace(props: AnimationModelWorkspaceProps) {
           {saveState && <strong className="animation-save-state">{saveState}</strong>}
         </section>
       </aside>
+      {projectPickerOpen && props.mode === "ue5" && (
+        <ProjectAnimationPickerDialog
+          animations={projectAnimations}
+          selectedId={selectedAnimationId}
+          loading={libraryLoading}
+          busy={loading}
+          error={error}
+          onSelect={openProjectAnimation}
+          onClose={() => setProjectPickerOpen(false)}
+        />
+      )}
       {clipPickerOpen && modelInfo && modelInfo.clips.length > 0 && (
         <AnimationClipPickerDialog
           clips={modelInfo.clips}

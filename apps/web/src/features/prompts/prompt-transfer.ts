@@ -21,6 +21,7 @@ interface PromptExportPayload {
     note: string | null;
     content: string;
     variables: string[];
+    inputImageAssetId: string | null;
     favorite: boolean;
   }>;
 }
@@ -33,12 +34,13 @@ export function createPromptExportPayload(
     version: 1,
     prompts: prompts
       .filter((item) => selectedIds.has(item.id))
-      .map(({ name, category, note, content, variables, favorite }) => ({
+      .map(({ name, category, note, content, variables, inputImageAssetId, favorite }) => ({
         name,
         category,
         note,
         content,
         variables,
+        inputImageAssetId,
         favorite
       }))
   };
@@ -83,6 +85,7 @@ export async function createPromptArchive(
     note: string | null;
     content: string;
     variables: string[];
+    inputImageAssetId: string | null;
     favorite: boolean;
     preview?: { path: string; mimeType: string };
   }> = [];
@@ -100,6 +103,7 @@ export async function createPromptArchive(
       note: prompt.note,
       content: prompt.content,
       variables: [...prompt.variables],
+      inputImageAssetId: prompt.inputImageAssetId,
       favorite: prompt.favorite,
       ...(preview && previewPath
         ? { preview: { path: previewPath, mimeType: preview.type } }
@@ -169,7 +173,10 @@ function parsePromptRecord(record: unknown): CreatePromptTemplateRequestBody | n
     category: typeof item.category === "string" ? item.category.trim() : "",
     note,
     favorite: item.favorite === true,
-    ...(variables && variables.length > 0 ? { variables } : {})
+    ...(variables && variables.length > 0 ? { variables } : {}),
+    ...(typeof item.inputImageAssetId === "string" && item.inputImageAssetId.trim()
+      ? { inputImageAssetId: item.inputImageAssetId.trim() }
+      : {})
   };
 }
 

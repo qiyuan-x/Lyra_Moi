@@ -48,6 +48,17 @@ export class WorkspaceQueryService {
     return this.#projects.listActive();
   }
 
+  getAssetDirectory(projectId: string, section: unknown): string {
+    if (section !== "upload" && section !== "generated" && section !== "models") {
+      throw new Error("Asset library section is invalid.");
+    }
+    const project = this.#projects.findById(projectId);
+    if (!project || project.deletedAt !== null) throw new Error(`Project not found: ${projectId}`);
+    if (!this.#projectDirectories) throw new Error("Project directories are not configured.");
+    this.#projectDirectories.ensure(projectId);
+    return this.#projectDirectories.assetDirectory(projectId, section);
+  }
+
   createProject(value: unknown): ProjectSnapshot {
     if (!isRecord(value)) throw new Error("Project input is required.");
     const name = requireProjectName(value.name);
@@ -108,7 +119,7 @@ export class WorkspaceQueryService {
 
   listPublicAgentSteps(agentRunId: string): AgentStepSnapshot[] {
     this.#agentRuns.requireStored(agentRunId);
-    return this.#agentSteps.list(agentRunId).map(sanitizeAgentStep);
+    return this.#agentSteps.list(agentRunId).filter((step) => step.payload.runtimeCheckpoint !== 3).map(sanitizeAgentStep);
   }
 
   cancelAgentRun(agentRunId: string, cancelChildJobs = true): AgentRunSnapshot {
@@ -160,6 +171,8 @@ function sanitizeAgentStep(step: AgentStepSnapshot): AgentStepSnapshot {
     payload = selectKeys(step.payload, ["requestStepId", "messageId"]);
   } else if (step.type === "final_message") {
     payload = selectKeys(step.payload, ["messageId", "text"]);
+  } else if (step.type === "llm_response" && (step.payload.kind === "plan" || step.payload.kind === "progress")) {
+    payload = selectKeys(step.payload, ["kind", "steps", "text", "runtimeTurn"]);
   }
   return { ...step, payload };
 }

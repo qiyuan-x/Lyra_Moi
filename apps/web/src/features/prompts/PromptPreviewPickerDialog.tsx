@@ -10,6 +10,9 @@ interface PromptPreviewPickerDialogProps {
   thumbnailUrl: (assetId: string) => string;
   onClose: () => void;
   onConfirm: (selectedId: string) => void;
+  title?: string;
+  description?: string;
+  allowCurrent?: boolean;
 }
 
 export function PromptPreviewPickerDialog(props: PromptPreviewPickerDialogProps) {
@@ -35,8 +38,8 @@ export function PromptPreviewPickerDialog(props: PromptPreviewPickerDialogProps)
       >
         <header>
           <div>
-            <strong id="prompt-preview-picker-title">选择效果图</strong>
-            <span>从当前项目已生成的图片中选择</span>
+            <strong id="prompt-preview-picker-title">{props.title ?? "选择效果图"}</strong>
+            <span>{props.description ?? "从当前项目已生成的图片中选择"}</span>
           </div>
           <button type="button" className="icon-button" aria-label="关闭" onClick={props.onClose}>
             <Icon name="close" size={18} />
@@ -57,7 +60,7 @@ export function PromptPreviewPickerDialog(props: PromptPreviewPickerDialogProps)
             name="不使用效果图"
             onClick={() => setSelectedId("__none")}
           />
-          {props.currentPreview && (
+            {props.allowCurrent !== false && props.currentPreview && (
             <PreviewOption
               selected={selectedId === "__keep"}
               name="保留当前效果图"

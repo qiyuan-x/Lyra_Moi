@@ -11,10 +11,11 @@ import {
   PromptTemplateService,
   QueuedGenerationService,
   RuntimeEventFeed,
+  TaskRuntimeSettingsService,
   WorkspaceQueryService,
   loadAgentPromptDefaults
 } from "@lyra/core";
-import { createHttpProviderRegistry, ProviderSettingsService } from "@lyra/providers";
+import { createHttpProviderRegistry, ProviderAccountService, ProviderOAuthService, ProviderSettingsService } from "@lyra/providers";
 import {
   createRuntimeRepositories,
   EnvironmentFileSecretStore,
@@ -29,12 +30,14 @@ import {
   createRuntimeLayout,
   migrateRuntimeDatabase,
   migrateLegacyProjectAssets,
+  synchronizeProjectFolders,
   resolveDataDirectory,
   type LyraDatabase,
   type RuntimeLayout
 } from "@lyra/storage";
 import { createApiServer } from "./server.js";
 import { ApplicationUpdateService } from "./application-update-service.js";
+import { revealLocalDirectory } from "./local-file-reveal.js";
 
 export interface CreateApiRuntimeOptions {
   dataDirectory?: string;
@@ -47,6 +50,7 @@ export interface CreateApiRuntimeOptions {
   applicationBaseDirectory?: string;
   deploymentMode?: string;
   updateManifestUrl?: string;
+  updateHistoryUrl?: string;
   updateHelperCommand?: string[];
   applicationPort?: number;
 }
@@ -69,6 +73,8 @@ export async function createApiRuntime(options: CreateApiRuntimeOptions = {}): P
 
   try {
     await migrateLegacyProjectAssets(database, layout);
+    const folderReport = await synchronizeProjectFolders(database, layout);
+    for (const error of folderReport.errors) console.error("Project folder import failed", error);
     const {
       runtimeEvents,
       projects,
@@ -94,6 +100,9 @@ export async function createApiRuntime(options: CreateApiRuntimeOptions = {}): P
     projectDirectories.ensure(defaultProject.id);
     const projectAnimations = new ProjectAnimationStore(layout.projects, projects);
     const secretStore = new EnvironmentFileSecretStore(layout.environmentFile);
+    const providerSettings = new ProviderSettingsService({ providers, settings, secrets: secretStore, registry: createHttpProviderRegistry() });
+    const providerAccounts = new ProviderAccountService({ providers, secrets: secretStore });
+    const providerOAuth = new ProviderOAuthService(providers, secretStore);
 
     const agentPromptSettings = new AgentPromptSettingsService(
       settings,
@@ -107,15 +116,17 @@ export async function createApiRuntime(options: CreateApiRuntimeOptions = {}): P
       })
     );
     const agentRuntimeSettings = new AgentRuntimeSettingsService(settings);
+    const taskRuntimeSettings = new TaskRuntimeSettingsService(settings);
     const communitySettings = new CommunitySettingsService(settings);
     const applicationUpdates = new ApplicationUpdateService({
-      currentVersion: options.appVersion?.trim() || "0.0.5",
+      currentVersion: options.appVersion?.trim() || "0.1.0",
       baseDirectory: options.applicationBaseDirectory?.trim() || process.cwd(),
       stateFile: resolve(layout.run, "application-update-state.json"),
       requestFile: resolve(layout.run, "application-update-request.json"),
       ...(options.updateManifestUrl?.trim()
         ? { manifestUrl: options.updateManifestUrl.trim() }
         : {}),
+      ...(options.updateHistoryUrl?.trim() ? { historyUrl: options.updateHistoryUrl.trim() } : {}),
       ...(options.updateHelperCommand?.length
         ? { helperCommand: options.updateHelperCommand }
         : {}),
@@ -160,22 +171,21 @@ export async function createApiRuntime(options: CreateApiRuntimeOptions = {}): P
       }),
       assets: assetService,
       projectAnimations,
-      providers: new ProviderSettingsService({
-        providers,
-        settings,
-        secrets: secretStore,
-        registry: createHttpProviderRegistry()
-      }),
+      providers: providerSettings,
+      providerAccounts,
+      providerOAuth,
       prompts: new PromptTemplateService({
         prompts,
         previews: new PromptPreviewStore(layout.promptPreviews)
       }),
       agentPromptSettings,
       agentRuntimeSettings,
+      taskRuntimeSettings,
       communitySettings,
       applicationUpdates,
+      ...(options.deploymentMode !== "server" ? { revealDirectory: revealLocalDirectory } : {}),
       readiness: () => {
-        const workerVersion = options.workerVersion?.trim() || options.appVersion?.trim() || "0.0.5";
+        const workerVersion = options.workerVersion?.trim() || options.appVersion?.trim() || "0.1.0";
         const heartbeatCutoff = new Date(Date.now() - 5_000).toISOString();
         const webReady =
           !options.webRoot?.trim() || existsSync(resolve(options.webRoot, "index.html"));
@@ -201,6 +211,7 @@ export async function createApiRuntime(options: CreateApiRuntimeOptions = {}): P
       server,
       defaultProjectId: defaultProject.id,
       async close() {
+        providerOAuth.close();
         if (closed) return;
         closed = true;
         if (server.listening) {
