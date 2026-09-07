@@ -3,7 +3,6 @@ dist/
 coverage/
 build/
 release/
-tests/**/artifacts/
 .cache/
 .vite/
 .pnpm-store/
@@ -13,11 +12,24 @@ __pycache__/
 *.log
 *.tsbuildinfo
 
-data/*
-!data/.gitkeep
+data/
 
 .env
+.env.example
 *.local
+
+# Local documentation, tests, and server deployment files.
+README.md
+apps/api/README.md
+apps/launcher/README.md
+apps/web/README.md
+apps/worker/README.md
+docs/
+tests/
+deploy/
+.dockerignore
+vitest.config.ts
+全流程测试流程.md
 
 anything-llm-master/
 
