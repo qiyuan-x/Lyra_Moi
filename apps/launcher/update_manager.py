@@ -125,6 +125,7 @@ class DesktopUpdateClient:
 
         helper_dir = self.paths.data_dir / "temp" / "updater"
         helper_dir.mkdir(parents=True, exist_ok=True)
+        (helper_dir / "window-ready").unlink(missing_ok=True)
         helper = helper_dir / "LyraUpdater.exe"
         shutil.copy2(packaged_launcher, helper)
         command = [

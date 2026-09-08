@@ -29,7 +29,7 @@ export async function readTemplateArchive(file: Blob): Promise<TemplateArchive> 
       if (entry.originalSize > maxArchiveEntryBytes) {
         throw new Error(`模板包中的文件过大：${entry.name}`);
       }
-      return entry.name === "manifest.json" || entry.name.startsWith("previews/");
+      return entry.name === "manifest.json" || entry.name.startsWith("previews/") || entry.name.startsWith("inputs/");
     }
   });
   const total = Object.values(files).reduce((sum, item) => sum + item.byteLength, 0);

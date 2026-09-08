@@ -18,16 +18,21 @@ export class DashScopeImageDiscoveryAdapter implements ProviderDiscoveryAdapter 
     modelsUrl.pathname = "/compatible-mode/v1/models";
     modelsUrl.search = "";
     modelsUrl.hash = "";
-    await this.#client.getJson(
+    const response = await this.#client.getJson(
       modelsUrl.toString(),
       { Accept: "application/json", Authorization: `Bearer ${apiKey}` },
       input.signal
     );
-    return [
-      discovered("qwen-image-3.0-pro", "Qwen Image 3.0 Pro"),
-      discovered("qwen-image-2.0-pro", "Qwen Image 2.0 Pro"),
-      discovered("wan2.7-image-pro", "Wan 2.7 Image Pro")
-    ];
+    if (!response || typeof response !== "object" || !Array.isArray((response as { data?: unknown }).data)) {
+      throw new ProviderConnectionError("INVALID_RESPONSE", "DashScope 模型列表响应格式无效。");
+    }
+    const models = ((response as { data: unknown[] }).data).flatMap((item): DiscoveredProviderModel[] => {
+      if (!item || typeof item !== "object") return [];
+      const id = (item as { id?: unknown }).id;
+      return typeof id === "string" && id.trim() ? [discovered(id.trim(), id.trim())] : [];
+    });
+    if (!models.length) throw new ProviderConnectionError("DISCOVERY_UNSUPPORTED", "DashScope 上游未返回模型，请手动添加模型。");
+    return models;
   }
 }
 
@@ -52,10 +57,10 @@ export class HunyuanImageDiscoveryAdapter implements ProviderDiscoveryAdapter {
       if (
         error instanceof ProviderConnectionError &&
         error.code === "BAD_REQUEST"
-      ) return [discovered("hunyuan-image", "腾讯混元生图")];
+      ) throw new ProviderConnectionError("DISCOVERY_UNSUPPORTED", "腾讯混元生图未提供模型列表，请手动添加模型。");
       throw error;
     }
-    return [discovered("hunyuan-image", "腾讯混元生图")];
+    throw new ProviderConnectionError("DISCOVERY_UNSUPPORTED", "腾讯混元生图未提供模型列表，请手动添加模型。");
   }
 }
 
@@ -74,11 +79,7 @@ export class StabilityImageDiscoveryAdapter implements ProviderDiscoveryAdapter 
       { Accept: "application/json", Authorization: `Bearer ${apiKey}` },
       input.signal
     );
-    return [
-      discovered("stable-image-ultra", "Stable Image Ultra"),
-      discovered("stable-image-core", "Stable Image Core"),
-      discovered("sd3.5-large", "Stable Diffusion 3.5 Large")
-    ];
+    throw new ProviderConnectionError("DISCOVERY_UNSUPPORTED", "Stability 生图接口未提供可用的模型列表，请手动添加模型。");
   }
 }
 

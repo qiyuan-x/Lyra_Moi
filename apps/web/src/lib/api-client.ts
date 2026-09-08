@@ -232,7 +232,14 @@ export class ApiClient {
   }
 
   providerOAuthStatus(profileId: string, state: string): Promise<ProviderProfileSnapshot | null> {
-    return request<{ profile: ProviderProfileSnapshot | null }>(`/api/v1/providers/${encodeURIComponent(profileId)}/oauth/status?state=${encodeURIComponent(state)}`).then((value) => value.profile);
+    return request<{ profile: ProviderProfileSnapshot | null; error?: string | null }>(`/api/v1/providers/${encodeURIComponent(profileId)}/oauth/status?state=${encodeURIComponent(state)}`).then((value) => {
+      if (value.error) {
+        const error = new Error(value.error);
+        error.name = "OAuthAuthorizationError";
+        throw error;
+      }
+      return value.profile;
+    });
   }
 
   testProviderModel(profileId: string, modelId: string): Promise<{ ok: true; elapsedMs: number }> {

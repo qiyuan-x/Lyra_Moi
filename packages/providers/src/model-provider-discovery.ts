@@ -36,8 +36,7 @@ export class MeshyModelDiscoveryAdapter implements ProviderDiscoveryAdapter {
       discovered("meshy-7", "Meshy 7"),
       discovered("meshy-6", "Meshy 6"),
       discovered("meshy-5", "Meshy 5"),
-      discovered("meshy-t2", "Meshy Smart Topology T2"),
-      discovered("meshy-t1", "Meshy Smart Topology T1")
+      discovered("meshy-t2", "Meshy Smart Topology T2")
     ];
   }
 }

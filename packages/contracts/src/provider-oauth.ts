@@ -1,5 +1,15 @@
 import type { ProviderProfileSnapshot } from "./provider.js";
 
+export const ANTIGRAVITY_OAUTH_SETTINGS = {
+  antigravity: true,
+  oauthAuthorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+  oauthTokenUrl: "https://oauth2.googleapis.com/token",
+  oauthClientId: "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com",
+  oauthScope: "openid https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/cclog https://www.googleapis.com/auth/experimentsandconfigs",
+  oauthRedirectUri: "http://localhost:1455/auth/callback",
+  oauthClientSecretEnvironmentVariable: "ANTIGRAVITY_OAUTH_CLIENT_SECRET"
+};
+
 // Public Codex desktop OAuth client parameters, as used by Cockpit Tools.
 export const CODEX_OAUTH_SETTINGS = {
   oauthAuthorizeUrl: "https://auth.openai.com/oauth/authorize",
@@ -35,10 +45,10 @@ export function providerOAuthSettings(
   const settings = { ...profile.settings };
   let official = false;
   try { official = new URL(profile.baseUrl).origin === "https://api.openai.com"; } catch { /* Custom URL is validated on save. */ }
-  if (profile.serviceType !== "llm") return settings;
+  if (profile.serviceType !== "llm" && settings.antigravity !== true) return settings;
   // These presets mirror the provider CLI flows. They are only defaults:
   // explicit profile values always win and custom endpoints stay untouched.
-  const preset = profile.adapterType === "anthropic"
+  const preset = settings.antigravity === true ? ANTIGRAVITY_OAUTH_SETTINGS : profile.adapterType === "anthropic"
     ? ANTHROPIC_OAUTH_SETTINGS
     : profile.adapterType === "gemini"
       ? GEMINI_OAUTH_SETTINGS

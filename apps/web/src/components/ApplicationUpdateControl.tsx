@@ -15,9 +15,10 @@ const ACTIVE_STATUSES = new Set([
 interface ApplicationUpdateControlProps {
   api: ApiClient;
   collapsed: boolean;
+  inline?: boolean;
 }
 
-export function ApplicationUpdateControl({ api, collapsed }: ApplicationUpdateControlProps) {
+export function ApplicationUpdateControl({ api, collapsed, inline = false }: ApplicationUpdateControlProps) {
   const [snapshot, setSnapshot] = useState<ApplicationUpdateSnapshot | null>(null);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -94,8 +95,8 @@ export function ApplicationUpdateControl({ api, collapsed }: ApplicationUpdateCo
   const version = snapshot?.currentVersion ?? "0.0.3";
   const active = Boolean(snapshot && ACTIVE_STATUSES.has(snapshot.status));
   return (
-    <div className={`application-update-control${collapsed ? " collapsed" : ""}`} ref={rootRef}>
-      <button
+    <div className={`application-update-control${collapsed ? " collapsed" : ""}${inline ? " application-update-inline" : ""}`} ref={rootRef}>
+      {!inline && <button
         type="button"
         className={`application-version-button${snapshot?.updateAvailable ? " update-available" : ""}`}
         title={`当前版本 v${version}`}
@@ -104,8 +105,8 @@ export function ApplicationUpdateControl({ api, collapsed }: ApplicationUpdateCo
       >
         v{version}
         {snapshot?.updateAvailable && <span aria-label="有新版本" />}
-      </button>
-      {open && !collapsed && (
+      </button>}
+      {(open || inline) && !collapsed && (
         <div className="application-update-popover">
           <header>
             <span>当前版本</span>
@@ -125,20 +126,22 @@ export function ApplicationUpdateControl({ api, collapsed }: ApplicationUpdateCo
               <span className="application-update-ok"><Icon name="confirm" size={14} /></span>
             ) : null}
           </div>
-          <p>{snapshot?.message ?? "正在读取版本信息。"}</p>
+          <p className="application-update-status">{snapshot?.message ?? "正在读取版本信息。"}</p>
           {error && <p role="alert">{error}</p>}
-          <button type="button" disabled={busy || active || !snapshot?.enabled} onClick={() => void loadVersions()}>历史版本</button>
-          {versions.length > 0 && <div className="application-update-release">
-            <label>选择版本 <select value={selectedVersion} disabled={busy || active} onChange={(event) => setSelectedVersion(event.target.value)}>
-              <option value="">请选择</option>
-              {versions.map((item) => <option key={item.version} value={item.version}>v{item.version}{item.version === version ? "（当前）" : ""}</option>)}
-            </select></label>
+          <details className="application-update-history" onToggle={(event) => { if (event.currentTarget.open && versions.length === 0) void loadVersions(); }}>
+            <summary>版本回退</summary>
+            <div className="application-update-history-body">
+            <span>选择要回退到的版本（近 3 个版本）</span>
+            <div className="application-update-version-list">
+              {versions.map((item) => <button type="button" key={item.version} className={selectedVersion === item.version ? "selected" : ""} disabled={busy || active} onClick={() => setSelectedVersion(item.version)}><strong>v{item.version}</strong><small>{item.version === version ? "当前版本" : item.publishedAt.slice(0, 10)}</small></button>)}
+            </div>
             {versions.filter((item) => item.version === selectedVersion).map((item) => <div key={item.version}>
               <p>{formatBytes(item.artifacts["windows-x64"].size)}</p>
               <ul>{item.releaseNotes.map((note, index) => <li key={index}>{note}</li>)}</ul>
               <button type="button" disabled={busy || active} onClick={() => void install()}>下载并安装此版本</button>
             </div>)}
-          </div>}
+            </div>
+          </details>
           {snapshot?.latestVersion && snapshot.updateAvailable && (
             <div className="application-update-release">
               <strong>新版本 v{snapshot.latestVersion}</strong>

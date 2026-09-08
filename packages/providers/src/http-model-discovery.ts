@@ -1,4 +1,5 @@
 import { systemProxyFetch } from "./system-proxy.js";
+import { antigravityHeaders, antigravityProject, isAntigravityOAuth } from "./antigravity-client.js";
 import type {
   DiscoveredProviderModel,
   ProviderAdapterType,
@@ -182,6 +183,9 @@ class OpenAiModelDiscoveryAdapter implements ProviderDiscoveryAdapter {
   }
 
   async #discoverCodexModels(input: ProviderDiscoveryInput): Promise<DiscoveredProviderModel[]> {
+    // Keep query version and client headers aligned, as in sub2api's
+    // openai_codex_models_service.go and openai_codex_identity.go.
+    const clientVersion = "0.146.0";
     const settings = input.profile.settings;
     const accountId = typeof settings.credentialAccountId === "string"
       ? settings.credentialAccountId.trim()
@@ -189,18 +193,20 @@ class OpenAiModelDiscoveryAdapter implements ProviderDiscoveryAdapter {
     const headers: Record<string, string> = {
       Accept: "application/json",
       Authorization: `Bearer ${input.apiKey}`,
-      Originator: "Codex Desktop"
+      Originator: "codex-tui",
+      "User-Agent": `codex-tui/${clientVersion} (Ubuntu 22.4.0; x86_64) xterm-256color`,
+      Version: clientVersion
     };
     if (accountId) headers["ChatGPT-Account-Id"] = accountId;
     const body = await this.#client.getJson(
-      "https://chatgpt.com/backend-api/codex/models?client_version=0.91.0",
+      `https://chatgpt.com/backend-api/codex/models?client_version=${clientVersion}`,
       headers,
       input.signal
     );
     if (!isRecord(body) || !Array.isArray(body.models)) {
       throw new ProviderConnectionError("INVALID_RESPONSE", "Codex 模型清单响应格式无效。");
     }
-    return uniqueAndSortModels(body.models.flatMap((value): DiscoveredProviderModel[] => {
+    const models = uniqueAndSortModels(body.models.flatMap((value): DiscoveredProviderModel[] => {
       if (!isRecord(value)) return [];
       const remoteModelId = typeof value.slug === "string" && value.slug.trim()
         ? value.slug.trim()
@@ -213,6 +219,12 @@ class OpenAiModelDiscoveryAdapter implements ProviderDiscoveryAdapter {
           : remoteModelId;
       return [{ remoteModelId, displayName, metadata: value }];
     }));
+    if (!models.length) {
+      throw new ProviderConnectionError("INVALID_RESPONSE", body.models.length
+        ? "Codex 模型清单中没有可识别的模型 ID，已有模型未修改。"
+        : "Codex 上游返回空模型列表，无法确认模型可用性；已有模型未修改。请检查账号权限或重新授权后重试。");
+    }
+    return models;
   }
 }
 
@@ -230,6 +242,16 @@ class GeminiModelDiscoveryAdapter implements ProviderDiscoveryAdapter {
       throw new ProviderConnectionError("MISSING_API_KEY", "Provider API key is not configured.");
     }
     const models: DiscoveredProviderModel[] = [];
+    if (isAntigravityOAuth(input.profile.settings)) {
+      const base = input.profile.baseUrl.replace(/\/+$/u, "");
+      const project = await antigravityProject(this.#client, base, input.apiKey, input.signal, input.profile.settings.gcpProjectId);
+      const body = await this.#client.postJson(`${base}/v1internal:fetchAvailableModels`, antigravityHeaders(input.apiKey), { project }, input.signal);
+      if (!isRecord(body) || !isRecord(body.models)) throw new Error("Antigravity 模型列表格式无效。");
+      return Object.entries(body.models).flatMap(([id, value]) => {
+        if (!isRecord(value)) return [];
+        return [{ remoteModelId: id, displayName: typeof value.displayName === "string" ? value.displayName : id, metadata: {} }];
+      });
+    }
     let pageToken: string | null = null;
 
     for (let page = 0; page < 20; page += 1) {

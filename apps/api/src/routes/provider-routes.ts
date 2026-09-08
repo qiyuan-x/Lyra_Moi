@@ -161,14 +161,14 @@ export const handleProviderRoutes: BusinessRouteHandler =
     if (oauthStatus && request.method === "GET") {
       const oauth = requireService(options.providerOAuth, "Provider OAuth");
       const id = oauth.completedProfile(url.searchParams.get("state") ?? "", oauthStatus[0]!);
-      writeJson(response, 200, { profile: id ? await requireService(options.providers, "Provider").getProfile(id) : null }, requestId);
+      writeJson(response, 200, { profile: id ? await requireService(options.providers, "Provider").getProfile(id) : null, error: oauth.failureMessage(url.searchParams.get("state") ?? "", oauthStatus[0]!) }, requestId);
       return true;
     }
     if (oauthStart && request.method === "POST") {
       const oauth = requireService(options.providerOAuth, "Provider OAuth");
       const body = await readJsonBody(request, options.maxJsonBodyBytes);
       if (!isRecord(body) || typeof body.redirectUri !== "string") throw new Error("redirectUri is required.");
-      writeJson(response, 200, oauth.start(oauthStart[0]!, body.redirectUri), requestId); return true;
+      writeJson(response, 200, await oauth.start(oauthStart[0]!, body.redirectUri), requestId); return true;
     }
     const oauthCallback = matchPath(url.pathname, /^\/api\/v1\/providers\/([^/]+)\/oauth\/callback$/u);
     if (oauthCallback && request.method === "POST") {

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Icon } from "../../components/Icon.js";
 import type { ApiClient } from "../../lib/api-client.js";
 import {
@@ -65,6 +66,11 @@ export function PoseStudioPage(props: PoseStudioPageProps) {
   const [modelError, setModelError] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveState, setSaveState] = useState("");
+  useEffect(() => {
+    if (!saveState) return;
+    const timer = window.setTimeout(() => setSaveState(""), 4000);
+    return () => window.clearTimeout(timer);
+  }, [saveState]);
   const [previewOpen, setPreviewOpen] = useState(
     () => !window.matchMedia("(max-width: 40rem)").matches
   );
@@ -419,7 +425,7 @@ export function PoseStudioPage(props: PoseStudioPageProps) {
           )}
           <footer className="pose-stage-help">
             <span>点击蓝色骨骼选择；W 移动、R 旋转、S 缩放；左键旋转，滚轮缩放，Shift + 中键平移。</span>
-            {saveState && <strong>{saveState}</strong>}
+            {saveState && createPortal(<div className="pose-capture-toast" role="status">{saveState}</div>, document.body)}
           </footer>
         </div>
 

@@ -31,6 +31,10 @@ def main() -> int:
     manager = ProcessManager(paths)
     if arguments.apply_update:
         restart_launcher = _should_restart_launcher(arguments.apply_update)
+        if restart_launcher:
+            from .update_progress import run_update_window
+            enable_high_dpi()
+            return run_update_window(paths, arguments.apply_update, lambda: _start_desktop_launcher(paths))
         try:
             DesktopUpdateInstaller(paths).apply(arguments.apply_update)
             return 0

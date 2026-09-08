@@ -848,6 +848,11 @@ export function App() {
             thumbnailUrl={(assetId) => api.assetThumbnailUrl(assetId)}
             contentUrl={(assetId) => api.assetContentUrl(assetId)}
             previewUrl={(promptId) => api.promptPreviewUrl(promptId)}
+            onImportInputImage={async (file) => {
+              const uploaded = await uploadAssets([file]);
+              if (!uploaded[0]) throw new Error("输入图导入失败。");
+              return uploaded[0];
+            }}
             onCreate={createPromptTemplate}
             onUpdate={updatePromptTemplate}
             onDelete={deletePromptTemplate}

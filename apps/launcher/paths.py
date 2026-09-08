@@ -41,7 +41,7 @@ class LauncherPaths:
                     return version.strip()
             except (OSError, ValueError):
                 pass
-        return "0.1.0"
+        return "0.1.1"
 
     @property
     def update_manifest_url(self) -> str | None:

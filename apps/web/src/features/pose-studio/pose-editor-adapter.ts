@@ -383,7 +383,7 @@ export class PoseEditorAdapter {
       this.camera.updateProjectionMatrix();
       this.renderer.render(this.scene, this.camera);
 
-      return await new Promise<Blob>((resolve, reject) => {
+      return new Promise<Blob>((resolve, reject) => {
         this.renderer.domElement.toBlob((value) => {
           if (value) resolve(value);
           else reject(new Error("无法生成动作截图。"));
@@ -398,6 +398,7 @@ export class PoseEditorAdapter {
       this.renderer.setSize(previousSize.x, previousSize.y, false);
       this.camera.aspect = previousAspect;
       this.camera.updateProjectionMatrix();
+      this.renderer.render(this.scene, this.camera);
     }
   }
 

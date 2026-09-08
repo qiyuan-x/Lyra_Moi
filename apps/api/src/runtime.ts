@@ -119,7 +119,7 @@ export async function createApiRuntime(options: CreateApiRuntimeOptions = {}): P
     const taskRuntimeSettings = new TaskRuntimeSettingsService(settings);
     const communitySettings = new CommunitySettingsService(settings);
     const applicationUpdates = new ApplicationUpdateService({
-      currentVersion: options.appVersion?.trim() || "0.1.0",
+      currentVersion: options.appVersion?.trim() || "0.1.1",
       baseDirectory: options.applicationBaseDirectory?.trim() || process.cwd(),
       stateFile: resolve(layout.run, "application-update-state.json"),
       requestFile: resolve(layout.run, "application-update-request.json"),
@@ -185,7 +185,7 @@ export async function createApiRuntime(options: CreateApiRuntimeOptions = {}): P
       applicationUpdates,
       ...(options.deploymentMode !== "server" ? { revealDirectory: revealLocalDirectory } : {}),
       readiness: () => {
-        const workerVersion = options.workerVersion?.trim() || options.appVersion?.trim() || "0.1.0";
+        const workerVersion = options.workerVersion?.trim() || options.appVersion?.trim() || "0.1.1";
         const heartbeatCutoff = new Date(Date.now() - 5_000).toISOString();
         const webReady =
           !options.webRoot?.trim() || existsSync(resolve(options.webRoot, "index.html"));

@@ -121,7 +121,7 @@ export class RuntimeProviderFactory {
     return new HttpAgentModelClient({
       protocol: resolved.profile.protocol, baseUrl: agentBaseUrl(resolved.profile),
       apiKey: resolved.apiKey, model: resolved.model.remoteModelId,
-      settings: resolved.model.settings, assetLoader: this.#llmAssetLoader, transport: this.#agentTransport,
+      settings: { ...resolved.profile.settings, ...resolved.model.settings }, assetLoader: this.#llmAssetLoader, transport: this.#agentTransport,
       headers: importedCredentialHeaders(resolved.profile.settings, resolved.apiKey)
     });
   }
@@ -137,7 +137,7 @@ export class RuntimeProviderFactory {
       secondaryApiKey: resolved.secondaryApiKey,
       model: resolved.model.remoteModelId,
       assetLoader: this.#assetLoader,
-      settings: resolved.model.settings,
+      settings: { ...resolved.profile.settings, ...resolved.model.settings },
       client: this.#imageClient
     };
     const factory = imageProviderFactories[resolved.profile.adapterType];

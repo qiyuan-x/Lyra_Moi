@@ -25,6 +25,7 @@ interface PromptLibraryPageProps {
   thumbnailUrl: (assetId: string) => string;
   contentUrl: (assetId: string) => string;
   previewUrl: (promptId: string) => string;
+  onImportInputImage: (file: File) => Promise<AssetSnapshot>;
   onCreate: (value: CreatePromptTemplateRequestBody) => Promise<PromptTemplateSnapshot>;
   onUpdate: (promptId: string, value: UpdatePromptTemplateRequestBody) => Promise<PromptTemplateSnapshot>;
   onDelete: (promptId: string) => Promise<void>;
@@ -44,6 +45,12 @@ export function PromptLibraryPage(props: PromptLibraryPageProps) {
   const [busy, setBusy] = useState(false);
   const [favoriteBusyId, setFavoriteBusyId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<Feedback>(null);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  useEffect(() => {
+    if (!feedback) return;
+    const timer = window.setTimeout(() => setFeedback(null), 4000);
+    return () => window.clearTimeout(timer);
+  }, [feedback]);
   const [selectedExportIds, setSelectedExportIds] = useState<Set<string>>(new Set());
   const [includePreviews, setIncludePreviews] = useState(true);
   const importInputRef = useRef<HTMLInputElement>(null);
@@ -114,14 +121,21 @@ export function PromptLibraryPage(props: PromptLibraryPageProps) {
         ), "lyra-prompts.json");
       } else {
         const previews = new Map<string, Blob>();
+        const inputImages = new Map<string, Blob>();
         for (const prompt of props.prompts) {
-          if (!selectedExportIds.has(prompt.id) || !prompt.previewMimeType) continue;
+          if (!selectedExportIds.has(prompt.id)) continue;
+          if (prompt.inputImageAssetId) {
+            const response = await fetch(props.contentUrl(prompt.inputImageAssetId), { cache: "no-store" });
+            if (!response.ok) throw new Error(`无法读取“${prompt.name}”的输入图。`);
+            inputImages.set(prompt.id, await response.blob());
+          }
+          if (!prompt.previewMimeType) continue;
           const response = await fetch(props.previewUrl(prompt.id), { cache: "no-store" });
           if (!response.ok) throw new Error(`无法读取“${prompt.name}”的效果图。`);
           previews.set(prompt.id, await response.blob());
         }
         downloadBlob(
-          await createPromptArchive(props.prompts, selectedExportIds, previews),
+          await createPromptArchive(props.prompts, selectedExportIds, previews, inputImages),
           "lyra-prompts.lyra-template.zip"
         );
       }
@@ -146,7 +160,13 @@ export function PromptLibraryPage(props: PromptLibraryPageProps) {
       const records = await parsePromptImportFile(file);
       // The parent prepends new records. Reverse the input to preserve JSON order.
       for (const record of [...records].reverse()) {
-        const created = await props.onCreate(record.value);
+        const value = { ...record.value };
+        if (record.inputImage) {
+          const extension = record.inputImage.type.split("/")[1]?.replace("jpeg", "jpg") ?? "png";
+          const asset = await props.onImportInputImage(new File([record.inputImage], `${value.name}-输入图.${extension}`, { type: record.inputImage.type }));
+          value.inputImageAssetId = asset.id;
+        }
+        const created = await props.onCreate(value);
         if (record.preview) await props.onSetPreview(created.id, record.preview);
       }
       setFeedback({ type: "success", text: `已导入 ${records.length} 条提示词。` });
@@ -255,7 +275,7 @@ export function PromptLibraryPage(props: PromptLibraryPageProps) {
       <div className="prompt-selection-bar">
         <div>
           <strong>提示词列表</strong>
-          <span>选择需要导出的提示词</span>
+          <span>选择需要导出或删除的提示词</span>
         </div>
         <div className="prompt-selection-actions">
           <label className="checkbox-field prompt-export-preview-option">
@@ -264,19 +284,13 @@ export function PromptLibraryPage(props: PromptLibraryPageProps) {
               checked={includePreviews}
               onChange={(event) => setIncludePreviews(event.target.checked)}
             />
-            包含效果图
+            包含输入图和效果图
           </label>
           <span>
             已选择 <b>{selectedExportIds.size}</b> 项
           </span>
-          <button
-            type="button"
-            className="button button-quiet"
-            disabled={visibleExportable.length === 0}
-            onClick={toggleVisibleSelection}
-          >
-            {allVisibleSelected ? "取消全选" : "全选当前"}
-          </button>
+          <label className="checkbox-field"><input type="checkbox" checked={allVisibleSelected} disabled={busy || visibleExportable.length === 0} onChange={toggleVisibleSelection} />全选当前</label>
+          <button type="button" className="button button-secondary" disabled={busy || selectedExportIds.size === 0} onClick={() => setBulkDeleting(true)}>批量删除</button>
           <button
             type="button"
             className="button button-quiet"
@@ -432,6 +446,21 @@ export function PromptLibraryPage(props: PromptLibraryPageProps) {
         />
       )}
 
+      {bulkDeleting && <ConfirmDialog title="批量删除提示词" text={`确认删除选中的 ${selectedExportIds.size} 条提示词？`} busy={busy} onClose={() => { if (!busy) setBulkDeleting(false); }} onConfirm={async () => {
+        setBusy(true);
+        const ids = [...selectedExportIds];
+        let count = 0;
+        try {
+          for (const id of ids) {
+            await props.onDelete(id);
+            count += 1;
+            setSelectedExportIds((current) => { const next = new Set(current); next.delete(id); return next; });
+          }
+          setFeedback({ type: "success", text: `已删除 ${count} 条提示词。` });
+        } catch (cause) {
+          setFeedback({ type: "error", text: `已删除 ${count} 条；${cause instanceof Error ? cause.message : String(cause)}` });
+        } finally { setBusy(false); setBulkDeleting(false); }
+      }} />}
       {deleting && (
         <ConfirmDialog
           title="删除提示词模板"

@@ -1,4 +1,4 @@
-import { ANTHROPIC_OAUTH_SETTINGS, CODEX_OAUTH_SETTINGS, GEMINI_OAUTH_SETTINGS } from "@lyra/contracts";
+import { ANTIGRAVITY_OAUTH_SETTINGS, ANTHROPIC_OAUTH_SETTINGS, CODEX_OAUTH_SETTINGS, GEMINI_OAUTH_SETTINGS } from "@lyra/contracts";
 import type {
   ProviderAdapterType,
   ProviderModelSnapshot,
@@ -54,6 +54,7 @@ const GEMINI_GUIDE =
 
 export const providerPresets: Record<ProviderServiceType, ProviderPreset[]> = {
   llm: [
+    { ...preset("antigravity", "llm", "Antigravity", "AG", "gemini", "gemini", "https://cloudcode-pa.googleapis.com", ["antigravity", "google antigravity"], "https://antigravity.google", "OAuth 使用 Antigravity 账号；API Key 模式请填写支持 Gemini 协议的服务 Base URL。"), settings: ANTIGRAVITY_OAUTH_SETTINGS },
     {
       ...preset("openai", "llm", "OpenAI", "GPT", "openai", "openai", "https://api.openai.com/v1", ["openai", "chatgpt"], "https://platform.openai.com/api-keys", OPENAI_GUIDE),
       settings: CODEX_OAUTH_SETTINGS
@@ -70,6 +71,7 @@ export const providerPresets: Record<ProviderServiceType, ProviderPreset[]> = {
     preset("mistral", "llm", "Mistral", "M", "openai-compatible", "openai-compatible", "https://api.mistral.ai/v1", ["mistral"], "https://console.mistral.ai/api-keys", "1. 登录 Mistral Console。\n2. 创建 API Key。\n3. 复制密钥后返回 Lyra 执行连通性测试。")
   ],
   image: [
+    { ...preset("antigravity-image", "image", "Antigravity 图像", "AG", "gemini", "gemini", "https://cloudcode-pa.googleapis.com", ["antigravity"], "https://antigravity.google", "OAuth 使用 Antigravity 账号；API Key 模式请填写支持 Gemini 生图协议的服务 Base URL。"), settings: ANTIGRAVITY_OAUTH_SETTINGS },
     preset("gpt-image", "image", "OpenAI 图像", "GPT", "openai", "openai", "https://api.openai.com/v1", ["openai", "gpt-image", "chatgpt"], "https://platform.openai.com/api-keys", OPENAI_GUIDE),
     preset("frostapi", "image", "FrostAPI 图像", "Frost", "openai-compatible", "openai-compatible", "https://api.linfrsot.cloud", ["frostapi", "frost", "frsotapi"], "https://api.linfrsot.cloud", "1. 在 FrostAPI 控制台创建 API Key。\n2. 确认已开通图像模型。\n3. 复制密钥后返回 Lyra 执行连通性测试。"),
     preset("gemini-image", "image", "Gemini 图像", "G", "gemini", "gemini", "https://generativelanguage.googleapis.com/v1beta", ["gemini", "google"], "https://aistudio.google.com/app/apikey", GEMINI_GUIDE),

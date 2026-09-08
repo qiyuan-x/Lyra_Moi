@@ -72,6 +72,7 @@ export function ProviderConnectionSection(props: ProviderConnectionSectionProps)
     adapterType: initialAdapter
   });
   const savedSettings = useRef(baseSettings);
+  const [gcpProjectId, setGcpProjectId] = useState(readString(baseSettings.gcpProjectId) ?? "");
   const [credentialProfile, setCredentialProfile] = useState(props.profile);
   const [credentialBusy, setCredentialBusy] = useState(false);
   const credentialBusyRef = useRef(false);
@@ -104,7 +105,16 @@ export function ProviderConnectionSection(props: ProviderConnectionSectionProps)
           void loadAccount(profile.id);
           return;
         }
-      } catch { /* Keep manual callback available after transient network errors. */ }
+      } catch (error) {
+        if (cancelled) return;
+        if (error instanceof Error && error.name === "OAuthAuthorizationError") {
+          setOauthSession(null);
+          setAuthorizationUrl("");
+          setStatus({ type: "error", text: error.message });
+          return;
+        }
+        // Retry transient network errors; keep manual callback available.
+      }
       if (!cancelled && Date.now() < deadline) timer = setTimeout(() => void poll(), 1500);
     };
     timer = setTimeout(() => void poll(), 1500);
@@ -219,7 +229,7 @@ export function ProviderConnectionSection(props: ProviderConnectionSectionProps)
       adapterType,
       baseUrl: baseUrl.trim(),
       settings: withProviderMetadata(
-        savedSettings.current,
+        { ...savedSettings.current, ...(baseSettings.antigravity === true ? { gcpProjectId: gcpProjectId.trim() } : {}) },
         apiKeyWebsite,
         apiKeyGuide,
         props.preset?.id,
@@ -333,6 +343,7 @@ export function ProviderConnectionSection(props: ProviderConnectionSectionProps)
     oauthAuthorizeUrl,
     oauthTokenUrl,
     oauthClientId,
+    gcpProjectId,
     credentialMode,
     credentialBusy
   ]);
@@ -722,6 +733,10 @@ export function ProviderConnectionSection(props: ProviderConnectionSectionProps)
             {supportsTokenImport && <button type="button" className={credentialMode === "token" ? "active" : ""} onClick={() => setCredentialMode("token")}>▤ Token / JSON</button>}
             <button type="button" className={credentialMode === "apikey" ? "active" : ""} onClick={() => setCredentialMode("apikey")}>🔑 API Key</button>
           </div>
+          {baseSettings.antigravity === true && credentialMode === "oauth" && <label className="field settings-grid-wide">
+            <span>GCP Project ID（可选）</span>
+            <input value={gcpProjectId} onChange={(event) => setGcpProjectId(event.target.value)} placeholder="your-gcp-project-id" disabled={props.busy || credentialBusy} />
+          </label>}
           {credentialMode === "apikey" && (
             <SecretField
               id="provider-primary-key"

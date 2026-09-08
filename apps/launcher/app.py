@@ -15,7 +15,7 @@ from .paths import LauncherPaths
 from .process_manager import LogTailer, ProcessManager, ServiceStatus
 from .update_manager import DesktopUpdateCandidate, DesktopUpdateCheck, DesktopUpdateClient
 
-LYRA_VERSION = "0.1.0"
+LYRA_VERSION = "0.1.1"
 
 COLORS = {
     "background": "#0f172a",
@@ -513,7 +513,16 @@ class LyraLauncher(tk.Tk):
             messagebox.showerror("升级启动失败", str(error), parent=self._update_window or self)
             return
         self._append_launcher_log(f"已提交 v{candidate.version} 升级任务，启动器将自动重新打开。")
-        self.after(180, self._destroy_launcher)
+        self._wait_for_update_window(0)
+
+    def _wait_for_update_window(self, attempts: int) -> None:
+        ready = self.manager.paths.data_dir / "temp" / "updater" / "window-ready"
+        if ready.is_file():
+            self._destroy_launcher()
+        elif attempts < 150:
+            self.after(200, lambda: self._wait_for_update_window(attempts + 1))
+        else:
+            self.footer_status.set("更新窗口尚未就绪，请查看更新状态，勿重复安装。")
 
     def _drain_update_messages(self) -> None:
         try:

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { ProjectAnimationSnapshot } from "@lyra/contracts";
 import { Icon } from "../../components/Icon.js";
 import type { ApiClient } from "../../lib/api-client.js";
@@ -52,6 +53,12 @@ export function AnimationModelWorkspace(props: AnimationModelWorkspaceProps) {
   const [clipPickerOpen, setClipPickerOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveState, setSaveState] = useState("");
+  const [captureNotice, setCaptureNotice] = useState("");
+  useEffect(() => {
+    if (!captureNotice) return;
+    const timer = window.setTimeout(() => setCaptureNotice(""), 4000);
+    return () => window.clearTimeout(timer);
+  }, [captureNotice]);
   const [captureOptions, setCaptureOptions] = useState<PoseCaptureOptions>({
     aspectRatio: "1:1",
     resolution: 1024,
@@ -248,6 +255,7 @@ export function AnimationModelWorkspace(props: AnimationModelWorkspaceProps) {
 
   async function saveScreenshot() {
     if (!modelInfo || saving) return;
+    setCaptureNotice("");
     setSaving(true);
     setSaveState("");
     try {
@@ -260,9 +268,9 @@ export function AnimationModelWorkspace(props: AnimationModelWorkspaceProps) {
         `${modelName}-${clipName}-帧${currentFrame}.png`,
         { type: "image/png" }
       ));
-      setSaveState("已保存到当前项目素材库");
+      setCaptureNotice("已保存到当前项目素材库");
     } catch (saveError) {
-      setSaveState(saveError instanceof Error ? saveError.message : "保存截图失败");
+      setCaptureNotice(saveError instanceof Error ? saveError.message : "保存截图失败");
     } finally {
       setSaving(false);
     }
@@ -595,6 +603,7 @@ export function AnimationModelWorkspace(props: AnimationModelWorkspaceProps) {
             {saving ? "正在保存" : "保存当前帧截图"}
           </button>
           {saveState && <strong className="animation-save-state">{saveState}</strong>}
+          {captureNotice && createPortal(<div className="pose-capture-toast" role="status">{captureNotice}</div>, document.body)}
         </section>
       </aside>
       {projectPickerOpen && props.mode === "ue5" && (

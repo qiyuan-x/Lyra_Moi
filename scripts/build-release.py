@@ -20,15 +20,13 @@ APP_DIR = RELEASE_DIR / "app"
 UPDATE_MANIFEST_URL = "https://linfrsot.cloud/lyra/updates/latest.json"
 UPDATE_PACKAGE_BASE_URL = "https://linfrsot.cloud/lyra/updates/packages"
 RELEASE_NOTES = (
-    "重新设计 Agent 运行时，支持自动计划、多工具调用、审核恢复和上下文压缩。",
-    "Agent 可调用应用项目、素材、任务、提示词、图片生成和 3D 建模功能。",
-    "Agent 支持子智能体任务、等待恢复、执行锁和持久化检查点。",
-    "供应商增加 OAuth、Token/JSON 导入、账号状态、额度查询和凭据删除。",
-    "完善供应商模型同步、手动模型添加、单模型连通性测试和系统代理跟随。",
-    "项目目录支持便携识别与数据恢复，升级时保留用户数据库和项目文件。",
-    "提示词库支持输入图与效果图预览，完善图片和模型查看交互。",
-    "更新器支持查询三个历史版本并直接选择旧版本回退。",
+    "增加 Antigravity 对话和生图支持，完善 OAuth 本地回调与客户端参数。",
+    "更新 OpenAI OAuth 模型列表请求，增加按用途过滤和清空模型列表。",
+    "提示词模板包支持携带输入图和效果图，导入时重新关联素材。",
+    "调整设置折叠布局、模型选择布局和动作截图提示。",
+    "增加独立升级进度窗口，保留历史版本回退功能。",
 )
+
 sys.path.insert(0, str(ROOT))
 
 from apps.launcher.paths import LauncherPaths  # noqa: E402
@@ -37,8 +35,9 @@ from apps.launcher.process_manager import ProcessManager  # noqa: E402
 
 def main(argv: list[str] | None = None) -> int:
     global RELEASE_DIR, APP_DIR
-    parser = argparse.ArgumentParser(description="Build a Windows release in an empty output directory.")
-    parser.add_argument("--output-dir", type=Path, default=RELEASE_DIR)
+    parser = argparse.ArgumentParser(description="Build and verify Windows portable and update ZIP archives.")
+    parser.add_argument("--output-dir", type=Path,
+                        default=ROOT / "release" / f"Lyra-{_application_version()}-windows-x64")
     arguments = parser.parse_args(argv)
     RELEASE_DIR = _validate_output_directory(arguments.output_dir)
     APP_DIR = RELEASE_DIR / "app"
@@ -57,12 +56,19 @@ def main(argv: list[str] | None = None) -> int:
     _build_update_archive()
     _build_portable_archive()
     _smoke_test_release()
-    _reset_release_data()
+    _remove_release_staging()
     _safe_remove(BUILD_DIR)
 
-    executable = RELEASE_DIR / "LyraLauncher.exe"
-    print(f"Windows release created: {executable}")
+    print(f"Windows archives created: {RELEASE_DIR}")
     return 0
+
+
+def _remove_release_staging() -> None:
+    # Called only after verification in a new, initially empty output directory.
+    for name in ("app", "runtime", "data"):
+        _safe_remove(RELEASE_DIR / name)
+    for name in ("LyraLauncher.exe", "latest.json", "update-artifact.json"):
+        (RELEASE_DIR / name).unlink(missing_ok=True)
 
 
 def _bundle_node_services() -> None:

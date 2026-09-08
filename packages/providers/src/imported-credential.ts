@@ -68,7 +68,7 @@ function normalize(value: unknown, depth = 0): JsonRecord {
   if (!value || typeof value !== "object") throw new Error("凭据必须是 JSON 对象或 Token 字符串。");
   const source = value as JsonRecord;
   if (Array.isArray(source.accounts)) return normalize(source.accounts, depth + 1);
-  for (const key of ["session", "session_json", "token_data", "tokens", "credential", "credentials", "claudeAiOauth"]) {
+  for (const key of ["session", "session_json", "token_data", "tokens", "token", "credential", "credentials", "claudeAiOauth"]) {
     const child = source[key];
     if (child && typeof child === "object" || typeof child === "string" && /^[\[{]/u.test(child.trim())) {
       return { ...source, ...normalize(child, depth + 1) };

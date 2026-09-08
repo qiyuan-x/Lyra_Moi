@@ -395,7 +395,7 @@ export class AnimationModelViewerAdapter {
       this.#camera.aspect = width / height;
       this.#camera.updateProjectionMatrix();
       this.#renderer.render(this.#scene, this.#camera);
-      return await new Promise<Blob>((resolve, reject) => {
+      return new Promise<Blob>((resolve, reject) => {
         this.#renderer.domElement.toBlob((blob) => {
           if (blob) resolve(blob);
           else reject(new Error("无法生成动画截图。"));
@@ -409,6 +409,7 @@ export class AnimationModelViewerAdapter {
       this.#renderer.setSize(previousSize.x, previousSize.y, false);
       this.#camera.aspect = previousAspect;
       this.#camera.updateProjectionMatrix();
+      this.#renderer.render(this.#scene, this.#camera);
     }
   }
 

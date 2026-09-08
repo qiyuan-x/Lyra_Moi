@@ -1,3 +1,4 @@
+import { isImageGenerationModelId } from "@lyra/contracts";
 import { ManualModelDialog } from "../features/settings/ManualModelDialog.js";
 import { useEffect, useState } from "react";
 import { ApplicationUpdateControl } from "./ApplicationUpdateControl.js";
@@ -68,6 +69,10 @@ export function SettingsPage(props: SettingsPageProps) {
   const [modelDialog, setModelDialog] = useState<ProviderModelSnapshot | null>(null);
   const [manualDialog, setManualDialog] = useState<"add" | "test" | null>(null);
   const [deletingProvider, setDeletingProvider] = useState<ProviderProfileSnapshot | null>(null);
+  const [clearingModels, setClearingModels] = useState<ProviderProfileSnapshot | null>(null);
+  const [filterPreferences, setFilterPreferences] = useState<Record<string, boolean>>(() => {
+    try { const value: unknown = JSON.parse(localStorage.getItem("lyra.model-purpose-filter") ?? "{}"); return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, boolean> : {}; } catch { return {}; }
+  });
   const [deletingModel, setDeletingModel] = useState<ProviderModelSnapshot | null>(null);
   const [connectionFeedback, setConnectionFeedback] = useState<ConnectionStatus | null>(null);
   const [openProviderMenuId, setOpenProviderMenuId] = useState<string | null>(null);
@@ -86,6 +91,18 @@ export function SettingsPage(props: SettingsPageProps) {
         (model) => model.providerProfileId === selected.id && model.serviceType === serviceType
       )
     : [];
+  const filterModels = selected ? filterPreferences[selected.id] !== false : true;
+  const visibleModels = selectedModels.filter((model) => {
+    if (!filterModels || serviceType === "model" || model.id === props.catalog.defaults[serviceType] || model.settings.manuallyAdded === true) return true;
+    const image = isImageGenerationModelId(model.remoteModelId, selected!.protocol);
+    return serviceType === "image" ? image : !image;
+  });
+  function toggleModelFilter() {
+    if (!selected) return;
+    const next = { ...filterPreferences, [selected.id]: !filterModels };
+    setFilterPreferences(next);
+    try { localStorage.setItem("lyra.model-purpose-filter", JSON.stringify(next)); } catch { /* Keep the current session usable when storage is unavailable. */ }
+  }
   const availableDefaultModels = props.catalog.models.filter((model) => {
     const profile = props.catalog.profiles.find((item) => item.id === model.providerProfileId);
     return model.serviceType === serviceType && model.enabled && profile?.enabled;
@@ -324,17 +341,14 @@ export function SettingsPage(props: SettingsPageProps) {
               />
             ) : (
               <div className="other-settings-groups">
-                <section className="settings-update-setting">
-                  <strong>应用版本 / 历史版本</strong>
-                  <ApplicationUpdateControl api={props.api} collapsed={false} />
-                </section>
-                <TaskRuntimeSettings api={props.api} onError={props.onError} />
-                <CommunitySettings api={props.api} onError={props.onError} onChanged={props.onCommunityChanged} />
-                <AgentSettingsOverview
-                  onOpenPrompts={() => setAgentDetail("prompts")}
-                  onOpenRuntime={() => setAgentDetail("runtime")}
-                />
-                <AppearanceSettings mode={props.appearanceMode} onChange={props.onAppearanceChange} />
+                <details className="other-settings-fold">
+                  <summary>应用版本</summary>
+                  <ApplicationUpdateControl api={props.api} collapsed={false} inline />
+                </details>
+                <details className="other-settings-fold"><summary>任务设置</summary><TaskRuntimeSettings api={props.api} onError={props.onError} /></details>
+                <details className="other-settings-fold"><summary>社区设置</summary><CommunitySettings api={props.api} onError={props.onError} onChanged={props.onCommunityChanged} /></details>
+                <details className="other-settings-fold"><summary>Agent 设置</summary><AgentSettingsOverview onOpenPrompts={() => setAgentDetail("prompts")} onOpenRuntime={() => setAgentDetail("runtime")} /></details>
+                <details className="other-settings-fold"><summary>显示设置</summary><AppearanceSettings mode={props.appearanceMode} onChange={props.onAppearanceChange} /></details>
               </div>
             )
           ) : !detailTarget ? (
@@ -457,6 +471,7 @@ export function SettingsPage(props: SettingsPageProps) {
                     <header>
                       <div><strong>{serviceSettings[serviceType].label.replace("设置", "模型")}</strong><span>连通性测试成功后自动同步此能力可用的远程模型。</span></div>
                     </header>
+                    <div className="settings-model-picker-row">
                     <label className="field settings-detail-default">
                       <span>当前使用模型</span>
                       <select
@@ -465,19 +480,22 @@ export function SettingsPage(props: SettingsPageProps) {
                         onChange={(event) => selectDetailModel(event.target.value)}
                       >
                         <option value="">请选择模型</option>
-                        {selectedModels.filter((model) => model.enabled).map((model) => (
+                        {visibleModels.filter((model) => model.enabled).map((model) => (
                           <option value={model.id} key={model.id}>
                             {providerModelDisplayName(model)}
                           </option>
                         ))}
                       </select>
                     </label>
+                    {serviceType !== "model" && <label className="checkbox-field settings-model-filter"><input type="checkbox" role="switch" checked={filterModels} onChange={toggleModelFilter} />按用途过滤</label>}
+                    </div>
                     <div className="settings-manual-model">
                       <button type="button" className="button button-secondary" disabled={busy} onClick={() => setManualDialog("add")}>添加模型</button>
+                      <button type="button" className="button button-secondary" disabled={busy || !selectedModels.length} onClick={() => setClearingModels(selected)}>清空模型列表</button>
                       {serviceType === "llm" && <button type="button" className="button button-secondary" disabled={busy || !selectedModels.length} onClick={() => setManualDialog("test")}>测试模型</button>}
                     </div>
                     <ModelList
-                      models={selectedModels}
+                      models={visibleModels}
                       defaultId={props.catalog.defaults[serviceType]}
                       onToggle={(model) => void run(async () => {
                         await props.api.updateProviderModel(model.id, { enabled: !model.enabled });
@@ -559,6 +577,20 @@ export function SettingsPage(props: SettingsPageProps) {
             setDeletingProvider(null);
           })}
         />
+      )}
+      {clearingModels && (
+        <ConfirmDialog title="清空模型列表" text={`确认清空“${clearingModels.name}”的全部模型（包括隐藏模型）？当前模型选择会清除，账号和凭据保留。重新测试连通性可同步模型。`} busy={busy}
+          onClose={() => setClearingModels(null)}
+          onConfirm={() => run(async () => {
+            const models = props.catalog.models.filter((model) => model.providerProfileId === clearingModels.id);
+            let failed = 0;
+            for (const model of models) {
+              try { await props.api.deleteProviderModel(model.id); } catch { failed++; }
+            }
+            await refresh();
+            setClearingModels(null);
+            if (failed) throw new Error(`已删除 ${models.length - failed} 个模型，${failed} 个删除失败，请重试。`);
+          })} />
       )}
       {deletingModel && (
         <ConfirmDialog

@@ -1,3 +1,5 @@
+import { isImageGenerationModelId } from "@lyra/contracts";
+export { isImageGenerationModelId } from "@lyra/contracts";
 import { randomUUID } from "node:crypto";
 import { HttpAgentModelClient } from "./agent-model-client.js";
 import { agentBaseUrl, importedCredentialHeaders } from "./runtime-provider-resolver.js";
@@ -337,7 +339,7 @@ export class ProviderSettingsService {
     const profile = this.#providers.requireProfile(profileId);
     const discovered = await this.#discoverRawModels(profile, signal);
     const models = filterDiscoveredModels(profile, discovered);
-    this.#synchronizeDiscoveredModels(profileId, models, discovered);
+    this.#synchronizeDiscoveredModels(profileId, discovered, discovered);
     return {
       ok: true,
       modelCount: models.length,
@@ -353,7 +355,7 @@ export class ProviderSettingsService {
     const token = await this.#secrets.get(profile.apiKeyEnvironmentVariable);
     const client = new HttpAgentModelClient({
       protocol: profile.protocol, baseUrl: agentBaseUrl(profile), model: remoteModelId.trim(), apiKey: token,
-      headers: importedCredentialHeaders(profile.settings, token), settings: { maxOutputTokens: 128 }
+      headers: importedCredentialHeaders(profile.settings, token), settings: { ...profile.settings, maxOutputTokens: 128 }
     });
     const started = performance.now();
     let completed = false;
@@ -632,19 +634,4 @@ export function filterDiscoveredModels(
     const imageModel = isImageGenerationModelId(model.remoteModelId, profile.protocol);
     return profile.serviceType === "image" ? imageModel : !imageModel;
   });
-}
-
-export function isImageGenerationModelId(
-  remoteModelId: string,
-  protocol: ProviderProtocol
-): boolean {
-  const id = remoteModelId.trim().toLowerCase().replace(/^models\//u, "");
-  if (!id || /(embedding|moderation|rerank|vision-only)/u.test(id)) return false;
-  if (protocol === "gemini") {
-    return /^gemini-[a-z0-9.]+-[a-z0-9.-]*image(?:[-.]|$)/u.test(id) ||
-      /^imagen(?:[-.]|$)/u.test(id);
-  }
-  return /(?:^|[-_.])(gpt-image|dall-e|imagen|imagegen|image-generation|nano-banana|flux|stable-image|stable-diffusion|sd3|sdxl|recraft|ideogram|midjourney|seedream|qwen-image|wan[0-9]|kolors|hidream|jimeng|cogview|glm-image|hunyuan-image)(?:[-_.]|$)/u.test(id) ||
-    /^gemini-[a-z0-9.]+-[a-z0-9.-]*image(?:[-.]|$)/u.test(id) ||
-    /(?:^|[-_.])image(?:[-_.]|$)/u.test(id);
 }

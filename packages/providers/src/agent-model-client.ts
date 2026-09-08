@@ -1,4 +1,6 @@
 import type { ModelClient, ModelEvent, ModelRequest, ModelResponse } from "@lyra/agent-runtime";
+import { antigravityHeaders, antigravityProject, antigravityRequest, isAntigravityOAuth, unwrapAntigravity } from "./antigravity-client.js";
+import { ProviderHttpClient } from "./provider-http-client.js";
 import type { ProviderProtocol } from "@lyra/contracts";
 import { AgentModelTransport } from "./agent-model-transport.js";
 import { ProviderConnectionError, sanitizeError } from "./provider-errors.js";
@@ -50,10 +52,21 @@ export class HttpAgentModelClient implements ModelClient {
       else headers.Authorization = `Bearer ${apiKey}`;
     }
     Object.assign(headers, this.options.headers);
-    const body = await encodeAgentRequest(request, { protocol, model, settings: this.settings,
+    let body = await encodeAgentRequest(request, { protocol, model, settings: this.settings,
       ...(this.options.assetLoader ? { assetLoader: this.options.assetLoader } : {}) });
     const decoder = new ResponseAccumulator(protocol);
-    for await (const value of this.transport.post(`${baseUrl}${path}`, headers, body, request.signal)) {
+    let url = `${baseUrl}${path}`;
+    const antigravity = isAntigravityOAuth(this.settings);
+    if (antigravity) {
+      if (!apiKey) throw new Error("Antigravity 账号缺少访问令牌。");
+      const project = await antigravityProject(new ProviderHttpClient(), baseUrl, apiKey, request.signal, this.settings.gcpProjectId);
+      body = antigravityRequest(project, model, body);
+      url = `${baseUrl}/v1internal:${stream ? "streamGenerateContent?alt=sse" : "generateContent"}`;
+      for (const key of Object.keys(headers)) delete headers[key];
+      Object.assign(headers, antigravityHeaders(apiKey));
+    }
+    for await (const raw of this.transport.post(url, headers, body, request.signal)) {
+      const value = antigravity ? unwrapAntigravity(raw) : raw;
       const event = object(value);
       if (event.error || event.type === "error" || event.type === "response.failed") {
         const detail = sanitizeError(new Error(JSON.stringify(value, null, 2)), apiKey ? [apiKey] : []).message;

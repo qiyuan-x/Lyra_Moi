@@ -1,4 +1,5 @@
 import type { GenerationRequest } from "@lyra/contracts";
+import { antigravityHeaders, antigravityProject, antigravityRequest, isAntigravityOAuth, unwrapAntigravity } from "./antigravity-client.js";
 import type { BinaryImageProvider, GeneratedImageBinary } from "@lyra/core";
 import { ProviderConnectionError } from "./provider-errors.js";
 import {
@@ -48,6 +49,38 @@ export class GeminiImageProvider implements BinaryImageProvider {
       });
     }
     const output: GeneratedImageBinary[] = [];
+    if (this.#settings.antigravity === true) {
+      const oauth = isAntigravityOAuth(this.#settings);
+      const project = oauth ? await antigravityProject(this.#client, this.#baseUrl, this.#apiKey, signal, this.#settings.gcpProjectId) : "";
+      const parts = input.map((part) => part.type === "text" ? { text: part.text } : { inlineData: { mimeType: part.mime_type, data: part.data } });
+      const parameters = { ...this.#settings, ...request.parameters };
+      const imageConfig: Record<string, unknown> = {};
+      if (typeof parameters.aspectRatio === "string" && parameters.aspectRatio !== "auto") imageConfig.aspectRatio = parameters.aspectRatio;
+      if (typeof parameters.resolution === "string" && parameters.resolution !== "auto") imageConfig.imageSize = parameters.resolution.toUpperCase();
+      for (let index = 0; index < request.count; index += 1) {
+        const payload = { contents: [{ role: "user", parts }], generationConfig: { responseModalities: ["TEXT", "IMAGE"], imageConfig } };
+        const value = await this.#client.postJson(
+          oauth ? `${this.#baseUrl}/v1internal:generateContent` : `${this.#baseUrl}/models/${encodeURIComponent(this.#model)}:generateContent`,
+          oauth ? antigravityHeaders(this.#apiKey) : { "x-goog-api-key": this.#apiKey },
+          oauth ? antigravityRequest(project, this.#model, payload) : payload, signal);
+        const body = unwrapAntigravity(value);
+        if (!isRecord(body) || !Array.isArray(body.candidates)) invalidResponse();
+        const images = body.candidates.flatMap((candidate: unknown) => {
+          if (!isRecord(candidate) || !isRecord(candidate.content) || !Array.isArray(candidate.content.parts)) return [];
+          return candidate.content.parts.flatMap((part: unknown) => {
+            if (!isRecord(part)) return [];
+            const inline = part.inlineData ?? part.inline_data;
+            if (!isRecord(inline) || typeof inline.data !== "string") return [];
+            const mimeType = readString(inline.mimeType ?? inline.mime_type) ?? "image/png";
+            if (!mimeType.startsWith("image/")) return [];
+            return [{ data: decodeBase64(inline.data), mimeType, name: `antigravity-${index + 1}.${extensionFor(mimeType)}` }];
+          });
+        });
+        if (!images.length) throw new Error("Antigravity 未返回图片，请检查所选模型是否支持生图。");
+        output.push(...images);
+      }
+      return output;
+    }
     for (let index = 0; index < request.count; index += 1) {
       signal?.throwIfAborted();
       const body = await this.#client.postJson(
