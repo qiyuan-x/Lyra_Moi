@@ -1,3 +1,4 @@
+import { isProviderModelVisible } from "@lyra/contracts";
 import type {
   ProviderModelSnapshot,
   ProviderServiceType
@@ -19,7 +20,8 @@ export function listEnabledModels(
   return catalog.models.filter((model) =>
     model.serviceType === serviceType &&
     model.enabled &&
-    enabledProfiles.has(model.providerProfileId)
+    enabledProfiles.has(model.providerProfileId) &&
+    isProviderModelVisible(model, catalog.profiles.find((profile) => profile.id === model.providerProfileId)!, catalog.defaults[serviceType])
   );
 }
 

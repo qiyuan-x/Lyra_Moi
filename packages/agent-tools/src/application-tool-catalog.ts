@@ -1,5 +1,5 @@
 import { ToolCatalog, type RunContext, type RuntimeTool, type ToolContext, type ToolOutcome } from "@lyra/agent-runtime";
-import { defaultModelParameters, type GenerationRequest } from "@lyra/contracts";
+import { isProviderModelVisible, defaultModelParameters, type GenerationRequest } from "@lyra/contracts";
 import type { AssetService, ModelGenerationService, PromptTemplateService, QueuedGenerationService, WorkspaceQueryService } from "@lyra/core";
 import type { RuntimeRepositories } from "@lyra/storage";
 
@@ -98,10 +98,15 @@ export function createApplicationToolCatalog(services: ApplicationToolServices):
     const limit = Number(value.limit ?? 20);
     const search = String(value.search ?? "").toLowerCase();
     return result(repositories.providers.listProfiles()
-      .filter((profile) => (!value.profileId || profile.id === value.profileId) &&
+      .filter((profile) => profile.enabled && (!value.profileId || profile.id === value.profileId) &&
         (!value.serviceType || profile.serviceType === value.serviceType))
       .map((profile) => {
+        const defaultKey = profile.serviceType === "image" ? "default_image_model_id" :
+          profile.serviceType === "llm" ? "default_llm_model_id" : "default_model_provider_model_id";
+        const defaultId = repositories.settings.get(defaultKey);
         const models = repositories.providers.listModels(profile.id).filter((model) =>
+          model.enabled && model.serviceType === profile.serviceType &&
+          isProviderModelVisible(model, profile, typeof defaultId === "string" ? defaultId : null) &&
           `${model.id} ${model.displayName} ${model.remoteModelId}`.toLowerCase().includes(search));
         return {
           id: profile.id, name: profile.name, serviceType: profile.serviceType, enabled: profile.enabled,
@@ -110,7 +115,7 @@ export function createApplicationToolCatalog(services: ApplicationToolServices):
             id: model.id, name: model.displayName, remoteModelId: model.remoteModelId, enabled: model.enabled
           }))
         };
-      }));
+      }).filter((profile) => profile.total > 0));
   });
   add("request_user_input", "缺少必要信息时提问并暂停，等待用户回复。", "write", schema({ prompt: text, choices: {
     type: "array", maxItems: 10, items: schema({ id: text, label: text }, ["id", "label"])

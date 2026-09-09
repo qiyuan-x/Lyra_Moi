@@ -1,4 +1,4 @@
-import { isImageGenerationModelId } from "@lyra/contracts";
+import { isProviderModelVisible } from "@lyra/contracts";
 import { ManualModelDialog } from "../features/settings/ManualModelDialog.js";
 import { useEffect, useState } from "react";
 import { ApplicationUpdateControl } from "./ApplicationUpdateControl.js";
@@ -29,7 +29,7 @@ import {
 import { ProviderRow } from "../features/settings/ProviderRow.js";
 import { ProviderPickerDialog } from "../features/settings/ProviderPickerDialog.js";
 import { ProviderModelSelects } from "../features/providers/ProviderModelSelects.js";
-import { providerModelDisplayName } from "../features/providers/catalog-selectors.js";
+import { listEnabledModels, providerModelDisplayName } from "../features/providers/catalog-selectors.js";
 import {
   adapterLabel,
   countServiceModels,
@@ -70,9 +70,6 @@ export function SettingsPage(props: SettingsPageProps) {
   const [manualDialog, setManualDialog] = useState<"add" | "test" | null>(null);
   const [deletingProvider, setDeletingProvider] = useState<ProviderProfileSnapshot | null>(null);
   const [clearingModels, setClearingModels] = useState<ProviderProfileSnapshot | null>(null);
-  const [filterPreferences, setFilterPreferences] = useState<Record<string, boolean>>(() => {
-    try { const value: unknown = JSON.parse(localStorage.getItem("lyra.model-purpose-filter") ?? "{}"); return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, boolean> : {}; } catch { return {}; }
-  });
   const [deletingModel, setDeletingModel] = useState<ProviderModelSnapshot | null>(null);
   const [connectionFeedback, setConnectionFeedback] = useState<ConnectionStatus | null>(null);
   const [openProviderMenuId, setOpenProviderMenuId] = useState<string | null>(null);
@@ -91,22 +88,20 @@ export function SettingsPage(props: SettingsPageProps) {
         (model) => model.providerProfileId === selected.id && model.serviceType === serviceType
       )
     : [];
-  const filterModels = selected ? filterPreferences[selected.id] !== false : true;
-  const visibleModels = selectedModels.filter((model) => {
-    if (!filterModels || serviceType === "model" || model.id === props.catalog.defaults[serviceType] || model.settings.manuallyAdded === true) return true;
-    const image = isImageGenerationModelId(model.remoteModelId, selected!.protocol);
-    return serviceType === "image" ? image : !image;
-  });
+  const filterModels = selected?.settings.modelPurposeFilter !== false;
+  const visibleModels = selectedModels.filter((model) =>
+    isProviderModelVisible(model, selected!, props.catalog.defaults[serviceType])
+  );
   function toggleModelFilter() {
     if (!selected) return;
-    const next = { ...filterPreferences, [selected.id]: !filterModels };
-    setFilterPreferences(next);
-    try { localStorage.setItem("lyra.model-purpose-filter", JSON.stringify(next)); } catch { /* Keep the current session usable when storage is unavailable. */ }
+    void run(async () => {
+      await props.api.updateProvider(selected.id, {
+        settings: { ...selected.settings, modelPurposeFilter: !filterModels }
+      });
+      await refresh();
+    });
   }
-  const availableDefaultModels = props.catalog.models.filter((model) => {
-    const profile = props.catalog.profiles.find((item) => item.id === model.providerProfileId);
-    return model.serviceType === serviceType && model.enabled && profile?.enabled;
-  });
+  const availableDefaultModels = listEnabledModels(props.catalog, serviceType);
   const selectedDetailModel = selectedModels.find(
     (model) => model.id === props.catalog.defaults[serviceType]
   );
@@ -227,7 +222,7 @@ export function SettingsPage(props: SettingsPageProps) {
         protocol: value.protocol,
         adapterType: value.adapterType,
         baseUrl: value.baseUrl,
-        settings: value.settings,
+        settings: { ...value.settings, modelPurposeFilter: selected.settings.modelPurposeFilter !== false },
         enabled: value.enabled,
         ...(value.clearApiKey
           ? { clearApiKey: true }
@@ -487,7 +482,7 @@ export function SettingsPage(props: SettingsPageProps) {
                         ))}
                       </select>
                     </label>
-                    {serviceType !== "model" && <label className="checkbox-field settings-model-filter"><input type="checkbox" role="switch" checked={filterModels} onChange={toggleModelFilter} />按用途过滤</label>}
+                    {serviceType !== "model" && <label className="checkbox-field settings-model-filter"><input type="checkbox" role="switch" checked={filterModels} disabled={busy} onChange={toggleModelFilter} />按用途过滤</label>}
                     </div>
                     <div className="settings-manual-model">
                       <button type="button" className="button button-secondary" disabled={busy} onClick={() => setManualDialog("add")}>添加模型</button>

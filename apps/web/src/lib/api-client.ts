@@ -186,8 +186,22 @@ export class ApiClient {
     }).then((value) => value.project);
   }
 
-  listProviders(): Promise<ProviderCatalog> {
-    return request<ProviderCatalog>("/api/v1/providers");
+  async listProviders(): Promise<ProviderCatalog> {
+    const catalog = await request<ProviderCatalog>("/api/v1/providers");
+    // Migrate the old browser-only preference once; saved provider settings take precedence.
+    let legacy: Record<string, unknown> = {};
+    try {
+      const value: unknown = JSON.parse(localStorage.getItem("lyra.model-purpose-filter") ?? "{}");
+      if (value && typeof value === "object" && !Array.isArray(value)) legacy = value as Record<string, unknown>;
+    } catch { /* No browser storage available. */ }
+    for (let index = 0; index < catalog.profiles.length; index++) {
+      const profile = catalog.profiles[index]!;
+      if (typeof profile.settings.modelPurposeFilter === "boolean" || typeof legacy[profile.id] !== "boolean") continue;
+      catalog.profiles[index] = await this.updateProvider(profile.id, {
+        settings: { ...profile.settings, modelPurposeFilter: legacy[profile.id] }
+      });
+    }
+    return catalog;
   }
 
   createProvider(body: CreateProviderProfileRequestBody): Promise<ProviderProfileSnapshot> {
