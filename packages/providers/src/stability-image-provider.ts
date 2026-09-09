@@ -56,6 +56,10 @@ export class StabilityImageProvider implements BinaryImageProvider {
       if (!reference && typeof aspectRatio === "string" && aspectRatio.trim()) {
         form.append("aspect_ratio", aspectRatio.trim());
       }
+      const resolution = request.parameters.resolution;
+      if (typeof resolution === "string" && resolution !== "auto") {
+        form.append("resolution", resolution.trim());
+      }
       if (this.#model.startsWith("sd3")) form.append("model", this.#model);
       const binary = await this.#client.postMultipartBinary(
         `${this.#baseUrl}${endpointFor(this.#model)}`,

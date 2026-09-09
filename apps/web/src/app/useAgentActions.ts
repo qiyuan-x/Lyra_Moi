@@ -19,6 +19,7 @@ interface UseAgentActionsOptions {
   prompt: string;
   attachments: AssetSnapshot[];
   selectedImageModel: ProviderModelSnapshot | undefined;
+  selectedLlmModel: ProviderModelSnapshot | undefined;
   selectedModelModel: ProviderModelSnapshot | undefined;
   agentReady: boolean;
   ensureCurrentConversation: () => Promise<string>;
@@ -45,9 +46,15 @@ export function useAgentActions(options: UseAgentActionsOptions) {
       await options.api.sendAgentMessage(conversationId, {
         text: options.prompt,
         attachments: toOrderedAttachments(options.attachments),
-        ...(options.selectedImageModel || options.selectedModelModel
+        ...(options.selectedLlmModel || options.selectedImageModel || options.selectedModelModel
           ? {
               selection: {
+                ...(options.selectedLlmModel
+                  ? {
+                      llmProviderProfileId: options.selectedLlmModel.providerProfileId,
+                      llmModelId: options.selectedLlmModel.id
+                    }
+                  : {}),
                 ...(options.selectedImageModel
                   ? {
                       defaultImageProviderProfileId:

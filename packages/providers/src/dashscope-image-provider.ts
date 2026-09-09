@@ -107,8 +107,18 @@ export class DashScopeImageProvider implements BinaryImageProvider {
 
 function imageParameters(source: Record<string, unknown>): Record<string, unknown> {
   const result: Record<string, unknown> = {};
-  const size = source.size ?? source.aspectRatio;
-  if (typeof size === "string" && size.trim()) result.size = normalizeSize(size);
+  // Preserve explicit provider fields. The upstream service decides whether a
+  // ratio/resolution is supported; do not replace 4K with a guessed pixel size.
+  for (const key of ["size", "aspectRatio", "aspect_ratio", "resolution", "image_size"]) {
+    const value = source[key];
+    if (typeof value === "string" && value.trim() && value !== "auto") {
+      result[key] = value.trim();
+    }
+  }
+  if (result.size === undefined && result.resolution === undefined) {
+    const ratio = source.aspectRatio ?? source.aspect_ratio;
+    if (typeof ratio === "string" && ratio !== "auto") result.size = normalizeSize(ratio);
+  }
   return result;
 }
 

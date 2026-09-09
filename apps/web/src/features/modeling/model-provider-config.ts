@@ -1,5 +1,6 @@
 import {
   isMeshyGenerationModel,
+  tripoFaceRange,
   type ModelOutputFormat,
   type ProviderAdapterType
 } from "@lyra/contracts";
@@ -108,9 +109,9 @@ export function validateModelParameters(
   }
   if (
     parameters.generateParts === true &&
-    (parameters.texture !== false || parameters.pbr === true || parameters.quad === true)
+    (parameters.texture !== false || parameters.pbr === true || parameters.quad === true || parameters.smartLowPoly === true)
   ) {
-    return "生成可编辑部件时必须关闭纹理、PBR 和四边面。";
+    return "生成可编辑部件时必须关闭纹理、PBR、四边面和智能低模。";
   }
   if (faceCount === null) return null;
   const { minimum, maximum } = tripoFaceCountRange(model, parameters);
@@ -123,17 +124,7 @@ export function tripoFaceCountRange(
   model: string,
   parameters: Record<string, unknown>
 ): { minimum: number; maximum: number } {
-  if (model.startsWith("P1-")) return { minimum: 48, maximum: 20_000 };
-  if (parameters.smartLowPoly === true && parameters.quad === true) {
-    return { minimum: 500, maximum: 10_000 };
-  }
-  if (parameters.smartLowPoly === true) return { minimum: 1_000, maximum: 20_000 };
-  if (parameters.quad === true) return { minimum: 1_000, maximum: 150_000 };
-  if (!model.startsWith("v3.")) return { minimum: 1_000, maximum: 500_000 };
-  return {
-    minimum: 1_000,
-    maximum: parameters.geometryQuality === "detailed" ? 2_000_000 : 1_500_000
-  };
+  return tripoFaceRange(model, parameters);
 }
 
 export function modelAdapterLabel(adapter: ProviderAdapterType | undefined): string {

@@ -5,7 +5,7 @@ import type {
   ProviderSelectOption
 } from "./ProviderModelSelects.js";
 
-type ServiceType = "image" | "model";
+type ServiceType = "llm" | "image" | "model";
 
 interface ServiceModelOptions {
   providers: ProviderSelectOption[];
@@ -15,6 +15,7 @@ interface ServiceModelOptions {
 }
 
 interface ConversationModelSelectorsProps {
+  llm: ServiceModelOptions;
   image: ServiceModelOptions;
   model: ServiceModelOptions;
 }
@@ -48,6 +49,9 @@ export function ConversationModelSelectors(
 
   return (
     <div className="conversation-model-selectors" ref={containerRef}>
+      <ServiceModelPicker service="llm" label="对话" icon="chat" options={props.llm}
+        open={openService === "llm"}
+        onToggle={() => setOpenService((current) => current === "llm" ? null : "llm")} />
       <ServiceModelPicker
         service="image"
         label="生图"
@@ -71,7 +75,7 @@ export function ConversationModelSelectors(
 function ServiceModelPicker(props: {
   service: ServiceType;
   label: string;
-  icon: "image" | "cube";
+  icon: "chat" | "image" | "cube";
   options: ServiceModelOptions;
   open: boolean;
   onToggle: () => void;

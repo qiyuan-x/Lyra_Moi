@@ -48,7 +48,14 @@ export class OpenAiImageProvider implements BinaryImageProvider {
   ): Promise<GeneratedImageBinary[]> {
     const headers: Record<string, string> = { Accept: "application/json" };
     if (this.#apiKey) headers.Authorization = `Bearer ${this.#apiKey}`;
-    const parameters = normalizeImageParameters({ ...this.#settings, ...request.parameters });
+    const selectedParameters = { ...this.#settings, ...request.parameters };
+    // An explicit task selection takes precedence over a saved pixel size.
+    if (request.parameters.size === undefined &&
+        ((request.parameters.resolution !== undefined && request.parameters.resolution !== "auto") ||
+         (request.parameters.aspectRatio !== undefined && request.parameters.aspectRatio !== "auto"))) {
+      delete selectedParameters.size;
+    }
+    const parameters = normalizeImageParameters(selectedParameters);
     try {
       const body = request.attachments.length && !this.#generationReferenceField
         ? await this.#edit(request, parameters, headers, signal)
@@ -275,46 +282,20 @@ function openAiSizeForResolution(
     ? "1:1"
     : aspectRatio;
   if (typeof ratio !== "string") invalidSetting("aspectRatio");
-  const sizes = {
-    "1K": {
-      "1:1": "1024x1024",
-      "2:3": "768x1152",
-      "3:2": "1152x768",
-      "3:4": "768x1024",
-      "4:3": "1024x768",
-      "4:5": "896x1120",
-      "5:4": "1120x896",
-      "9:16": "720x1280",
-      "16:9": "1280x720",
-      "21:9": "1344x576"
-    },
-    "2K": {
-      "1:1": "2048x2048",
-      "2:3": "1344x2016",
-      "3:2": "2016x1344",
-      "3:4": "1536x2048",
-      "4:3": "2048x1536",
-      "4:5": "1600x2000",
-      "5:4": "2000x1600",
-      "9:16": "1152x2048",
-      "16:9": "2048x1152",
-      "21:9": "2016x864"
-    },
-    "4K": {
-      "1:1": "2880x2880",
-      "2:3": "2304x3456",
-      "3:2": "3456x2304",
-      "3:4": "2448x3264",
-      "4:3": "3264x2448",
-      "4:5": "2560x3200",
-      "5:4": "3200x2560",
-      "9:16": "2160x3840",
-      "16:9": "3840x2160",
-      "21:9": "3808x1632"
-    }
-  } as const;
-  const size = sizes[resolution][ratio.trim() as keyof typeof sizes[typeof resolution]];
-  return size ?? invalidSetting("aspectRatio");
+  const match = /^(\d+):(\d+)$/u.exec(ratio.trim());
+  if (!match) return invalidSetting("aspectRatio");
+  const widthRatio = Number(match[1]);
+  const heightRatio = Number(match[2]);
+  if (!Number.isSafeInteger(widthRatio) || !Number.isSafeInteger(heightRatio) ||
+      widthRatio <= 0 || heightRatio <= 0) return invalidSetting("aspectRatio");
+  // The UI's K selection specifies the long edge, not a model-specific pixel budget.
+  // Do not clamp to a provider's limits; unsupported sizes must be reported by it.
+  const longEdge = Number.parseInt(resolution, 10) * 1024;
+  const scale = longEdge / Math.max(widthRatio, heightRatio);
+  const width = Math.round(widthRatio * scale);
+  const height = Math.round(heightRatio * scale);
+  if (width < 1 || height < 1) return invalidSetting("aspectRatio");
+  return `${width}x${height}`;
 }
 
 function openAiSizeForAspectRatio(value: unknown): string {

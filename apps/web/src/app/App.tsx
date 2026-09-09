@@ -16,7 +16,6 @@ import { ModelingPage } from "../components/ModelingPage.js";
 import { ProjectManagerDialog } from "../components/ProjectManagerDialog.js";
 import {
   findEnabledModel,
-  isDefaultServiceReady,
   listEnabledModels,
   providerModelDisplayName,
   providerSnapshotLabel
@@ -219,10 +218,11 @@ export function App() {
     })),
     [enabledModelModels]
   );
-  const defaultLlmModel = catalog.models.find(
-    (model) => model.id === catalog.defaults.llm
-  );
-  const agentReady = isDefaultServiceReady(catalog, "llm");
+  const [conversationLlmId, setConversationLlmId] = useState("");
+  const enabledLlmModels = listEnabledModels(catalog, "llm");
+  const selectedLlmModel = enabledLlmModels.find((model) => model.id === conversationLlmId)
+    ?? enabledLlmModels.find((model) => model.id === catalog.defaults.llm);
+  const agentReady = Boolean(selectedLlmModel);
 
   const pushNotice = useCallback((_type: string, _text: string) => undefined, []);
   const reportError = useCallback((_error: unknown) => undefined, []);
@@ -344,6 +344,7 @@ export function App() {
     prompt,
     attachments,
     selectedImageModel,
+    selectedLlmModel,
     selectedModelModel,
     agentReady,
     ensureCurrentConversation,
@@ -718,6 +719,10 @@ export function App() {
           />
         ) : page === "conversation" ? (
           <ConversationWorkspace
+            llmModelId={selectedLlmModel?.id ?? ""}
+            llmProviders={catalog.profiles.filter((profile) => profile.serviceType === "llm" && profile.enabled).map((profile) => ({ id: profile.id, name: profile.name }))}
+            llmModels={enabledLlmModels.map((model) => ({ id: model.id, providerId: model.providerProfileId, name: providerModelDisplayName(model) }))}
+            onLlmModelChange={setConversationLlmId}
             key={projectId}
             imageModelId={modelId}
             imageProviders={imageProviderOptions}
@@ -761,7 +766,7 @@ export function App() {
             messages={messages}
             runs={runs}
             stepsByRun={stepsByRun}
-            assistantName={defaultLlmModel?.displayName || "AI"}
+            assistantName={selectedLlmModel?.displayName || "AI"}
             onSubmitAgentInput={submitAgentInput}
             onCancelAgent={cancelAgent}
             agentReady={agentReady}

@@ -1,4 +1,4 @@
-import { ANTIGRAVITY_OAUTH_SETTINGS, ANTHROPIC_OAUTH_SETTINGS, CODEX_OAUTH_SETTINGS, GEMINI_OAUTH_SETTINGS } from "@lyra/contracts";
+import { TRIPO_BASE_URL, ANTIGRAVITY_OAUTH_SETTINGS, ANTHROPIC_OAUTH_SETTINGS, CODEX_OAUTH_SETTINGS, GEMINI_OAUTH_SETTINGS } from "@lyra/contracts";
 import type {
   ProviderAdapterType,
   ProviderModelSnapshot,
@@ -88,7 +88,7 @@ export const providerPresets: Record<ProviderServiceType, ProviderPreset[]> = {
     preset("frostapi", "model", "FrostAPI 3D", "Frost", "openai-compatible", "frostapi-3d", "https://api.linfrsot.cloud", ["frostapi", "frost", "frsotapi"], "https://api.linfrsot.cloud", "1. 在 FrostAPI 控制台创建 API Key。\n2. 连接会通过 /v1/models 读取可用模型。\n3. 生成任务使用 FrostAPI /v1/3d 接口。"),
     preset("meshy", "model", "Meshy", "M", "openai-compatible", "meshy", "https://api.meshy.ai", ["meshy"], "https://www.meshy.ai/settings/api", "1. 登录 Meshy。\n2. 打开 API Settings 并创建 API Key。\n3. 复制密钥后返回 Lyra 执行连通性测试。"),
     preset("hunyuan", "model", "腾讯混元 3D", "HY", "openai-compatible", "hunyuan", "https://tokenhub.tencentmaas.com", ["hunyuan", "混元", "腾讯", "tokenhub"], "https://console.cloud.tencent.com/tokenhub/apikey?regionId=1", "1. 新用户在腾讯云 TokenHub 开通 HY-3D，并创建 API Key。\n2. 已购买旧版腾讯混元 3D 的用户也可直接填写原 API Key。\n3. Lyra 会自动识别新旧 API 的认证和请求格式；基础 URL 可保留默认值，也可填写对应平台地址。"),
-    preset("tripo", "model", "Tripo", "T", "openai-compatible", "tripo", "https://api.tripo3d.ai/v2/openapi", ["tripo"], "https://platform.tripo3d.ai/api-keys", "1. 登录 Tripo Console。\n2. 在 API Keys 页面创建密钥。\n3. 复制 tsk_ 开头的 API Key 后返回 Lyra 执行测试。"),
+    preset("tripo", "model", "Tripo", "T", "openai-compatible", "tripo", TRIPO_BASE_URL, ["tripo"], "https://developers.tripo3d.com", "1. 登录 Tripo Console。\n2. 在 API Keys 页面创建密钥。\n3. 复制 tsk_ 开头的 API Key 后返回 Lyra 执行测试。"),
     preset("stability-3d", "model", "Stability AI 3D", "S", "openai-compatible", "stability-3d", "https://api.stability.ai", ["stability", "spar3d", "fast3d"], "https://platform.stability.ai/account/keys", "1. 登录 Stability AI Platform。\n2. 在 API Keys 页面创建密钥。\n3. 复制密钥后返回 Lyra 执行连通性测试。")
   ]
 };

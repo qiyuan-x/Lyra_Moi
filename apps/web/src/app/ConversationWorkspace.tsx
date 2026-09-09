@@ -18,6 +18,10 @@ import { ConversationTaskDialog } from "../features/conversations/ConversationTa
 import { ConversationModelSelectors } from "../features/providers/ConversationModelSelectors.js";
 
 interface ConversationWorkspaceProps {
+  llmModelId: string;
+  llmProviders: Array<{ id: string; name: string }>;
+  llmModels: Array<{ id: string; providerId: string; name: string }>;
+  onLlmModelChange: (modelId: string) => void;
   imageModelId: string;
   imageProviders: Array<{ id: string; name: string }>;
   imageModels: Array<{ id: string; providerId: string; name: string }>;
@@ -134,6 +138,7 @@ export function ConversationWorkspace(props: ConversationWorkspaceProps) {
           </button>
         </div>
         <ConversationModelSelectors
+          llm={{ providers: props.llmProviders, models: props.llmModels, modelId: props.llmModelId, onModelChange: props.onLlmModelChange }}
           image={{
             providers: props.imageProviders,
             models: props.imageModels,
@@ -194,7 +199,7 @@ export function ConversationWorkspace(props: ConversationWorkspaceProps) {
       <div className="composer-wrap">
         {!props.agentReady && (
           <button type="button" className="agent-setup-notice" onClick={props.onOpenSettings}>
-            尚未配置默认 LLM，点击前往 LLM 设置
+            请在上方选择对话模型；尚未添加模型时，点击前往 LLM 设置
           </button>
         )}
         <Composer

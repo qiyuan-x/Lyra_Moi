@@ -1,3 +1,4 @@
+import { normalizeTripoBaseUrl } from "@lyra/contracts";
 import type {
   ProviderAccountSnapshot,
   ProviderAdapterType,
@@ -101,15 +102,16 @@ export class ProviderAccountService {
     }
 
     if (adapterType === "tripo") {
+      const base = normalizeTripoBaseUrl(profile.baseUrl);
       let body: Record<string, unknown>;
       try {
-        body = asRecord(await this.#http.getJson(`${trimSlash(profile.baseUrl)}/account/balance`, bearer(apiKey), signal));
+        body = asRecord(await this.#http.getJson(`${base}/account/balance`, bearer(apiKey), signal));
       } catch (error) {
         // Older Tripo deployments expose the legacy endpoint.
-        if (!(error instanceof ProviderConnectionError) || error.code !== "NOT_FOUND") throw error;
-        body = asRecord(await this.#http.getJson(`${trimSlash(profile.baseUrl)}/user/balance`, bearer(apiKey), signal));
+        if (new URL(base).pathname.endsWith("/v3") || !(error instanceof ProviderConnectionError) || error.code !== "NOT_FOUND") throw error;
+        body = asRecord(await this.#http.getJson(`${base}/user/balance`, bearer(apiKey), signal));
       }
-      if (body.code !== 0) throw new ProviderConnectionError("AUTHENTICATION_FAILED", "Tripo 额度查询失败。");
+      if (body.code !== 0) throw new ProviderConnectionError("BAD_REQUEST", typeof body.message === "string" ? body.message : "Tripo 额度查询失败。");
       const data = asRecord(body.data);
       const balance = readNumber(data.balance);
       if (balance === null) throw new ProviderConnectionError("INVALID_RESPONSE", "Tripo 额度响应缺少 balance。");

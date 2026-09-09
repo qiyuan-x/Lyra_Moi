@@ -17,3 +17,4 @@ export * from "./task-runtime-settings.js";
 export * from "./validation.js";
 
 export * from "./model-purpose.js";
+export * from "./tripo.js";

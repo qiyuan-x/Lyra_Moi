@@ -1,4 +1,4 @@
-import { providerOAuthSettings } from "@lyra/contracts";
+import { providerOAuthSettings, TRIPO_REGIONS, tripoRegion } from "@lyra/contracts";
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import type {
   FrostApiUsageSnapshot,
@@ -146,6 +146,9 @@ export function ProviderConnectionSection(props: ProviderConnectionSectionProps)
   );
   const [apiKeyWebsite, setApiKeyWebsite] = useState(initialGuide.website);
   const [apiKeyGuide, setApiKeyGuide] = useState(initialGuide.steps);
+  const selectedTripoRegion = tripoRegion(baseUrl);
+  const effectiveKeyWebsite = adapterType === "tripo" && selectedTripoRegion !== "custom"
+    ? TRIPO_REGIONS[selectedTripoRegion].keyWebsite : apiKeyWebsite;
   const [status, setStatus] = useState<ConnectionStatus | null>(props.feedback);
   const [usage, setUsage] = useState<FrostApiUsageSnapshot | null>(null);
   const [usageStatus, setUsageStatus] = useState<"idle" | "loading" | "error">("idle");
@@ -230,7 +233,7 @@ export function ProviderConnectionSection(props: ProviderConnectionSectionProps)
       baseUrl: baseUrl.trim(),
       settings: withProviderMetadata(
         { ...savedSettings.current, ...(baseSettings.antigravity === true ? { gcpProjectId: gcpProjectId.trim() } : {}) },
-        apiKeyWebsite,
+        effectiveKeyWebsite,
         apiKeyGuide,
         props.preset?.id,
         oauthAuthorizeUrl,
@@ -720,6 +723,26 @@ export function ProviderConnectionSection(props: ProviderConnectionSectionProps)
               </select>
             )}
           </label>
+          {adapterType === "tripo" && (
+            <label className="field settings-grid-wide">
+              <span>服务站点</span>
+              <select aria-label="Tripo 服务站点" value={selectedTripoRegion} disabled={props.busy || credentialBusy}
+                onChange={(event) => {
+                  const region = event.target.value;
+                  if (region !== "international" && region !== "china") return;
+                  setBaseUrl(TRIPO_REGIONS[region].baseUrl);
+                  setApiKeyWebsite(TRIPO_REGIONS[region].keyWebsite);
+                  setAccount(null);
+                  setAccountError("");
+                  setAccountStatus("idle");
+                  setStatus(null);
+                }}>
+                <option value="international">国际站</option>
+                <option value="china">国内站</option>
+                {selectedTripoRegion === "custom" && <option value="custom">自定义地址</option>}
+              </select>
+            </label>
+          )}
           <label className="field settings-grid-wide">
             <span>基础 URL</span>
             <input
@@ -932,10 +955,10 @@ export function ProviderConnectionSection(props: ProviderConnectionSectionProps)
               <strong>API Key 申请说明</strong>
               <span>供应商申请入口和配置备注，可按实际情况修改。</span>
             </div>
-            {isHttpUrl(apiKeyWebsite) && (
+            {isHttpUrl(effectiveKeyWebsite) && (
               <a
                 className="button button-secondary"
-                href={apiKeyWebsite.trim()}
+                href={effectiveKeyWebsite.trim()}
                 target="_blank"
                 rel="noreferrer"
               >
@@ -948,7 +971,8 @@ export function ProviderConnectionSection(props: ProviderConnectionSectionProps)
               <span>申请网站</span>
               <input
                 type="url"
-                value={apiKeyWebsite}
+                value={effectiveKeyWebsite}
+                readOnly={adapterType === "tripo" && selectedTripoRegion !== "custom"}
                 onChange={(event) => setApiKeyWebsite(event.target.value)}
                 placeholder="https://provider.example.com/api-keys"
               />

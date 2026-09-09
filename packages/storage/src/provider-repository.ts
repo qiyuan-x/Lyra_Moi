@@ -1,3 +1,4 @@
+import { normalizeTripoBaseUrl } from "@lyra/contracts";
 import { randomUUID } from "node:crypto";
 import type {
   CreateProviderModelRequestBody,
@@ -432,7 +433,7 @@ function mapProfile(row: ProviderProfileRow): StoredProviderProfile {
     name: row.name,
     protocol: row.protocol,
     adapterType: row.adapter_type,
-    baseUrl: row.base_url,
+    baseUrl: row.adapter_type === "tripo" ? normalizeTripoBaseUrl(row.base_url) : row.base_url,
     apiKeyEnvironmentVariable: row.api_key_env,
     secondaryApiKeyEnvironmentVariable: row.secondary_api_key_env,
     settings,

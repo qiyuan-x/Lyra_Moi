@@ -43,7 +43,11 @@ export class HunyuanImageProvider implements BinaryImageProvider {
     const submit = await this.#api.call("SubmitHunyuanImageJob", {
       Prompt: request.prompt,
       Num: request.count,
-      Resolution: hunyuanResolution(request.parameters.aspectRatio ?? request.parameters.size),
+      Resolution: request.parameters.resolution && request.parameters.resolution !== "auto"
+        ? request.parameters.resolution
+        : request.parameters.aspectRatio && request.parameters.aspectRatio !== "auto"
+          ? request.parameters.aspectRatio
+          : request.parameters.size,
       LogoAdd: 0,
       Revise: readBoolean(request.parameters.promptExtend, true)
     }, signal);

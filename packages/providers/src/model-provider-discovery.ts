@@ -1,4 +1,4 @@
-import type { DiscoveredProviderModel } from "@lyra/contracts";
+import { normalizeTripoBaseUrl, type DiscoveredProviderModel } from "@lyra/contracts";
 import { ProviderConnectionError } from "./provider-errors.js";
 import { ProviderHttpClient } from "./provider-http-client.js";
 import {
@@ -51,17 +51,22 @@ export class TripoModelDiscoveryAdapter implements ProviderDiscoveryAdapter {
 
   async discoverModels(input: ProviderDiscoveryInput): Promise<DiscoveredProviderModel[]> {
     const apiKey = requireText(input.apiKey, "Tripo API key is required.");
+    const base = normalizeTripoBaseUrl(input.profile.baseUrl);
     const response = requireRecord(await this.#client.getJson(
-      `${input.profile.baseUrl}/user/balance`,
+      `${base}/${new URL(base).pathname.endsWith("/v3") ? "account" : "user"}/balance`,
       { Accept: "application/json", Authorization: `Bearer ${apiKey}` },
       input.signal
     ));
     if (response.code !== 0) {
-      throw new ProviderConnectionError("AUTHENTICATION_FAILED", "Tripo connection test failed.");
+      throw new ProviderConnectionError("BAD_REQUEST", typeof response.message === "string" ? response.message : "Tripo connection test failed.");
+    }
+    const account = requireRecord(response.data, "Tripo balance response is missing.");
+    if (typeof account.balance !== "number" || !Number.isFinite(account.balance)) {
+      throw new ProviderConnectionError("INVALID_RESPONSE", "Tripo balance response is invalid.");
     }
     return [
       discovered("P1-20260311", "Tripo P1"),
-      discovered("Turbo-v1.0-20250506", "Tripo Turbo"),
+      discovered("P2-20260801", "Tripo P2 (Preview)"),
       discovered("v3.1-20260211", "Tripo v3.1"),
       discovered("v3.0-20250812", "Tripo v3.0"),
       discovered("v2.5-20250123", "Tripo v2.5")

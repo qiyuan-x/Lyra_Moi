@@ -15,7 +15,7 @@ from .paths import LauncherPaths
 from .process_manager import LogTailer, ProcessManager, ServiceStatus
 from .update_manager import DesktopUpdateCandidate, DesktopUpdateCheck, DesktopUpdateClient
 
-LYRA_VERSION = "0.1.1"
+LYRA_VERSION = "0.1.3"
 
 COLORS = {
     "background": "#0f172a",
@@ -346,6 +346,8 @@ class LyraLauncher(tk.Tk):
         window.minsize(460, 330)
         window.geometry(self._centered_child_geometry(540, 400))
         window.configure(background=COLORS["background"])
+        if getattr(self, "_window_icon", None) is not None:
+            window.iconphoto(True, self._window_icon)
         window.transient(self)
         window.columnconfigure(0, weight=1)
         window.rowconfigure(1, weight=1)
@@ -408,10 +410,18 @@ class LyraLauncher(tk.Tk):
         history = tk.Frame(content, background=COLORS["background"])
         history.grid(row=3, column=0, sticky="ew", pady=(10, 0))
         history.columnconfigure(0, weight=1)
-        self.history_select = ttk.Combobox(history, state="readonly", values=[item.version for item in self._history_versions])
-        self.history_select.grid(row=0, column=0, sticky="ew")
-        self.history_select.bind("<<ComboboxSelected>>", self._select_history_version)
-        tk.Button(history, text="历史版本", command=self._load_history).grid(row=0, column=1, padx=(8, 0))
+        self._history_open = False
+        self.history_button = tk.Button(history, text="版本回退", command=self._toggle_history,
+                                        font=("Microsoft YaHei UI", 10), foreground=COLORS["text_soft"],
+                                        background=COLORS["surface"], activebackground=COLORS["border"],
+                                        activeforeground=COLORS["text"], anchor="w", relief="flat", padx=12, pady=10)
+        self.history_button.grid(row=0, column=0, sticky="ew")
+        self.history_arrow = tk.Label(history, text="▾", background=COLORS["surface"], foreground=COLORS["muted"], cursor="hand2")
+        self.history_arrow.grid(row=0, column=0, sticky="e", padx=12)
+        self.history_arrow.bind("<Button-1>", lambda _event: self._toggle_history())
+        self.history_body = tk.Frame(history, background=COLORS["surface"])
+        self.history_body.columnconfigure(0, weight=1)
+        self._render_history_rows()
 
         actions = tk.Frame(window, background=COLORS["surface_soft"])
         actions.grid(row=2, column=0, sticky="ew")
@@ -472,6 +482,38 @@ class LyraLauncher(tk.Tk):
 
         threading.Thread(target=execute, name="lyra-update-check", daemon=True).start()
 
+    def _toggle_history(self) -> None:
+        self._history_open = not self._history_open
+        self.history_arrow.configure(text="▴" if self._history_open else "▾")
+        if self._history_open:
+            self.history_body.grid(row=1, column=0, sticky="ew")
+            if not self._history_versions:
+                self._load_history()
+        else:
+            self.history_body.grid_remove()
+        if self._update_window:
+            self._update_window.update_idletasks()
+            height = max(400, self._update_window.winfo_reqheight())
+            self._update_window.geometry(self._centered_child_geometry(max(540, self._update_window.winfo_width()), height))
+
+    def _render_history_rows(self) -> None:
+        for child in self.history_body.winfo_children():
+            child.destroy()
+        candidates = [item for item in self._history_versions if item.version != self.manager.paths.application_version]
+        if not candidates:
+            tk.Label(self.history_body, text="暂无可回退版本", background=COLORS["surface"], foreground=COLORS["muted"]).grid(padx=12, pady=10)
+        for index, item in enumerate(candidates[:3]):
+            row = tk.Frame(self.history_body, background=COLORS["surface_soft"], highlightthickness=1, highlightbackground=COLORS["border"])
+            row.grid(row=index, column=0, sticky="ew", padx=8, pady=4)
+            row.columnconfigure(0, weight=1)
+            chosen = self._selected_history is not None and self._selected_history.version == item.version
+            tk.Button(row, text=("● " if chosen else "○ ") + "v" + item.version,
+                      command=lambda candidate=item: self._select_history_version(candidate),
+                      anchor="w", relief="flat", background=COLORS["surface_soft"], foreground=COLORS["text"],
+                      font=("Microsoft YaHei UI", 10, "bold"), padx=10, pady=8).grid(row=0, column=0, sticky="ew")
+            tk.Label(row, text=item.published_at[:10].replace("-", "/"), background=COLORS["surface_soft"],
+                     foreground=COLORS["muted"]).grid(row=0, column=1, padx=10)
+
     def _load_history(self) -> None:
         if self._update_busy:
             return
@@ -484,9 +526,11 @@ class LyraLauncher(tk.Tk):
                 self._update_messages.put(("error", error, False))
         threading.Thread(target=execute, name="lyra-history-check", daemon=True).start()
 
-    def _select_history_version(self, _event: object = None) -> None:
-        version = self.history_select.get()
-        self._selected_history = next((item for item in self._history_versions if item.version == version), None)
+    def _select_history_version(self, candidate: DesktopUpdateCandidate) -> None:
+        if self._update_busy:
+            return
+        self._selected_history = candidate
+        self._render_history_rows()
         self._render_update_result()
 
     def _install_available_update(self) -> None:
@@ -497,8 +541,6 @@ class LyraLauncher(tk.Tk):
         prompt = f"将 Lyra 安装为 v{candidate.version}。\n\n升级时会自动停止并重启服务。"
         if notes:
             prompt += f"\n\n更新说明：\n{notes}"
-        if not messagebox.askyesno("确认安装版本", prompt, parent=self._update_window or self):
-            return
         self._update_busy = True
         self.footer_status.set("正在启动更新程序…")
         self._set_buttons_enabled(False)
@@ -532,7 +574,7 @@ class LyraLauncher(tk.Tk):
                 if kind == "history":
                     self._history_versions = value
                     if self._update_window is not None and self._update_window.winfo_exists():
-                        self.history_select.configure(values=[item.version for item in self._history_versions])
+                        self._render_history_rows()
                     self._render_update_result()
                     continue
                 if kind == "success" and isinstance(value, DesktopUpdateCheck):

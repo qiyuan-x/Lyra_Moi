@@ -83,6 +83,7 @@ export function ConversationManager(props: ConversationManagerProps) {
           <span>
             <small>{current ? "当前对话" : "未保存"}</small>
             <strong>{current?.title || "新对话"}</strong>
+            <em>管理</em>
           </span>
           <Icon name="chevron" size={14} />
         </button>

@@ -1,5 +1,8 @@
 import type { ModelGenerationRequest, ModelOutputFormat } from "@lyra/contracts";
 import {
+  normalizeTripoBaseUrl,
+  tripoModelFamily,
+  tripoFaceRange,
   isMultiViewToModelGenerationRequest,
   isTextToModelGenerationRequest
 } from "@lyra/contracts";
@@ -36,6 +39,7 @@ export interface TripoModelProviderOptions {
 
 export class TripoModelProvider implements BinaryModelProvider {
   readonly #baseUrl: string;
+  readonly #v3: boolean;
   readonly #apiKey: string;
   readonly #model: string;
   readonly #assetLoader: ModelProviderAssetLoader;
@@ -43,11 +47,17 @@ export class TripoModelProvider implements BinaryModelProvider {
   readonly #client: ProviderHttpClient;
 
   constructor(options: TripoModelProviderOptions) {
-    this.#baseUrl = requireText(options.baseUrl, "Tripo Base URL is required.").replace(/\/+$/u, "");
+    this.#baseUrl = normalizeTripoBaseUrl(requireText(options.baseUrl, "Tripo Base URL is required."));
+    this.#v3 = new URL(this.#baseUrl).pathname.endsWith("/v3");
     this.#apiKey = requireText(options.apiKey, "Tripo API key is required.");
     this.#model = requireText(options.model, "Tripo model is required.");
     this.#assetLoader = options.assetLoader;
     this.#settings = stripInternalProviderSettings(options.settings ?? {});
+    if (this.#v3) {
+      for (const key of ["type", "model_version", "file", "files", "original_model_task_id"]) {
+        delete this.#settings[key];
+      }
+    }
     this.#client = options.client ?? new ProviderHttpClient({
       timeoutMs: 120_000,
       maxResponseBytes: 300 * 1024 * 1024
@@ -58,18 +68,29 @@ export class TripoModelProvider implements BinaryModelProvider {
     const outputFormats = normalizeOutputFormats(request.outputFormats);
     const parameters = parseTripoParameters(request, this.#model);
     const commonParameters = createTripoGenerationParameters(parameters);
+    if (this.#v3 && this.#model.startsWith("Turbo-")) {
+      throw new Error("Tripo V3 文档未列出 Turbo 模型，请重新测试连通性并选择 H 或 P 系列模型。");
+    }
+    if (this.#v3 && tripoModelFamily(this.#model) === "h2") {
+      for (const key of ["texture_quality", "geometry_quality", "auto_size", "quad", "smart_low_poly", "generate_parts", "compress"]) {
+        delete commonParameters[key];
+      }
+    }
+    if (this.#v3 && ["p1", "p2"].includes(tripoModelFamily(this.#model))) {
+      delete commonParameters.compress;
+    }
     if (isTextToModelGenerationRequest(request)) {
       const prompt = requireModelPrompt(request);
       if (prompt.length > 1024) {
         throw new Error("Tripo text-to-model prompt cannot exceed 1024 characters.");
       }
       const task = this.#unwrap(await this.#client.postJson(
-        `${this.#baseUrl}/task`,
+        `${this.#baseUrl}/${this.#v3 ? "generation/text-to-model" : "task"}`,
         this.#headers(),
         {
           ...this.#settings,
-          type: "text_to_model",
-          model_version: this.#model,
+          ...(this.#v3 ? {} : { type: "text_to_model" }),
+          ...(this.#v3 ? { model: this.#model } : { model_version: this.#model }),
           prompt,
           ...(parameters.negativePrompt ? { negative_prompt: parameters.negativePrompt } : {}),
           ...(parameters.imageSeed === null ? {} : { image_seed: parameters.imageSeed }),
@@ -85,6 +106,11 @@ export class TripoModelProvider implements BinaryModelProvider {
       });
     }
     if (isMultiViewToModelGenerationRequest(request)) {
+      if (!request.multiViewImageAssetIds.front ||
+          ["front", "left", "back", "right"].filter((view) =>
+            request.multiViewImageAssetIds[view as keyof typeof request.multiViewImageAssetIds]).length < 2) {
+        throw new Error("Tripo 多视图生成至少需要两张图片，且必须包含正面图。");
+      }
       const files: Array<Record<string, string>> = [];
       for (const view of ["front", "left", "back", "right"] as const) {
         const assetId = request.multiViewImageAssetIds[view];
@@ -93,13 +119,13 @@ export class TripoModelProvider implements BinaryModelProvider {
           : {});
       }
       const task = this.#unwrap(await this.#client.postJson(
-        `${this.#baseUrl}/task`,
+        `${this.#baseUrl}/${this.#v3 ? "generation/multiview-to-model" : "task"}`,
         this.#headers(),
         {
           ...this.#settings,
-          type: "multiview_to_model",
-          model_version: this.#model,
-          files,
+          ...(this.#v3 ? {} : { type: "multiview_to_model" }),
+          ...(this.#v3 ? { model: this.#model } : { model_version: this.#model }),
+          ...(this.#v3 ? { inputs: files.map((file) => file.file_token ?? "") } : { files }),
           ...commonParameters,
           texture_alignment: parameters.textureAlignment,
           orientation: parameters.orientation
@@ -116,13 +142,13 @@ export class TripoModelProvider implements BinaryModelProvider {
     const input = requireModelInput(request);
     const file = await this.#uploadImage(input.assetId, input.projectId, signal);
     const task = this.#unwrap(await this.#client.postJson(
-      `${this.#baseUrl}/task`,
+      `${this.#baseUrl}/${this.#v3 ? "generation/image-to-model" : "task"}`,
       this.#headers(),
       {
         ...this.#settings,
-        type: "image_to_model",
-        model_version: this.#model,
-        file,
+        ...(this.#v3 ? {} : { type: "image_to_model" }),
+        ...(this.#v3 ? { model: this.#model } : { model_version: this.#model }),
+        ...(this.#v3 ? { input: file.file_token } : { file }),
         ...commonParameters,
         enable_image_autofix: parameters.imageAutofix,
         texture_alignment: parameters.textureAlignment,
@@ -145,8 +171,8 @@ export class TripoModelProvider implements BinaryModelProvider {
   ): Promise<{ type: string; file_token: string }> {
     const image = await this.#assetLoader.loadModelInput(assetId, projectId);
     const type = tripoImageType(image.mimeType);
-    if (image.data.byteLength > 10 * 1024 * 1024) {
-      throw new Error("Tripo uploaded input image cannot exceed 10 MB.");
+    if (image.data.byteLength > (this.#v3 ? 20 : 10) * 1024 * 1024) {
+      throw new Error(`Tripo uploaded input image cannot exceed ${this.#v3 ? 20 : 10} MB.`);
     }
     const upload = new FormData();
     upload.append(
@@ -155,7 +181,7 @@ export class TripoModelProvider implements BinaryModelProvider {
       image.name
     );
     const uploadBody = this.#unwrap(await this.#client.postMultipart(
-      `${this.#baseUrl}/upload/sts`,
+      `${this.#baseUrl}/${this.#v3 ? "files" : "upload/sts"}`,
       this.#headers(),
       upload,
       signal
@@ -182,21 +208,21 @@ export class TripoModelProvider implements BinaryModelProvider {
     if (status !== "success") {
       if (["failed", "banned", "expired", "cancelled", "unknown"].includes(status)) {
         return providerFailure(
-          readOptionalText(body.message) ?? `Tripo task ended with status ${status}.`
+          readOptionalText(body.error_message ?? body.message) ?? `Tripo task ended with status ${status}.`
         );
       }
       throw new ProviderConnectionError("INVALID_RESPONSE", "Tripo returned an unknown task status.");
     }
     const output = requireRecord(body.output, "Tripo model output is missing.");
     const generatedModelUrl = requireText(
-        output.pbr_model ?? output.model ?? output.base_model,
+        output.model_url ?? output.pbr_model ?? output.model ?? output.base_model,
         "Tripo did not return a model URL."
       );
-    const modelUrls: Partial<Record<ModelOutputFormat, string>> = checkpoint.quad
-      ? { fbx: generatedModelUrl }
-      : { glb: generatedModelUrl };
-    const previewUrl = readOptionalText(output.rendered_image);
-    const generatedFormat: ModelOutputFormat = checkpoint.quad ? "fbx" : "glb";
+    const extension = new URL(generatedModelUrl).pathname.split(".").pop()?.toLowerCase();
+    const generatedFormat: ModelOutputFormat = isModelOutputFormat(extension)
+      ? extension : checkpoint.quad ? "fbx" : "glb";
+    const modelUrls: Partial<Record<ModelOutputFormat, string>> = { [generatedFormat]: generatedModelUrl };
+    const previewUrl = readOptionalText(output.rendered_image_url ?? output.rendered_image);
     const conversionFormats = checkpoint.outputFormats.filter((format) => format !== generatedFormat);
     if (conversionFormats.length === 0) {
       return {
@@ -210,12 +236,12 @@ export class TripoModelProvider implements BinaryModelProvider {
     const conversionTasks: Partial<Record<ModelOutputFormat, string>> = {};
     for (const format of conversionFormats) {
       const conversion = this.#unwrap(await this.#client.postJson(
-        `${this.#baseUrl}/task`,
+        `${this.#baseUrl}/${this.#v3 ? "models/convert" : "task"}`,
         this.#headers(),
         {
-          type: "convert_model",
+          ...(this.#v3 ? {} : { type: "convert_model" }),
           format: format.toUpperCase(),
-          original_model_task_id: checkpoint.taskId
+          ...(this.#v3 ? { input: checkpoint.taskId } : { original_model_task_id: checkpoint.taskId })
         },
         signal
       ));
@@ -264,7 +290,7 @@ export class TripoModelProvider implements BinaryModelProvider {
       if (status !== "success") {
         if (["failed", "banned", "expired", "cancelled", "unknown"].includes(status)) {
           return providerFailure(
-            readOptionalText(body.message) ?? `Tripo conversion ended with status ${status}.`
+            readOptionalText(body.error_message ?? body.message) ?? `Tripo conversion ended with status ${status}.`
           );
         }
         throw new ProviderConnectionError(
@@ -274,7 +300,7 @@ export class TripoModelProvider implements BinaryModelProvider {
       }
       const output = requireRecord(body.output, "Tripo conversion output is missing.");
       modelUrls[format] = requireText(
-        output.model ?? output.base_model ?? output.pbr_model,
+        output.model_url ?? output.model ?? output.base_model ?? output.pbr_model,
         `Tripo did not return a ${format.toUpperCase()} model URL.`
       );
       completed += 1;
@@ -298,7 +324,7 @@ export class TripoModelProvider implements BinaryModelProvider {
 
   async #queryTask(taskId: string, signal?: AbortSignal): Promise<Record<string, unknown>> {
     return this.#unwrap(await this.#client.getJson(
-      `${this.#baseUrl}/task/${encodeURIComponent(taskId)}`,
+      `${this.#baseUrl}/${this.#v3 ? "tasks" : "task"}/${encodeURIComponent(taskId)}`,
       this.#headers(),
       signal
     ));
@@ -323,7 +349,7 @@ export class TripoModelProvider implements BinaryModelProvider {
     if (response.code !== 0) {
       const message = readOptionalText(response.message) ?? "Tripo request failed.";
       throw new ProviderConnectionError(
-        response.code === 1004 ? "AUTHENTICATION_FAILED" : "BAD_REQUEST",
+        !this.#v3 && response.code === 1004 ? "AUTHENTICATION_FAILED" : "BAD_REQUEST",
         message
       );
     }
@@ -437,28 +463,24 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 export function parseTripoParameters(request: ModelGenerationRequest, model: string) {
   const values = request.parameters;
-  const p1 = model.startsWith("P1-");
-  const supportsGeometryQuality = model.startsWith("v3.");
+  const family = tripoModelFamily(model);
+  const p1 = family === "p1";
+  const pSeries = p1 || family === "p2";
+  const supportsGeometryQuality = family === "h3";
   const texture = readBoolean(values, "texture", true);
   const pbr = readBoolean(values, "pbr", true);
   if (pbr && !texture) throw new Error("Tripo PBR requires texture generation.");
   const quad = !p1 && readBoolean(values, "quad", false);
-  const smartLowPoly = !p1 && readBoolean(values, "smartLowPoly", false);
-  const generateParts = !p1 && readBoolean(values, "generateParts", false);
-  if (generateParts && (texture || pbr || quad)) {
-    throw new Error("Tripo part generation requires texture, PBR, and quad output to be disabled.");
+  const smartLowPoly = !pSeries && readBoolean(values, "smartLowPoly", false);
+  const generateParts = !pSeries && readBoolean(values, "generateParts", false);
+  if (generateParts && (texture || pbr || quad || smartLowPoly)) {
+    throw new Error("Tripo part generation requires texture, PBR, quad output, and smart low-poly to be disabled.");
   }
   const geometryQuality = supportsGeometryQuality
     ? readEnum(values, "geometryQuality", ["standard", "detailed"], "standard")
     : null;
   const faceLimit = readNullableInteger(values, "targetFaceCount");
-  const { minimum, maximum } = tripoFaceRange({
-    p1,
-    supportsGeometryQuality,
-    geometryQuality,
-    quad,
-    smartLowPoly
-  });
+  const { minimum, maximum } = tripoFaceRange(model, { geometryQuality, quad, smartLowPoly });
   if (faceLimit !== null && (faceLimit < minimum || faceLimit > maximum)) {
     throw new Error(`Tripo target face count must be between ${minimum} and ${maximum}.`);
   }
@@ -526,24 +548,6 @@ export function createTripoGenerationParameters(parameters: TripoParameters): Re
     ...(parameters.quad ? { quad: true } : {}),
     ...(parameters.smartLowPoly ? { smart_low_poly: true } : {}),
     ...(parameters.generateParts ? { generate_parts: true } : {})
-  };
-}
-
-function tripoFaceRange(input: {
-  p1: boolean;
-  supportsGeometryQuality: boolean;
-  geometryQuality: "standard" | "detailed" | null;
-  quad: boolean;
-  smartLowPoly: boolean;
-}): { minimum: number; maximum: number } {
-  if (input.p1) return { minimum: 48, maximum: 20_000 };
-  if (input.smartLowPoly && input.quad) return { minimum: 500, maximum: 10_000 };
-  if (input.smartLowPoly) return { minimum: 1_000, maximum: 20_000 };
-  if (input.quad) return { minimum: 1_000, maximum: 150_000 };
-  if (!input.supportsGeometryQuality) return { minimum: 1_000, maximum: 500_000 };
-  return {
-    minimum: 1_000,
-    maximum: input.geometryQuality === "detailed" ? 2_000_000 : 1_500_000
   };
 }
 

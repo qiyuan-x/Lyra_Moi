@@ -133,9 +133,9 @@ export function ApplicationUpdateControl({ api, collapsed, inline = false }: App
             <div className="application-update-history-body">
             <span>选择要回退到的版本（近 3 个版本）</span>
             <div className="application-update-version-list">
-              {versions.map((item) => <button type="button" key={item.version} className={selectedVersion === item.version ? "selected" : ""} disabled={busy || active} onClick={() => setSelectedVersion(item.version)}><strong>v{item.version}</strong><small>{item.version === version ? "当前版本" : item.publishedAt.slice(0, 10)}</small></button>)}
+              {versions.filter((item) => item.version !== version).map((item) => <button type="button" key={item.version} className={selectedVersion === item.version ? "selected" : ""} disabled={busy || active} onClick={() => setSelectedVersion(item.version)}><strong>v{item.version}</strong><small>{formatPublishedDate(item.publishedAt)}</small></button>)}
             </div>
-            {versions.filter((item) => item.version === selectedVersion).map((item) => <div key={item.version}>
+            {versions.filter((item) => item.version === selectedVersion && item.version !== version).map((item) => <div key={item.version}>
               <p>{formatBytes(item.artifacts["windows-x64"].size)}</p>
               <ul>{item.releaseNotes.map((note, index) => <li key={index}>{note}</li>)}</ul>
               <button type="button" disabled={busy || active} onClick={() => void install()}>下载并安装此版本</button>
@@ -170,4 +170,10 @@ export function ApplicationUpdateControl({ api, collapsed, inline = false }: App
 function formatBytes(value: number): string {
   if (value < 1024 * 1024) return `${Math.ceil(value / 1024)} KB`;
   return `${(value / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function formatPublishedDate(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value.slice(0, 10);
+  return `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()}`;
 }

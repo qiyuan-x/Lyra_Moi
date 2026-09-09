@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import {
   isHunyuan31ModelId,
+  tripoModelFamily,
   resolveModelGenerationAdapter,
   type AssetSnapshot,
   type ModelInputMode,
@@ -339,12 +340,14 @@ export function ModelProviderParameters(props: {
 
   if (!props.adapter) return null;
 
-  const p1 = props.remoteModelId.startsWith("P1-");
-  const supportsGeometryQuality = props.remoteModelId.startsWith("v3.");
+  const family = tripoModelFamily(props.remoteModelId);
+  const p1 = family === "p1";
+  const p2 = family === "p2";
+  const supportsGeometryQuality = family === "h3";
   const texture = bool("texture", true);
   const quad = !p1 && bool("quad", false);
-  const smartLowPoly = !p1 && bool("smartLowPoly", false);
-  const generateParts = !p1 && bool("generateParts", false);
+  const smartLowPoly = !p1 && !p2 && bool("smartLowPoly", false);
+  const generateParts = !p1 && !p2 && bool("generateParts", false);
   const faceCount = typeof props.parameters.targetFaceCount === "number"
     ? props.parameters.targetFaceCount
     : null;
@@ -385,11 +388,11 @@ export function ModelProviderParameters(props: {
       )}
       {texture && (
         <>
-          <SelectField label="纹理质量" value={text("textureQuality", "standard")} onChange={(value) => set("textureQuality", value)}>
+          {(supportsGeometryQuality || p1 || p2) && <SelectField label="纹理质量" value={text("textureQuality", "standard")} onChange={(value) => set("textureQuality", value)}>
             <option value="standard">标准</option>
             <option value="detailed">精细</option>
-            <option value="extreme">最高</option>
-          </SelectField>
+            <option value="extreme">8K 超清</option>
+          </SelectField>}
           <OptionalNumberField
             label="纹理随机种子"
             value={typeof props.parameters.textureSeed === "number" ? props.parameters.textureSeed : null}
@@ -417,7 +420,7 @@ export function ModelProviderParameters(props: {
           />
         </>
       )}
-      {!p1 && (
+      {supportsGeometryQuality && (
         <>
           <Toggle
             label="智能低面数拓扑"
@@ -445,11 +448,17 @@ export function ModelProviderParameters(props: {
             onChange={(checked) => props.onParametersChange({
               ...props.parameters,
               generateParts: checked,
-              ...(checked ? { texture: false, pbr: false, quad: false } : {})
+              ...(checked ? { texture: false, pbr: false, quad: false, smartLowPoly: false } : {})
             })}
           />
         </>
       )}
+      {p2 && <Toggle label="四边面输出" checked={quad} onChange={(checked) =>
+        props.onParametersChange({
+          ...props.parameters, quad: checked,
+          ...(faceCount !== null ? { targetFaceCount: Math.min(faceCount, checked ? 25_000 : 50_000) } : {})
+        })
+      } />}
       <Toggle
         label="指定目标面数"
         checked={faceCount !== null}
@@ -482,10 +491,10 @@ export function ModelProviderParameters(props: {
       )}
       <Toggle label="自动调整真实尺寸" checked={bool("autoSize", false)} onChange={(checked) => set("autoSize", checked)} />
       <Toggle label="展开 UV" checked={bool("exportUv", true)} onChange={(checked) => set("exportUv", checked)} />
-      <SelectField label="模型压缩" value={text("compression", "default")} onChange={(value) => set("compression", value)}>
+      {supportsGeometryQuality && <SelectField label="模型压缩" value={text("compression", "default")} onChange={(value) => set("compression", value)}>
         <option value="default">默认</option>
         <option value="geometry">几何压缩</option>
-      </SelectField>
+      </SelectField>}
     </>
   );
 }

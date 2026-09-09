@@ -145,7 +145,7 @@ export function AssetLibraryPage(props: AssetLibraryPageProps) {
           {visible.map((asset) => (
             <article key={asset.id}>
               <button type="button" className="library-image" onClick={() => props.onPreview(asset)}><img src={props.thumbnailUrl(asset.id)} alt={asset.name} loading="lazy" /></button>
-              <div className="asset-card-copy"><strong title={asset.name}>{asset.name}</strong><span>{asset.source === "generated" ? "生成" : "上传"} · {formatBytes(asset.byteSize)}</span></div>
+              <div className="asset-card-copy"><AssetName asset={asset} onSave={props.onUpdate} /><span>{asset.source === "generated" ? "生成" : "上传"} · {formatBytes(asset.byteSize)}</span></div>
               {props.generationModelByAssetId.has(asset.id) && (
                 <span
                   className="library-model-label"
@@ -180,6 +180,44 @@ export function AssetLibraryPage(props: AssetLibraryPageProps) {
       )}
     </section>
   );
+}
+
+function AssetName({ asset, onSave }: { asset: AssetSnapshot; onSave: AssetLibraryPageProps["onUpdate"] }) {
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(asset.name);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  async function save() {
+    if (busy) return;
+    const value = name.trim();
+    if (!value) { setError("名称不能为空。"); return; }
+    if (value === asset.name) { setEditing(false); return; }
+    setBusy(true);
+    setError("");
+    try {
+      await onSave(asset.id, { name: value, tags: asset.tags });
+      setEditing(false);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally { setBusy(false); }
+  }
+  if (!editing) return <strong tabIndex={0} role="button" title={`${asset.name}（双击修改名称）`}
+    onDoubleClick={() => { setName(asset.name); setError(""); setEditing(true); }}
+    onKeyDown={(event) => {
+      if (event.key === "F2" || event.key === "Enter") { event.preventDefault(); setName(asset.name); setError(""); setEditing(true); }
+    }}>{asset.name}</strong>;
+  return <>
+    <input aria-label="素材名称" value={name} maxLength={200} autoFocus disabled={busy}
+      onFocus={(event) => event.currentTarget.select()}
+      onChange={(event) => setName(event.target.value)}
+      onKeyDown={(event) => {
+        if (event.nativeEvent.isComposing) return;
+        if (event.key === "Enter") { event.preventDefault(); void save(); }
+        if (event.key === "Escape") { event.preventDefault(); setEditing(false); }
+      }} />
+    <span>{busy ? "保存中…" : "Enter 保存 · Esc 取消"}</span>
+    {error && <span role="alert" className="inline-error">{error}</span>}
+  </>;
 }
 
 function AssetEditDialog(props: { asset: AssetSnapshot; busy: boolean; onClose: () => void; onSave: (value: { name: string; tags: string[] }) => Promise<void> }) {
