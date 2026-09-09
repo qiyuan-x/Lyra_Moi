@@ -119,7 +119,7 @@ export class WorkspaceQueryService {
 
   listPublicAgentSteps(agentRunId: string): AgentStepSnapshot[] {
     this.#agentRuns.requireStored(agentRunId);
-    return this.#agentSteps.list(agentRunId).filter((step) => step.payload.runtimeCheckpoint !== 3).map(sanitizeAgentStep);
+    return this.#agentSteps.list(agentRunId).filter((step) => step.payload.runtimeCheckpoint !== 3 && step.payload.modelDefaultsSnapshot !== true).map(sanitizeAgentStep);
   }
 
   cancelAgentRun(agentRunId: string, cancelChildJobs = true): AgentRunSnapshot {

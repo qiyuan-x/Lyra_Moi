@@ -1,5 +1,5 @@
 import { ToolCatalog, type RunContext, type RuntimeTool, type ToolContext, type ToolOutcome } from "@lyra/agent-runtime";
-import { isProviderModelVisible, defaultModelParameters, type GenerationRequest } from "@lyra/contracts";
+import { isProviderModelVisible, defaultModelOutputFormats, resolveModelGenerationAdapter, defaultModelParameters, type GenerationRequest } from "@lyra/contracts";
 import type { AssetService, ModelGenerationService, PromptTemplateService, QueuedGenerationService, WorkspaceQueryService } from "@lyra/core";
 import type { RuntimeRepositories } from "@lyra/storage";
 
@@ -165,9 +165,21 @@ export function createApplicationToolCatalog(services: ApplicationToolServices):
     const model = repositories.providers.requireModel(selected.providerModelId);
     const normalized = { ...input };
     if (mode !== "text") delete normalized.prompt;
-    const parameters = { ...defaultModelParameters(profile.adapterType, model.remoteModelId), ...(input.parameters as Record<string, unknown> ?? {}) };
-    if (input.textureImageAssetId) { parameters.textureGuideMode = "image"; delete parameters.texturePrompt; }
-    return { ...normalized, inputMode: mode, ...selected, outputFormats: input.outputFormats ?? ["glb"], parameters };
+    const adapter = resolveModelGenerationAdapter(profile.adapterType, model.remoteModelId) ?? undefined;
+    const saved = context.modelDefaults?.[model.id];
+    const parameters = { ...defaultModelParameters(adapter, model.remoteModelId), ...saved?.parameters,
+      ...(input.parameters as Record<string, unknown> ?? {}) };
+    const textureId = input.textureImageAssetId ?? (parameters.texture !== false && parameters.textureGuideMode === "image" ? saved?.textureImageAssetId : undefined);
+    if (textureId) {
+      const asset = assets.getAsset(String(textureId));
+      if (asset.projectId !== context.projectId || asset.kind !== "image") throw new Error("纹理参考图不可用或不属于当前项目，请重新选择。");
+      normalized.textureImageAssetId = textureId;
+      parameters.textureGuideMode = "image"; delete parameters.texturePrompt;
+    } else if (parameters.texture !== false && parameters.textureGuideMode === "image") {
+      throw new Error("已启用图片纹理引导，但没有纹理参考图。请选择参考图或关闭图片引导。");
+    }
+    return { ...normalized, inputMode: mode, ...selected,
+      outputFormats: input.outputFormats ?? saved?.outputFormats ?? defaultModelOutputFormats(adapter, model.remoteModelId), parameters };
   });
   return catalog;
 }

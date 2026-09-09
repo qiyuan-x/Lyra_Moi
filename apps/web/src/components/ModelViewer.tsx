@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { AssetSnapshot } from "@lyra/contracts";
+import { toggleViewerFullscreen } from "./viewer/fullscreen.js";
 import { Icon } from "./Icon.js";
 import type {
   ModelStats,
@@ -33,6 +34,7 @@ export function ModelViewer(props: {
   const lightingPanelRef = useRef<HTMLDivElement>(null);
   const lightingButtonRef = useRef<HTMLButtonElement>(null);
   const adapterRef = useRef<ModelViewerAdapter | null>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [adapterReady, setAdapterReady] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [lightingOpen, setLightingOpen] = useState(false);
@@ -40,6 +42,22 @@ export function ModelViewer(props: {
   const [stats, setStats] = useState<ModelStats | null>(null);
   const [status, setStatus] = useState<ViewerStatus>("idle");
   const lighting = preferences.lighting[preferences.lightingMode];
+
+  useEffect(() => {
+    const update = () => setIsFullscreen(document.fullscreenElement === containerRef.current);
+    document.addEventListener("fullscreenchange", update);
+    update();
+    return () => document.removeEventListener("fullscreenchange", update);
+  }, []);
+
+  function toggleFullscreen() {
+    const container = containerRef.current;
+    if (!container) return;
+    void toggleViewerFullscreen(container).catch((error: unknown) => {
+      console.error("Failed to toggle model viewer fullscreen.", error);
+    });
+  }
+
 
   useEffect(() => {
     const host = canvasHostRef.current;
@@ -171,7 +189,8 @@ export function ModelViewer(props: {
         asset={props.asset}
         stats={stats}
         onResetCamera={() => adapterRef.current?.resetCamera()}
-        onFullscreen={() => void containerRef.current?.requestFullscreen()}
+        isFullscreen={isFullscreen}
+        onFullscreen={toggleFullscreen}
       />
 
       <div className="model-viewer-stage">

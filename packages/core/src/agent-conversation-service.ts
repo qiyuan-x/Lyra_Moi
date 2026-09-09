@@ -156,6 +156,10 @@ export class AgentConversationService {
         systemPromptVersion: this.#systemPromptVersion,
         maxToolCalls
       });
+      if (input.modelDefaults) {
+        this.#agentSteps.append({ agentRunId: agentRun.id, type: "llm_request", status: "completed",
+          payload: { modelDefaultsSnapshot: true, modelDefaults: input.modelDefaults } });
+      }
       return { message, agentRun };
     });
   }

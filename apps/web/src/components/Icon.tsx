@@ -24,6 +24,7 @@ export type IconName =
   | "more"
   | "chevron"
   | "sidebar"
+  | "collapse"
   | "expand"
   | "download"
   | "display"
@@ -53,6 +54,7 @@ const paths: Record<IconName, React.ReactNode> = {
   more: <><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></>,
   chevron: <path d="m9 6 6 6-6 6"/>,
   sidebar: <><rect x="3" y="3.5" width="18" height="17" rx="2.5"/><path d="M8.5 3.5v17"/><path d="m5.6 8 1.2 1.2-1.2 1.2"/></>,
+  collapse: <><path d="M3 8h5V3M21 8h-5V3M3 16h5v5M21 16h-5v5"/></>,
   expand: <><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/></>,
   download: <><path d="M12 3v12M7 10l5 5 5-5"/><path d="M5 20h14"/></>,
   display: <><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></>,

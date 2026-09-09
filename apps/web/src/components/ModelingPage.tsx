@@ -15,6 +15,7 @@ import type {
   ProviderProfileSnapshot
 } from "@lyra/contracts";
 import {
+  defaultModelOutputFormats,
   isHunyuan31ModelId,
   resolveModelGenerationAdapter
 } from "@lyra/contracts";
@@ -321,14 +322,14 @@ export function ModelingPage(props: ModelingPageProps) {
       if (legacyMeshyConfig) {
         modelConfigsRef.current[selectedModel.id] = {
           parameters: restoredParameters,
-          outputFormats: ["glb", "obj", "fbx", "stl", "usdz"]
+          outputFormats: defaultModelOutputFormats(generationAdapter ?? undefined, selectedModel.remoteModelId)
         };
         pageStateRef.current.modelConfigs = modelConfigsRef.current;
         persistPageState();
       }
       setParameters(structuredClone(restoredParameters));
       setOutputFormats(legacyMeshyConfig
-        ? ["glb", "obj", "fbx", "stl", "usdz"]
+        ? defaultModelOutputFormats(generationAdapter ?? undefined, selectedModel.remoteModelId)
         : [...existing.outputFormats]);
       return;
     }
@@ -336,11 +337,7 @@ export function ModelingPage(props: ModelingPageProps) {
       generationAdapter ?? undefined,
       selectedModel.remoteModelId
     );
-    const formats: ModelOutputFormat[] = usesMeshySettings
-      ? ["glb", "obj", "fbx", "stl", "usdz"]
-      : generationAdapter === "tripo" || generationAdapter === "stability-3d"
-      ? ["glb"]
-      : ["glb", "obj"];
+    const formats = defaultModelOutputFormats(generationAdapter ?? undefined, selectedModel.remoteModelId);
     modelConfigsRef.current[selectedModel.id] = {
       parameters: defaults,
       outputFormats: formats

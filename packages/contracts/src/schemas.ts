@@ -94,6 +94,18 @@ export const manualModelGenerationRequestSchema = {
   ]
 } as const satisfies JsonSchema;
 
+const agentModelDefaultsSchema = {
+  type: "object", maxProperties: 200,
+  additionalProperties: {
+    type: "object", additionalProperties: false, required: ["parameters", "outputFormats"],
+    properties: {
+      parameters: { type: "object", additionalProperties: true },
+      outputFormats: { type: "array", minItems: 1, uniqueItems: true, items: { enum: ["glb", "obj", "fbx", "stl", "usdz", "3mf"] } },
+      textureImageAssetId: { type: "string", minLength: 1 }
+    }
+  }
+} as const satisfies JsonSchema;
+
 export const sendAgentMessageRequestSchema = {
   type: "object",
   additionalProperties: false,
@@ -102,6 +114,7 @@ export const sendAgentMessageRequestSchema = {
     text: { type: "string" },
     attachments: { type: "array", items: orderedAssetInputSchema },
     optimizeImagePrompt: { type: "boolean" },
+    modelDefaults: agentModelDefaultsSchema,
     selection: {
       type: "object",
       additionalProperties: false,

@@ -1,3 +1,4 @@
+import { readAgentModelDefaults } from "../features/modeling/modeling-state.js";
 import {
   useState,
   type Dispatch,
@@ -45,6 +46,7 @@ export function useAgentActions(options: UseAgentActionsOptions) {
       const conversationId = await options.ensureCurrentConversation();
       await options.api.sendAgentMessage(conversationId, {
         text: options.prompt,
+        modelDefaults: readAgentModelDefaults(options.projectId),
         attachments: toOrderedAttachments(options.attachments),
         ...(options.selectedLlmModel || options.selectedImageModel || options.selectedModelModel
           ? {

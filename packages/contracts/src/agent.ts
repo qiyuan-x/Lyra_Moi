@@ -74,7 +74,12 @@ export interface AgentStepSnapshot {
   updatedAt: UtcDateTime;
 }
 
+export interface AgentModelDefaults extends ModelApprovalChanges {
+  textureImageAssetId?: EntityId;
+}
+
 export interface SendAgentMessageRequestBody {
+  modelDefaults?: Record<string, AgentModelDefaults>;
   text: string;
   attachments: OrderedAssetInput[];
   optimizeImagePrompt?: boolean;

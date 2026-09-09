@@ -103,3 +103,17 @@ function cloneEmptyState(): PersistedModelingState {
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
+
+export function readAgentModelDefaults(projectId: string): Record<string, import("@lyra/contracts").AgentModelDefaults> {
+  const state = readPersistedModelingState(projectId);
+  const result: Record<string, import("@lyra/contracts").AgentModelDefaults> = {};
+  for (const [id, config] of Object.entries(state.modelConfigs)) {
+    if (!isRecord(config) || !isRecord(config.parameters) || !Array.isArray(config.outputFormats) || !config.outputFormats.length) continue;
+    result[id] = {
+      parameters: structuredClone(config.parameters), outputFormats: [...config.outputFormats],
+      ...(config.parameters.texture !== false && config.parameters.textureGuideMode === "image" && state.selectedTextureImageId
+        ? { textureImageAssetId: state.selectedTextureImageId } : {})
+    };
+  }
+  return result;
+}

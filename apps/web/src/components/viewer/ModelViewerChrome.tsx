@@ -7,6 +7,7 @@ interface ModelViewerHeaderProps {
   asset: AssetSnapshot | null;
   stats: ModelStats | null;
   onResetCamera: () => void;
+  isFullscreen: boolean;
   onFullscreen: () => void;
 }
 
@@ -38,10 +39,12 @@ export function ModelViewerHeader(props: ModelViewerHeaderProps) {
           <button
             type="button"
             className="icon-button"
-            title="全屏"
+            title={props.isFullscreen ? "退出全屏" : "全屏"}
+            aria-label={props.isFullscreen ? "退出全屏" : "全屏"}
+            aria-pressed={props.isFullscreen}
             onClick={props.onFullscreen}
           >
-            <Icon name="expand" size={16} />
+            <Icon name={props.isFullscreen ? "collapse" : "expand"} size={16} />
           </button>
         </div>
       )}

@@ -209,6 +209,8 @@ export class AgentSessionWorker {
       .find((step) => step.payload.runtimeCheckpoint === 3)?.payload.checkpoint as RuntimeState | undefined : undefined;
     const approvalMode = parentCheckpoint?.context.approvalMode ?? this.options.repositories.settings.get("agent_approval_mode");
     return { version: 3, runId: run.id, context: {
+      modelDefaults: parentCheckpoint?.context.modelDefaults ?? this.options.repositories.agentSteps.list(run.id)
+        .find((step) => step.payload.modelDefaultsSnapshot === true)?.payload.modelDefaults as NonNullable<import("@lyra/agent-runtime").RunContext["modelDefaults"]> ?? {},
       approvalMode: approvalMode === "auto" || approvalMode === "full" ? approvalMode : "ask",
       projectId: run.projectId, conversationId: run.conversationId, requestMessageId: run.requestMessageId,
       attachments: structuredClone(attachments), originalPrompt: request.text, optimizeImagePrompt: run.optimizeImagePrompt,

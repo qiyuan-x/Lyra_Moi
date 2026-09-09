@@ -36,6 +36,7 @@ export interface ModelClient {
 }
 export interface PlanStep { id: string; text: string; status: "pending" | "running" | "completed" }
 export interface RunContext {
+  modelDefaults?: Record<string, { parameters: Record<string, unknown>; outputFormats: string[]; textureImageAssetId?: string }>;
   approvalMode?: "ask" | "auto" | "full";
   projectId: string;
   conversationId: string;

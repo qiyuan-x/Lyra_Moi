@@ -59,3 +59,10 @@ export function defaultModelParameters(
     compression: "default"
   };
 }
+
+export function defaultModelOutputFormats(
+  adapter: ProviderAdapterType | undefined, model: string
+): import("./model-generation.js").ModelOutputFormat[] {
+  if (isMeshyGenerationModel(adapter, model)) return ["glb", "obj", "fbx", "stl", "usdz"];
+  return !adapter || adapter === "tripo" || adapter === "stability-3d" ? ["glb"] : ["glb", "obj"];
+}
