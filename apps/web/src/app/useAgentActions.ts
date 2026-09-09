@@ -88,18 +88,21 @@ export function useAgentActions(options: UseAgentActionsOptions) {
   async function submitAgentInput(
     runId: string,
     text: string,
-    choiceId?: string
+    choiceId?: string,
+    modelChanges?: import("@lyra/contracts").ModelApprovalChanges
   ) {
     try {
       await options.api.submitAgentInput(runId, {
         text,
-        attachments: toOrderedAttachments(options.attachments),
-        ...(choiceId ? { choiceId } : {})
+        attachments: choiceId === "approve" || choiceId === "reject" ? [] : toOrderedAttachments(options.attachments),
+        ...(choiceId ? { choiceId } : {}),
+        ...(modelChanges ? { modelChanges } : {})
       });
-      options.setAttachments([]);
+      if (choiceId !== "approve" && choiceId !== "reject") options.setAttachments([]);
       await options.refreshConversation(options.conversationId);
     } catch (error) {
       options.onError(error);
+      throw error;
     }
   }
 

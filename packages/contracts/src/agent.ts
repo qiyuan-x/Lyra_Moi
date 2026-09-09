@@ -89,7 +89,13 @@ export interface SendAgentMessageRequestBody {
 }
 
 export interface ResumeAgentUserInputRequestBody {
+  modelChanges?: ModelApprovalChanges;
   text: string;
   choiceId?: string;
   attachments: OrderedAssetInput[];
+}
+
+export interface ModelApprovalChanges {
+  parameters: Record<string, unknown>;
+  outputFormats: import("./model-generation.js").ModelOutputFormat[];
 }

@@ -1,5 +1,5 @@
 import { ToolCatalog, type RunContext, type RuntimeTool, type ToolContext, type ToolOutcome } from "@lyra/agent-runtime";
-import type { GenerationRequest } from "@lyra/contracts";
+import { defaultModelParameters, type GenerationRequest } from "@lyra/contracts";
 import type { AssetService, ModelGenerationService, PromptTemplateService, QueuedGenerationService, WorkspaceQueryService } from "@lyra/core";
 import type { RuntimeRepositories } from "@lyra/storage";
 
@@ -45,7 +45,9 @@ export function createApplicationToolCatalog(services: ApplicationToolServices):
     if (job.projectId !== context.context.projectId) throw new Error("任务不属于当前项目。");
     return job;
   };
-  add("list_app_tools", "查询当前可用的应用功能及参数；未列出的功能不能宣称已执行。", "read", schema({}), () => result(catalog.definitions()));
+  add("list_app_tools", "查询应用功能目录；调用参数见请求中的工具定义，不需要重复查询。", "read", schema({}), () => result(
+    catalog.definitions().map(({ name, description }) => ({ name, description }))
+  ));
   add("list_projects", "列出应用项目。", "read", schema({}), () => result(workspace.listProjects()));
   add("create_project", "创建项目。", "write", schema({ name: text, description: { type: "string" } }, ["name"]), (value) => result(workspace.createProject(value)));
   add("update_project", "修改项目名称或说明。", "write", schema({ name: text, description: { type: "string" } }),
@@ -67,7 +69,15 @@ export function createApplicationToolCatalog(services: ApplicationToolServices):
     (value, context) => { const asset = requireAsset(String(value.assetId), context); const { assetId: _id, ...patch } = value; return result(assets.updateAsset(asset.id, patch)); });
   add("delete_asset", "删除当前项目的指定素材，需要审核。", "approval", schema({ assetId: text }, ["assetId"]),
     (value, context) => result(assets.deleteAsset(requireAsset(String(value.assetId), context).id)));
-  add("list_jobs", "查看当前项目任务及执行状态。", "read", schema({}), (_value, context) => result(workspace.listJobs({ projectId: context.context.projectId, limit: 100 })));
+  add("list_jobs", "查看当前项目最近任务摘要；用 get_job 按 ID 获取完整参数、结果和错误。", "read", schema({
+    limit: { type: "integer", minimum: 1, maximum: 100 }, conversationId: text,
+    kind: { enum: ["image.generate", "model.generate"] }
+  }), (value, context) => result(workspace.listJobs({ projectId: context.context.projectId,
+    limit: Number(value.limit ?? 20), ...(value.conversationId ? { conversationId: String(value.conversationId) } : {}),
+    ...(value.kind ? { kind: value.kind as "image.generate" | "model.generate" } : {})
+  }).map((job) => ({ id: job.id, kind: job.kind, status: job.status, title: job.title.slice(0, 160),
+    progress: job.progress, providerModelId: job.providerModelId, createdAt: job.createdAt,
+    errorCode: job.errorCode }))));
   add("get_job", "读取指定任务的真实结果或错误。", "read", schema({ jobId: text }, ["jobId"]), (value, context) => result(requireJob(String(value.jobId), context)));
   add("cancel_job", "取消当前项目的任务。", "write", schema({ jobId: text }, ["jobId"]), (value, context) => result(workspace.cancelJob(requireJob(String(value.jobId), context).id)));
   add("retry_job", "重试失败任务，可能产生费用，必须审核。", "approval", schema({ jobId: text }, ["jobId"]), (value, context) => {
@@ -80,10 +90,28 @@ export function createApplicationToolCatalog(services: ApplicationToolServices):
   add("update_prompt_template", "修改指定提示词模板。", "write", schema({ promptId: text, name: text, content: text, category: { type: "string" }, variables: { type: "array", items: text }, favorite: { type: "boolean" }, note: { type: "string" } }, ["promptId"]),
     (value) => { const { promptId, ...patch } = value; return result(prompts.update(String(promptId), patch)); });
   add("delete_prompt_template", "删除提示词模板，需要审核。", "approval", schema({ promptId: text }, ["promptId"]), (value) => result(prompts.delete(String(value.promptId))));
-  add("list_provider_models", "列出已配置模型，不读取或显示密钥。", "read", schema({}), () => result(repositories.providers.listProfiles().map((profile) => ({
-    id: profile.id, name: profile.name, serviceType: profile.serviceType, enabled: profile.enabled,
-    models: repositories.providers.listModels(profile.id).map((model) => ({ id: model.id, name: model.displayName, remoteModelId: model.remoteModelId, enabled: model.enabled }))
-  }))));
+  add("list_provider_models", "分页查询已配置模型，不显示密钥。可按供应商、类型和模型名称筛选；hasMore 为 true 时增加 offset 继续查询。", "read", schema({
+    profileId: text, serviceType: { enum: ["llm", "image", "model"] }, search: { type: "string" },
+    offset: { type: "integer", minimum: 0 }, limit: { type: "integer", minimum: 1, maximum: 50 }
+  }), (value) => {
+    const offset = Number(value.offset ?? 0);
+    const limit = Number(value.limit ?? 20);
+    const search = String(value.search ?? "").toLowerCase();
+    return result(repositories.providers.listProfiles()
+      .filter((profile) => (!value.profileId || profile.id === value.profileId) &&
+        (!value.serviceType || profile.serviceType === value.serviceType))
+      .map((profile) => {
+        const models = repositories.providers.listModels(profile.id).filter((model) =>
+          `${model.id} ${model.displayName} ${model.remoteModelId}`.toLowerCase().includes(search));
+        return {
+          id: profile.id, name: profile.name, serviceType: profile.serviceType, enabled: profile.enabled,
+          total: models.length, offset, hasMore: offset + limit < models.length,
+          models: models.slice(offset, offset + limit).map((model) => ({
+            id: model.id, name: model.displayName, remoteModelId: model.remoteModelId, enabled: model.enabled
+          }))
+        };
+      }));
+  });
   add("request_user_input", "缺少必要信息时提问并暂停，等待用户回复。", "write", schema({ prompt: text, choices: {
     type: "array", maxItems: 10, items: schema({ id: text, label: text }, ["id", "label"])
   } }, ["prompt"]), (value) => ({ kind: "input", prompt: String(value.prompt), choices: (value.choices ?? []) as { id: string; label: string }[] }));
@@ -113,7 +141,7 @@ export function createApplicationToolCatalog(services: ApplicationToolServices):
       attachments: Array.isArray(input.assetIds) ? input.assetIds.map((id, position) => ({ assetId: String(id), position, label: `参考图 ${position + 1}` })) : context.attachments };
   });
   add("generate_model", "文字、图片或多视图建模。先审核保存的参数，批准后直接提交，不需要再次调用工具。", "approval", schema({
-    inputMode: { enum: ["text", "image", "multiview"] }, prompt: text, imageAssetId: text,
+    inputMode: { enum: ["text", "image", "multiview"] }, prompt: { ...text, description: "仅用于文生模型。图生和多视图建模不要传此字段。" }, imageAssetId: text,
     multiViewImageAssetIds: { type: "object", additionalProperties: false, required: ["front"], properties: Object.fromEntries(
       ["front", "left", "right", "back", "top", "bottom", "leftFront", "rightFront"].map((view) => [view, text])) },
     textureImageAssetId: text, ...selection, parameters,
@@ -126,7 +154,15 @@ export function createApplicationToolCatalog(services: ApplicationToolServices):
     const input = value as Record<string, unknown>;
     const mode = input.inputMode ?? (input.multiViewImageAssetIds ? "multiview" : input.imageAssetId ? "image" : "text");
     if ((mode === "image" && !input.imageAssetId) || (mode === "text" && !input.prompt) || (mode === "multiview" && !input.multiViewImageAssetIds)) throw new Error("缺少建模输入。");
-    return { ...input, inputMode: mode, ...resolveSelection(input, context, "model"), outputFormats: input.outputFormats ?? ["glb"], parameters: input.parameters ?? {} };
+    const selected = resolveSelection(input, context, "model");
+    validateSelection(selected.providerProfileId, selected.providerModelId, "model", repositories);
+    const profile = repositories.providers.requireProfile(selected.providerProfileId);
+    const model = repositories.providers.requireModel(selected.providerModelId);
+    const normalized = { ...input };
+    if (mode !== "text") delete normalized.prompt;
+    const parameters = { ...defaultModelParameters(profile.adapterType, model.remoteModelId), ...(input.parameters as Record<string, unknown> ?? {}) };
+    if (input.textureImageAssetId) { parameters.textureGuideMode = "image"; delete parameters.texturePrompt; }
+    return { ...normalized, inputMode: mode, ...selected, outputFormats: input.outputFormats ?? ["glb"], parameters };
   });
   return catalog;
 }

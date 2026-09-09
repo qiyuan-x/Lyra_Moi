@@ -10,6 +10,7 @@ import type {
   UpdatePromptTemplateRequestBody
 } from "@lyra/contracts";
 import type { ApiClient } from "../lib/api-client.js";
+import { appendPrompt } from "../features/prompts/append-prompt.js";
 
 const PROMPT_DRAFT_KEY = "lyra.promptDraft";
 
@@ -29,11 +30,7 @@ export function usePromptWorkspace(options: UsePromptWorkspaceOptions) {
   }, [prompt]);
 
   function insertPromptText(value: string) {
-    setPrompt((current) =>
-      current.trim()
-        ? `${current.trimEnd()}\n${value}`
-        : value
-    );
+    setPrompt((current) => appendPrompt(current, value));
   }
 
   function clearPrompt() {

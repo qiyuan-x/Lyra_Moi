@@ -6,6 +6,7 @@ import type { AppSettingsRepository } from "@lyra/storage";
 
 const MAX_TOOL_CALLS_KEY = "agent_max_tool_calls";
 const DEFAULT_SETTINGS: AgentRuntimeSettings = {
+  approvalMode: "ask",
   maxToolCalls: 10
 };
 
@@ -19,7 +20,9 @@ export class AgentRuntimeSettingsService {
   }
 
   get(): AgentRuntimeSettings {
+    const mode = this.#settings.get("agent_approval_mode");
     return {
+      approvalMode: mode === "auto" || mode === "full" ? mode : "ask",
       maxToolCalls: readMaxToolCalls(
         this.#settings.get(MAX_TOOL_CALLS_KEY),
         DEFAULT_SETTINGS.maxToolCalls
@@ -42,12 +45,17 @@ export class AgentRuntimeSettingsService {
     const maxToolCalls = "maxToolCalls" in value
       ? validateMaxToolCalls(value.maxToolCalls)
       : current.maxToolCalls;
+    if ("approvalMode" in value) {
+      if (!["ask", "auto", "full"].includes(String(value.approvalMode))) throw new Error("无效的审核模式。");
+      this.#settings.set("agent_approval_mode", value.approvalMode);
+    }
     this.#settings.set(MAX_TOOL_CALLS_KEY, maxToolCalls);
     return this.snapshot();
   }
 
   reset(): AgentRuntimeSettingsSnapshot {
     this.#settings.delete(MAX_TOOL_CALLS_KEY);
+    this.#settings.delete("agent_approval_mode");
     return this.snapshot();
   }
 }

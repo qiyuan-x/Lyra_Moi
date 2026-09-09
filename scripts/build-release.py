@@ -20,11 +20,10 @@ APP_DIR = RELEASE_DIR / "app"
 UPDATE_MANIFEST_URL = "https://linfrsot.cloud/lyra/updates/latest.json"
 UPDATE_PACKAGE_BASE_URL = "https://linfrsot.cloud/lyra/updates/packages"
 RELEASE_NOTES = (
-    "增加 Antigravity 对话和生图支持，完善 OAuth 本地回调与客户端参数。",
-    "更新 OpenAI OAuth 模型列表请求，增加按用途过滤和清空模型列表。",
-    "提示词模板包支持携带输入图和效果图，导入时重新关联素材。",
-    "调整设置折叠布局、模型选择布局和动作截图提示。",
-    "增加独立升级进度窗口，保留历史版本回退功能。",
+    "完善 Agent 上下文压缩与任务查询，增加可编辑的建模参数确认。",
+    "默认请求批准，提供自动批准和完全访问权限模式。",
+    "优化对话 Markdown 排版和提示词追加，修复空白审核消息。",
+    "统一 3D 视口操作，减少静态重绘与重复阴影计算。",
 )
 
 sys.path.insert(0, str(ROOT))

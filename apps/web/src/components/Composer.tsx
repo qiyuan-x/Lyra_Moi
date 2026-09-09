@@ -1,5 +1,6 @@
 import { useRef, useState, type DragEvent, type FormEvent } from "react";
 import type { AssetSnapshot, PromptTemplateSnapshot } from "@lyra/contracts";
+import { AgentApprovalMode } from "./AgentApprovalMode.js";
 import { Icon } from "./Icon.js";
 import { PromptTemplatePicker } from "./PromptTemplatePicker.js";
 
@@ -128,6 +129,7 @@ export function Composer(props: ComposerProps) {
             secondaryText={(template) => template.category || "未分类"}
             onSelect={props.onInsertPrompt}
           />
+          <AgentApprovalMode />
         </div>
         <div className="composer-actions">
           <span className="key-hint">Enter 发送 · Ctrl + Enter 换行</span>

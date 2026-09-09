@@ -13,6 +13,7 @@ import type {
 import { AssetPickerDialog } from "../../components/AssetPickerDialog.js";
 import { Icon } from "../../components/Icon.js";
 import { PromptTemplatePicker } from "../../components/PromptTemplatePicker.js";
+import { appendPrompt } from "../prompts/append-prompt.js";
 import {
   IMAGE_RESOLUTIONS,
   imageResolutionLabel,
@@ -174,7 +175,7 @@ export function ImageGenerationPanel(props: ImageGenerationPanelProps) {
         <PromptTemplatePicker
           templates={props.promptTemplates}
           buttonClassName="button button-secondary image-generation-prompt-picker"
-          onSelect={setPrompt}
+          onSelect={(value) => setPrompt((current) => appendPrompt(current, value))}
         />
 
         <div className="image-generation-compact-fields">

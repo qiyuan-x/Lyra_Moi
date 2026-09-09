@@ -1,3 +1,4 @@
+import { configureOrbitMouse } from "../../components/viewer/orbit-mouse.js";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { DRACOLoader } from "three/examples/jsm/loaders/DRACOLoader.js";
@@ -126,8 +127,9 @@ export class AnimationModelViewerAdapter {
     this.#orbit.dampingFactor = .075;
     this.#orbit.target.set(0, .9, 0);
     this.#orbit.mouseButtons.LEFT = THREE.MOUSE.ROTATE;
-    this.#orbit.mouseButtons.MIDDLE = THREE.MOUSE.DOLLY;
-    this.#orbit.mouseButtons.RIGHT = THREE.MOUSE.PAN;
+    this.#orbit.mouseButtons.MIDDLE = THREE.MOUSE.PAN;
+    this.#orbit.mouseButtons.RIGHT = null;
+    this.#renderer.domElement.addEventListener("pointerdown", this.#handleCameraPointerDownCapture, true);
 
     this.#grid.position.y = 0;
     this.#scene.add(this.#grid, this.#root);
@@ -421,6 +423,7 @@ export class AnimationModelViewerAdapter {
     this.#resizeObserver.disconnect();
     this.#previewResizeObserver.disconnect();
     this.#clearModel();
+    this.#renderer.domElement.removeEventListener("pointerdown", this.#handleCameraPointerDownCapture, true);
     this.#orbit.dispose();
     this.#renderer.dispose();
     this.#renderer.domElement.remove();
@@ -428,6 +431,9 @@ export class AnimationModelViewerAdapter {
     this.#previewRenderer.domElement.remove();
   }
 
+  #handleCameraPointerDownCapture = (event: PointerEvent) => {
+    configureOrbitMouse(this.#orbit, event);
+  };
   #installModel(
     content: THREE.Object3D,
     clips: readonly THREE.AnimationClip[],

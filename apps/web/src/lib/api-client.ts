@@ -546,7 +546,7 @@ export class ApiClient {
   submitAgentInput(
     agentRunId: string,
     body: ResumeAgentUserInputRequestBody
-  ): Promise<{ message: MessageSnapshot; agentRun: AgentRunSnapshot }> {
+  ): Promise<{ message: MessageSnapshot | null; agentRun: AgentRunSnapshot }> {
     return request(`/api/v1/agent-runs/${encodeURIComponent(agentRunId)}/input`, {
       method: "POST",
       json: body

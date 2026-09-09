@@ -1,3 +1,4 @@
+import { configureOrbitMouse } from "../../components/viewer/orbit-mouse.js";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { TransformControls } from "three/examples/jsm/controls/TransformControls.js";
@@ -214,7 +215,7 @@ export class PoseEditorAdapter {
     this.orbit.minDistance = .8;
     this.orbit.maxDistance = 12;
     this.orbit.mouseButtons.LEFT = THREE.MOUSE.ROTATE;
-    this.orbit.mouseButtons.MIDDLE = THREE.MOUSE.DOLLY;
+    this.orbit.mouseButtons.MIDDLE = THREE.MOUSE.PAN;
     this.orbit.mouseButtons.RIGHT = null;
 
     this.transform = new TransformControls(this.camera, this.renderer.domElement);
@@ -680,13 +681,8 @@ export class PoseEditorAdapter {
   };
 
   private handleCameraPointerDownCapture = (event: PointerEvent) => {
-    if (event.button !== 1) return;
-    this.orbit.mouseButtons.MIDDLE = event.shiftKey
-      // OrbitControls converts a modified ROTATE action into PAN.
-      ? THREE.MOUSE.ROTATE
-      : THREE.MOUSE.DOLLY;
+    configureOrbitMouse(this.orbit, event);
   };
-
   private resize() {
     const width = Math.max(1, this.container.clientWidth);
     const height = Math.max(1, this.container.clientHeight);

@@ -96,6 +96,13 @@ export class AgentRuntime {
     if (command.type === "approval") {
       if (item.status !== "approval" || command.hash !== item.approvalHash ||
         item.approvalHash !== argumentHash(item.call.name, item.arguments)) throw new Error("审核参数已变化或审核无效。");
+      if (command.modelChanges) {
+        if (!command.approved || item.call.name !== "generate_model") throw new Error("仅模型生成审核允许修改建模参数。");
+        const original = item.arguments as Record<string, unknown>;
+        const next = this.tools.prepare(item.call.name, { ...original, parameters: command.modelChanges.parameters, outputFormats: command.modelChanges.outputFormats }, state.context);
+        item.arguments = next;
+        item.approvalHash = argumentHash(item.call.name, next);
+      }
       if (command.approved) { item.approved = true; item.status = "pending"; }
       else { item.result = { status: "rejected", message: "用户拒绝，未执行操作。" }; item.status = "done"; }
     } else if (command.type === "job" || command.type === "subagent") {
@@ -137,7 +144,10 @@ export class AgentRuntime {
       if (state.blockedTools?.includes(item.call.name)) throw new Error("此类任务本轮已失败，需用户发起新一轮后再试。");
       if (!item.approved && item.status !== "running") item.arguments = this.tools.prepare(item.call.name, item.call.arguments, state.context);
       const hash = argumentHash(item.call.name, item.arguments);
-      if (tool.policy === "approval" && !item.approved) {
+      const mode = state.context.approvalMode ?? "ask";
+      const needsApproval = mode === "ask" ? tool.policy !== "read" :
+        mode === "full" ? false : tool.policy === "approval" && item.call.name !== "generate_model";
+      if (needsApproval && item.call.name !== "request_user_input" && !item.approved && item.status !== "running") {
         item.status = "approval"; item.approvalHash = hash;
         await this.store.save(state);
         return;

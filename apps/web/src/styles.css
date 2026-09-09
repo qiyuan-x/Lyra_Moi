@@ -2284,6 +2284,43 @@ img { display: block; max-width: 100%; }
 .agent-plan li[data-status="completed"] > span:first-child { color: #379568; }
 .agent-plan li[data-status="running"] > span:first-child { color: #628bf0; }
 .agent-progress { margin: 12px 0; overflow-wrap: anywhere; }
+.message-markdown { min-width: 0; font-size: var(--font-body); line-height: 1.6; overflow-wrap: anywhere; }
+.message-markdown :is(h1, h2, h3, h4, h5, h6) { font-size: 1em; line-height: 1.5; margin: .7em 0 .35em; font-weight: 600; }
+.message-markdown strong { font-weight: 600; }
+.message-markdown p { margin: .4em 0; white-space: normal; }
+.message-markdown ul, .message-markdown ol { padding-left: 1.5em; }
+.message-markdown pre { overflow: auto; max-width: 100%; padding: 10px; background: var(--surface); border-radius: 6px; }
+.message-markdown code { font-family: monospace; font-size: .95em; }
+.message-markdown table { display: block; max-width: 100%; overflow: auto; border-collapse: collapse; }
+.message-markdown th, .message-markdown td { padding: 4px 8px; border: 1px solid var(--border); }
+.agent-approval-bar { width: 100%; min-width: 0; margin-bottom: 8px; }
+.agent-approval-card { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding: 12px 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.agent-approval-card > div:first-child { flex: 1 1 240px; min-width: 0; display: grid; gap: 4px; overflow-wrap: anywhere; }
+.agent-approval-card span, .agent-approval-menu small { color: var(--muted); }
+.agent-approval-card details { flex-basis: 100%; min-width: 0; }
+.agent-approval-card pre { max-height: 200px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.model-approval-details { flex-basis: 100%; min-width: 0; max-height: min(360px, 45vh); overflow: auto; font-size: var(--font-body); }
+.agent-approval-actions { flex-basis: 100%; justify-content: flex-end; }
+.model-approval-editor { flex-basis: 100%; min-width: 0; max-height: min(500px, 55vh); overflow: auto; }
+.model-approval-editor .model-approval-details { max-height: none; overflow: visible; }
+.model-approval-fields, .model-approval-selection { border: 0; padding: 0; margin: 0; min-width: 0; }
+.model-approval-fields { width: 100%; max-width: 100%; height: auto; overflow: visible; }
+.model-approval-note { color: var(--muted); margin: 8px 0; font-size: var(--font-small); }
+.model-approval-images { display: flex; flex-wrap: wrap; gap: 10px; margin: 10px 0; }
+.model-approval-images button { display: flex; gap: 10px; align-items: center; min-width: 0; max-width: 100%; text-align: left; }
+.model-approval-images img { width: 52px; height: 60px; object-fit: contain; }
+.model-approval-images small { display: block; overflow-wrap: anywhere; }
+.model-approval-details dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 8px 20px; }
+.model-approval-details dl > div { display: flex; justify-content: space-between; gap: 12px; }
+.model-approval-details dd { margin: 0; overflow-wrap: anywhere; }
+.agent-approval-selector { position: relative; }
+.agent-approval-menu { position: absolute; bottom: calc(100% + 6px); left: 0; width: min(280px, 80vw); max-height: 50vh; overflow-y: auto; padding: 5px; display: grid; gap: 2px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 6px 24px #0002; z-index: 30; font-size: var(--font-body); }
+.agent-approval-menu button { display: grid; gap: 2px; text-align: left; padding: 7px 9px; white-space: normal; border: 0; border-radius: 5px; color: var(--text); background: transparent; font: inherit; line-height: 1.4; }
+.agent-approval-menu button:hover, .agent-approval-menu button[aria-pressed="true"] { background: var(--surface-soft); }
+.agent-approval-menu strong { font-size: inherit; font-weight: 500; }
+.agent-approval-menu small { font-size: var(--font-small); line-height: 1.4; }
+.agent-approval-menu > small { padding: 5px 9px; border-top: 1px solid var(--border); }
+.agent-tool-result { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 240px; overflow: auto; max-width: 100%; }
 
 .provider-quota-metric { display: grid; gap: .25rem; min-width: 10rem; }
 .provider-quota-metric progress { width: 100%; height: .45rem; accent-color: #147cd0; }

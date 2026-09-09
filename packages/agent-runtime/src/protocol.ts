@@ -36,6 +36,7 @@ export interface ModelClient {
 }
 export interface PlanStep { id: string; text: string; status: "pending" | "running" | "completed" }
 export interface RunContext {
+  approvalMode?: "ask" | "auto" | "full";
   projectId: string;
   conversationId: string;
   requestMessageId: string;
@@ -105,7 +106,7 @@ export interface RunStore {
   save(state: RuntimeState, event?: RuntimeEvent): Promise<void>;
 }
 export type ResumeCommand =
-  | { type: "approval"; operationId: string; hash: string; approved: boolean }
+  | { type: "approval"; operationId: string; hash: string; approved: boolean; modelChanges?: { parameters: Record<string, unknown>; outputFormats: string[] } }
   | { type: "input"; operationId: string; text: string; choiceId?: string; assets?: AssetRef[] }
   | { type: "job"; operationId: string; jobId: string; result: unknown; error: boolean; assets?: AssetRef[] }
   | { type: "subagent"; operationId: string; runId: string; result: unknown; error: boolean };

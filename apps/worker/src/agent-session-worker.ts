@@ -153,11 +153,11 @@ export class AgentSessionWorker {
       if (request?.payload.runtimeVersion !== 3) continue;
       const item = state.invocations.find((invocation) => invocation.operationId === request.payload.operationId);
       if (!item || (item.status !== "approval" && item.status !== "input")) continue;
-      const input = step.payload.input as { text: string; choiceId?: string; attachments: AssetRef[] };
+      const input = step.payload.input as { text: string; choiceId?: string; attachments: AssetRef[]; modelChanges?: import("@lyra/contracts").ModelApprovalChanges };
       if (item.status === "approval") {
         if (input.choiceId !== "approve" && input.choiceId !== "reject") throw new Error("操作审核缺少明确决定。");
         await runtime.resume(state, { type: "approval", operationId: item.operationId,
-          hash: String(request.payload.approvalHash), approved: input.choiceId === "approve" });
+          hash: String(request.payload.approvalHash), approved: input.choiceId === "approve", ...(input.modelChanges ? { modelChanges: input.modelChanges } : {}) });
       } else await runtime.resume(state, { type: "input", operationId: item.operationId, text: input.text,
         ...(input.choiceId ? { choiceId: input.choiceId } : {}), assets: input.attachments });
     }
@@ -205,7 +205,11 @@ export class AgentSessionWorker {
         role: message.role === "tool" ? "user" : message.role,
         parts: [{ type: "text", text: message.text }, ...message.attachments.map((asset) => ({ type: "asset" as const, asset }))]
       }))];
+    const parentCheckpoint = run.parentRunId ? this.options.repositories.agentSteps.list(run.parentRunId)
+      .find((step) => step.payload.runtimeCheckpoint === 3)?.payload.checkpoint as RuntimeState | undefined : undefined;
+    const approvalMode = parentCheckpoint?.context.approvalMode ?? this.options.repositories.settings.get("agent_approval_mode");
     return { version: 3, runId: run.id, context: {
+      approvalMode: approvalMode === "auto" || approvalMode === "full" ? approvalMode : "ask",
       projectId: run.projectId, conversationId: run.conversationId, requestMessageId: run.requestMessageId,
       attachments: structuredClone(attachments), originalPrompt: request.text, optimizeImagePrompt: run.optimizeImagePrompt,
       defaults: { ...(run.defaultImageProfileId ? { imageProfile: run.defaultImageProfileId } : {}),
@@ -226,6 +230,7 @@ export class AgentSessionWorker {
 }
 
 const RUNTIME_PROMPT = `你通过工具操作 Lyra 应用。复杂目标先用 update_plan 创建计划，按真实结果更新计划；简单问题直接回答。
+执行多步任务时，用简短的用户可见说明告知当前动作和下一步；这是执行摘要，不输出内部推理。调用后依据真实结果说明进度，避免重复查询已有结果。
 只调用本轮提供的工具。未提供的功能必须如实说明尚未接入，不能用文字假装完成操作。
 可以使用 delegate_subagent 拆分明确、相互独立的子任务。只有工具返回真实子任务 ID 后才能声称已创建；子任务完成前必须等待，不得伪造结果。每个父任务最多同时运行 4 个子智能体。
 需要素材 ID 时先查询，保持参考素材顺序。读取图片应使用 inspect_asset，不根据文件名猜测内容。

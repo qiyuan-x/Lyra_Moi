@@ -7,6 +7,8 @@ import type {
   ResumeAgentUserInputRequestBody
 } from "@lyra/contracts";
 import {
+  validateModelParameters,
+  resolveModelGenerationAdapter,
   parseResumeAgentUserInputRequest,
   parseSendAgentMessageRequest
 } from "@lyra/contracts";
@@ -158,7 +160,7 @@ export class AgentConversationService {
     });
   }
 
-  submitUserInput(agentRunId: string, value: unknown): SendAgentMessageResult {
+  submitUserInput(agentRunId: string, value: unknown): { message: MessageSnapshot | null; agentRun: AgentRunSnapshot } {
     const input = parseResumeAgentUserInputRequest(value);
     const run = this.#agentRuns.requireStored(agentRunId);
     if (run.status !== "awaiting_user") {
@@ -168,13 +170,30 @@ export class AgentConversationService {
     const requestStep = this.#agentSteps.findWaitingUserInput(agentRunId);
     if (!requestStep) throw new Error(`Agent user input request is missing: ${agentRunId}`);
     validateChoice(input, requestStep.payload);
+    if (input.modelChanges) {
+      if (requestStep.toolName !== "generate_model" || !requestStep.payload.approvalHash || input.choiceId !== "approve") {
+        throw new Error("仅批准模型生成时可以修改建模参数。");
+      }
+      const request = requestStep.payload.request as { metadata?: { arguments?: Record<string, unknown> } };
+      const args = request.metadata?.arguments;
+      if (!args) throw new Error("找不到待确认的模型参数。");
+      const model = this.#providers.requireModel(String(args.providerModelId));
+      const profile = this.#providers.requireProfile(String(args.providerProfileId));
+      const error = validateModelParameters(resolveModelGenerationAdapter(profile.adapterType, model.remoteModelId) ?? undefined,
+        model.remoteModelId, input.modelChanges.parameters, input.modelChanges.outputFormats);
+      if (error) throw new Error(error);
+      if (args.textureImageAssetId && (input.modelChanges.parameters.texture === false || input.modelChanges.parameters.textureGuideMode !== "image")) {
+        throw new Error("已选纹理参考图，请保留生成纹理和图片引导。");
+      }
+    }
     if (requestStep.payload.runtimeVersion === 3 && requestStep.payload.approvalHash &&
       input.choiceId !== "approve" && input.choiceId !== "reject") {
       throw new Error("请明确选择批准或拒绝，补充文字不能替代操作审核。");
     }
 
     return this.#database.transaction(() => {
-      const message = this.#conversations.createMessage({
+      const approval = requestStep.payload.runtimeVersion === 3 && !!requestStep.payload.approvalHash;
+      const message = approval ? null : this.#conversations.createMessage({
         conversationId: run.conversationId,
         role: "user",
         text: input.text,
@@ -188,11 +207,11 @@ export class AgentConversationService {
         toolName: requestStep.toolName,
         payload: {
           requestStepId: requestStep.id,
-          messageId: message.id,
+          messageId: message?.id ?? null,
           input: structuredClone(input)
         }
       });
-      this.#events.append({
+      if (message) this.#events.append({
         projectId: run.projectId,
         conversationId: run.conversationId,
         agentRunId,

@@ -18,3 +18,7 @@ export * from "./validation.js";
 
 export * from "./model-purpose.js";
 export * from "./tripo.js";
+
+export * from "./model-defaults.js";
+
+export * from "./model-parameters.js";

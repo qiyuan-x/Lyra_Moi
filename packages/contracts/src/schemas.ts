@@ -124,6 +124,10 @@ export const resumeAgentUserInputRequestSchema = {
   properties: {
     text: { type: "string" },
     choiceId: { type: "string", minLength: 1 },
+    modelChanges: { type: "object", additionalProperties: false, required: ["parameters", "outputFormats"], properties: {
+      parameters: { type: "object", additionalProperties: true },
+      outputFormats: { type: "array", minItems: 1, uniqueItems: true, items: { enum: ["glb", "obj", "fbx", "stl", "usdz", "3mf"] } }
+    } },
     attachments: { type: "array", items: orderedAssetInputSchema }
   }
 } as const satisfies JsonSchema;

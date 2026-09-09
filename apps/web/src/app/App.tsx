@@ -719,6 +719,7 @@ export function App() {
           />
         ) : page === "conversation" ? (
           <ConversationWorkspace
+            providerCatalog={catalog}
             llmModelId={selectedLlmModel?.id ?? ""}
             llmProviders={catalog.profiles.filter((profile) => profile.serviceType === "llm" && profile.enabled).map((profile) => ({ id: profile.id, name: profile.name }))}
             llmModels={enabledLlmModels.map((model) => ({ id: model.id, providerId: model.providerProfileId, name: providerModelDisplayName(model) }))}

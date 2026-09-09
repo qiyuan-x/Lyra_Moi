@@ -14,6 +14,7 @@ export interface AgentPromptSettingsSnapshot {
 
 export interface AgentRuntimeSettings {
   maxToolCalls: number;
+  approvalMode?: "ask" | "auto" | "full";
 }
 
 export type UpdateAgentRuntimeSettingsRequestBody =

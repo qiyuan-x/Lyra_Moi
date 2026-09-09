@@ -13,6 +13,7 @@ import { ModelImageInputs } from "./ModelImageInputs.js";
 import { tripoFaceCountRange } from "./model-provider-config.js";
 
 export function ModelProviderParameters(props: {
+  lockSelection?: boolean;
   adapter: ProviderAdapterType | null;
   providerAdapter: ProviderAdapterType;
   remoteModelId: string;
@@ -73,6 +74,7 @@ export function ModelProviderParameters(props: {
       : null;
     return (
       <>
+        <fieldset disabled={props.lockSelection} className="model-approval-selection">
         <SelectField label="模型类型" value={modelType} onChange={selectMeshyType}>
           <option value="standard" disabled={standardModels.length === 0}>标准</option>
           <option value="smart-topology" disabled={smartModels.length === 0}>智能拓扑</option>
@@ -93,6 +95,7 @@ export function ModelProviderParameters(props: {
             ))
             : <option value={props.remoteModelId}>{meshModelLabel(props.remoteModelId)}</option>}
         </SelectField>
+        </fieldset>
         {props.inputMode !== "multiview" && ["latest", "meshy-7"].includes(props.remoteModelId) && (
           <Toggle label="Ultra 模式" checked={bool("ultraMode", false)} onChange={(checked) => set("ultraMode", checked)} />
         )}
@@ -132,11 +135,13 @@ export function ModelProviderParameters(props: {
         } />
         {texture && (
           <>
+            <fieldset disabled={props.lockSelection && !!props.selectedTextureImage} className="model-approval-selection">
             <SelectField label="纹理引导" value={guideMode} onChange={(value) => set("textureGuideMode", value)}>
               <option value="none">不使用</option>
               <option value="text">文字引导</option>
               <option value="image">图片引导</option>
             </SelectField>
+            </fieldset>
             {guideMode === "text" && (
               <label className="field">
                 <span>纹理提示词</span>
@@ -150,7 +155,7 @@ export function ModelProviderParameters(props: {
                 <small>{text("texturePrompt", "").length}/600</small>
               </label>
             )}
-            {guideMode === "image" && (
+            {guideMode === "image" && !props.lockSelection && (
               <ModelImageInputs
                 showModelInput={false}
                 images={props.images}

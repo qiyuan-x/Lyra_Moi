@@ -424,7 +424,7 @@ export function PoseStudioPage(props: PoseStudioPageProps) {
             </div>
           )}
           <footer className="pose-stage-help">
-            <span>点击蓝色骨骼选择；W 移动、R 旋转、S 缩放；左键旋转，滚轮缩放，Shift + 中键平移。</span>
+            <span>点击蓝色骨骼选择；W 移动、R 旋转、S 缩放；左键旋转，中键/Shift + 中键平移，滚轮缩放。</span>
             {saveState && createPortal(<div className="pose-capture-toast" role="status">{saveState}</div>, document.body)}
           </footer>
         </div>

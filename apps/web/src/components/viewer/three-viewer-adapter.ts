@@ -1,3 +1,4 @@
+import { configureOrbitMouse } from "./orbit-mouse.js";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { DRACOLoader } from "three/examples/jsm/loaders/DRACOLoader.js";
@@ -63,6 +64,7 @@ export class ThreeViewerAdapter implements ModelViewerAdapter {
   #model: THREE.Object3D | null = null;
   #animationFrame = 0;
   #disposed = false;
+  #needsRender = true;
   #wireframeVisible = false;
   #textureVisible = true;
   #lighting: ViewerLightingSettings = {
@@ -93,6 +95,8 @@ export class ThreeViewerAdapter implements ModelViewerAdapter {
     this.#renderer.toneMappingExposure = 1;
     this.#renderer.shadowMap.enabled = true;
     this.#renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.#renderer.shadowMap.autoUpdate = false;
+    this.#renderer.shadowMap.needsUpdate = true;
     this.#renderer.domElement.setAttribute("aria-label", "3D 模型查看器");
     this.#renderer.domElement.setAttribute("role", "img");
     container.replaceChildren(this.#renderer.domElement);
@@ -127,6 +131,7 @@ export class ThreeViewerAdapter implements ModelViewerAdapter {
     this.#controls = new OrbitControls(this.#camera, this.#renderer.domElement);
     this.#controls.enableDamping = true;
     this.#controls.dampingFactor = 0.08;
+    this.#controls.addEventListener("change", this.#invalidate);
     this.#controls.autoRotateSpeed = 1.5;
     this.#controls.minDistance = 0.05;
     this.#controls.maxDistance = 500;
@@ -136,6 +141,7 @@ export class ThreeViewerAdapter implements ModelViewerAdapter {
     this.#controls.mouseButtons.MIDDLE = THREE.MOUSE.PAN;
     this.#controls.mouseButtons.RIGHT = null;
     this.#renderer.domElement.addEventListener("contextmenu", preventContextMenu);
+    this.#renderer.domElement.addEventListener("pointerdown", this.#onCameraPointerDown, true);
 
     this.#resizeObserver = new ResizeObserver(() => this.#resize());
     this.#resizeObserver.observe(container);
@@ -187,6 +193,7 @@ export class ThreeViewerAdapter implements ModelViewerAdapter {
   }
 
   setGridVisible(visible: boolean): void {
+    this.#needsRender = true;
     this.#grid.visible = visible;
   }
 
@@ -206,10 +213,12 @@ export class ThreeViewerAdapter implements ModelViewerAdapter {
   }
 
   setExposure(value: number): void {
+    this.#needsRender = true;
     this.#renderer.toneMappingExposure = value;
   }
 
   setFov(value: number): void {
+    this.#needsRender = true;
     this.#camera.fov = Math.max(15, Math.min(80, value));
     this.#camera.updateProjectionMatrix();
   }
@@ -223,6 +232,8 @@ export class ThreeViewerAdapter implements ModelViewerAdapter {
     this.#disposed = true;
     cancelAnimationFrame(this.#animationFrame);
     this.#resizeObserver.disconnect();
+    this.#renderer.domElement.removeEventListener("pointerdown", this.#onCameraPointerDown, true);
+    this.#controls.removeEventListener("change", this.#invalidate);
     this.#controls.dispose();
     this.#renderer.domElement.removeEventListener("contextmenu", preventContextMenu);
     this.#removeModel();
@@ -240,6 +251,8 @@ export class ThreeViewerAdapter implements ModelViewerAdapter {
   }
 
   #applyMaterialState(): void {
+    this.#needsRender = true;
+    this.#renderer.shadowMap.needsUpdate = true;
     for (const [material, texture] of this.#originalTextures) {
       const textured = material as TexturedMaterial;
       if ("map" in textured) {
@@ -257,6 +270,7 @@ export class ThreeViewerAdapter implements ModelViewerAdapter {
   }
 
   #applyLighting(): void {
+    this.#needsRender = true;
     const settings = this.#lighting;
     const shadow = Math.max(0, Math.min(1, settings.shadowIntensity));
     this.#keyLight.shadow.intensity = shadow;
@@ -342,6 +356,7 @@ export class ThreeViewerAdapter implements ModelViewerAdapter {
     this.#keyLight.shadow.bias = -0.0003;
     this.#keyLight.shadow.normalBias = Math.max(0.001, this.#modelRadius * 0.0015);
     this.#keyLight.shadow.needsUpdate = true;
+    this.#renderer.shadowMap.needsUpdate = true;
   }
 
   #scheduleDaylightEnvironment(): void {
@@ -383,10 +398,12 @@ export class ThreeViewerAdapter implements ModelViewerAdapter {
       this.#daylightEnvironment = nextEnvironment;
       this.#daylightEnvironmentDirection = nextDirectionKey;
       this.#scene.environment = nextEnvironment.texture;
+      this.#needsRender = true;
     }, 120);
   }
 
   #fitCamera(): void {
+    this.#needsRender = true;
     if (!this.#model) return;
     const bounds = new THREE.Box3().setFromObject(this.#model);
     if (bounds.isEmpty()) return;
@@ -411,6 +428,8 @@ export class ThreeViewerAdapter implements ModelViewerAdapter {
   }
 
   #removeModel(): void {
+    this.#needsRender = true;
+    this.#renderer.shadowMap.needsUpdate = true;
     if (this.#model) {
       for (const [mesh, original] of this.#originalMeshMaterials) {
         mesh.material = original;
@@ -423,7 +442,11 @@ export class ThreeViewerAdapter implements ModelViewerAdapter {
     this.#originalMeshMaterials.clear();
   }
 
+  #invalidate = (): void => { this.#needsRender = true; };
+  #onCameraPointerDown = (event: PointerEvent): void => { configureOrbitMouse(this.#controls, event); };
+
   #resize(): void {
+    this.#needsRender = true;
     const width = Math.max(1, this.#container.clientWidth);
     const height = Math.max(1, this.#container.clientHeight);
     this.#camera.aspect = width / height;
@@ -433,7 +456,11 @@ export class ThreeViewerAdapter implements ModelViewerAdapter {
 
   #render = (): void => {
     if (this.#disposed) return;
-    this.#controls.update();
+    const changed = this.#controls.update();
+    this.#animationFrame = requestAnimationFrame(this.#render);
+    if (!changed && !this.#needsRender) return;
+    if (this.#container.clientWidth === 0 || this.#container.clientHeight === 0 || document.hidden) return;
+    this.#needsRender = false;
     this.#renderer.render(this.#scene, this.#camera);
     if (this.#wireframeVisible && this.#model) {
       const groundVisible = this.#ground.visible;
@@ -451,7 +478,6 @@ export class ThreeViewerAdapter implements ModelViewerAdapter {
       this.#ground.visible = groundVisible;
       this.#grid.visible = gridVisible;
     }
-    this.#animationFrame = requestAnimationFrame(this.#render);
   };
 }
 

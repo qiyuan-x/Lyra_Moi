@@ -9,6 +9,7 @@ import type {
   PromptTemplateSnapshot
 } from "@lyra/contracts";
 import { AgentPanel } from "../components/AgentPanel.js";
+import { AgentApprovalBar } from "../components/AgentApprovalBar.js";
 import { AssetPickerDialog } from "../components/AssetPickerDialog.js";
 import { Composer } from "../components/Composer.js";
 import { ConversationManager } from "../components/ConversationManager.js";
@@ -18,6 +19,7 @@ import { ConversationTaskDialog } from "../features/conversations/ConversationTa
 import { ConversationModelSelectors } from "../features/providers/ConversationModelSelectors.js";
 
 interface ConversationWorkspaceProps {
+  providerCatalog: import("../lib/api-client.js").ProviderCatalog;
   llmModelId: string;
   llmProviders: Array<{ id: string; name: string }>;
   llmModels: Array<{ id: string; providerId: string; name: string }>;
@@ -59,7 +61,7 @@ interface ConversationWorkspaceProps {
   runs: AgentRunSnapshot[];
   stepsByRun: Map<string, AgentStepSnapshot[]>;
   assistantName: string;
-  onSubmitAgentInput: (runId: string, text: string, choiceId?: string) => Promise<void>;
+  onSubmitAgentInput: (runId: string, text: string, choiceId?: string, modelChanges?: import("@lyra/contracts").ModelApprovalChanges) => Promise<void>;
   onCancelAgent: (runId: string) => Promise<void>;
   agentReady: boolean;
   onOpenSettings: () => void;
@@ -197,6 +199,8 @@ export function ConversationWorkspace(props: ConversationWorkspaceProps) {
       </div>
 
       <div className="composer-wrap">
+        <AgentApprovalBar catalog={props.providerCatalog} runs={props.runs} stepsByRun={props.stepsByRun} onSubmit={props.onSubmitAgentInput}
+          assets={props.assetsById} thumbnailUrl={props.thumbnailUrl} onPreview={props.onPreview} models={props.modelModels} providers={props.modelProviders} />
         {!props.agentReady && (
           <button type="button" className="agent-setup-notice" onClick={props.onOpenSettings}>
             请在上方选择对话模型；尚未添加模型时，点击前往 LLM 设置
