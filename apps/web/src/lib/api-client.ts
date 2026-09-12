@@ -23,6 +23,7 @@ import type {
   MessageSnapshot,
   OrderedAssetInput,
   ProjectSnapshot,
+  ProjectGenerationForms,
   ProjectAnimationClipSnapshot,
   ProjectAnimationSnapshot,
   PromptTemplateListQuery,
@@ -52,6 +53,14 @@ export interface ProviderCatalog {
 }
 
 export class ApiClient {
+  getGenerationForms(projectId: string): Promise<ProjectGenerationForms> {
+    return request(`/api/v1/projects/${encodeURIComponent(projectId)}/generation-forms`);
+  }
+
+  updateGenerationForms(projectId: string, forms: ProjectGenerationForms): Promise<ProjectGenerationForms> {
+    return request(`/api/v1/projects/${encodeURIComponent(projectId)}/generation-forms`, { method: "PATCH", json: forms });
+  }
+
   getCommunitySettings(): Promise<CommunitySettingsSnapshot> {
     return request<CommunitySettingsSnapshot>("/api/v1/settings/community");
   }

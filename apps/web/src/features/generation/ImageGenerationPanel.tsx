@@ -21,6 +21,7 @@ import {
   type ImageResolution
 } from "./image-resolution.js";
 import type { ManualImageTaskInput } from "./task-input.js";
+import { readProjectForm, saveProjectForm } from "./project-form-state.js";
 
 interface ImageGenerationPanelProps {
   projectId: string;
@@ -68,14 +69,7 @@ export function ImageGenerationPanel(props: ImageGenerationPanelProps) {
   }, [props.editingJob?.id]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(
-        formStorageKey(props.projectId),
-        JSON.stringify({ prompt, count, aspectRatio, resolution })
-      );
-    } catch {
-      // The form remains usable when browser storage is unavailable.
-    }
+    saveProjectForm(props.projectId, "image", { prompt, count, aspectRatio, resolution });
   }, [props.projectId, prompt, count, aspectRatio, resolution]);
 
   function moveAttachment(index: number, direction: -1 | 1) {
@@ -352,9 +346,7 @@ function readFormState(projectId: string): PersistedImageFormState {
     resolution: "auto"
   };
   try {
-    const value: unknown = JSON.parse(
-      localStorage.getItem(formStorageKey(projectId)) ?? "null"
-    );
+    const value: unknown = readProjectForm(projectId, "image");
     if (!isRecord(value)) return fallback;
     return {
       prompt: typeof value.prompt === "string" ? value.prompt : "",
@@ -367,10 +359,6 @@ function readFormState(projectId: string): PersistedImageFormState {
   } catch {
     return fallback;
   }
-}
-
-function formStorageKey(projectId: string): string {
-  return `lyra.image-generation.form.${projectId}`;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

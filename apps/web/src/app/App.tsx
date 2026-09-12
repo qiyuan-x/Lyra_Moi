@@ -29,6 +29,8 @@ import { ImageGenerationPage } from "./ImageGenerationPage.js";
 import type { Page } from "./app-navigation.js";
 import { useAgentActions } from "./useAgentActions.js";
 import { useWorkspaceRefresh } from "./useWorkspaceRefresh.js";
+import { useAppNotice } from "./useAppNotice.js";
+import { useProjectForms } from "./useProjectForms.js";
 import {
   addUniqueAsset,
   appendUniqueAssets,
@@ -224,8 +226,8 @@ export function App() {
     ?? enabledLlmModels.find((model) => model.id === catalog.defaults.llm);
   const agentReady = Boolean(selectedLlmModel);
 
-  const pushNotice = useCallback((_type: string, _text: string) => undefined, []);
-  const reportError = useCallback((_error: unknown) => undefined, []);
+  const { pushNotice, reportError, noticeElement } = useAppNotice();
+  const projectForms = useProjectForms(projectId, api, reportError);
 
   const workspaceRefreshOptions = useMemo(() => ({
     api,
@@ -242,7 +244,7 @@ export function App() {
     setStepsByRun,
     reportError
   }), [conversationDraftActive, conversationId, projectId, reportError]);
-  const { refreshProject, refreshConversation } = useWorkspaceRefresh(workspaceRefreshOptions);
+  const { refreshProject, refreshConversation, projectAssetsReady, projectAssetsError } = useWorkspaceRefresh(workspaceRefreshOptions);
   const {
     attachments,
     setAttachments,
@@ -334,6 +336,7 @@ export function App() {
   });
   const {
     submitting,
+    submissionError,
     submitAgent,
     submitAgentInput,
     cancelAgent
@@ -358,8 +361,7 @@ export function App() {
         "请先在 LLM 设置中添加并选择一个默认模型。"
       );
       setPage("settings");
-    },
-    onError: reportError
+    }
   });
 
   const selectConversation = useCallback((nextConversationId: string) => {
@@ -678,6 +680,16 @@ export function App() {
             <h1>尚未创建项目</h1>
             <p>请先通过初始化流程创建默认项目。</p>
           </section>
+        ) : (["generation", "model", "conversation"].includes(page) && !projectForms.ready) || (page === "model" && !projectAssetsReady) ? (
+          <section className="boot-state">
+            {projectForms.error || projectAssetsError ? <div>
+              <p className="inline-error" role="alert">项目数据加载失败：{projectForms.error || projectAssetsError}</p>
+              <button type="button" className="button button-secondary" onClick={() => {
+                if (projectForms.error) projectForms.retry();
+                else void refreshProject(projectId).catch(reportError);
+              }}>重试</button>
+            </div> : <><span className="spinner" />正在读取项目数据</>}
+          </section>
         ) : page === "community" ? (
           <CommunityPage
             url={communityUrl}
@@ -775,6 +787,7 @@ export function App() {
             prompt={prompt}
             promptTemplates={prompts}
             submitting={submitting}
+            submissionError={submissionError}
             onPromptChange={setPrompt}
             onInsertPrompt={insertPromptText}
             onRemoveAttachment={(index) =>
@@ -843,7 +856,6 @@ export function App() {
               api={api}
               onSaveScreenshot={async (file) => {
                 await uploadAssets([file]);
-                pushNotice("success", "动作截图已保存到当前项目素材库");
               }}
             />
           </Suspense>
@@ -883,6 +895,7 @@ export function App() {
         )}
       </main>
 
+      {noticeElement}
       <input
         ref={uploadInputRef}
         hidden

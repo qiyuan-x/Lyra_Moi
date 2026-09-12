@@ -112,6 +112,15 @@ export class AgentStepRepository {
     return row ? mapStep(row) : null;
   }
 
+  findProgress(agentRunId: string, turn: number): AgentStepSnapshot | null {
+    const row = this.#database.connection.prepare(`
+      ${STEP_SELECT} WHERE agent_run_id = ? AND type = 'llm_response'
+        AND json_extract(payload_json, '$.runtimeTurn') = ?
+      ORDER BY sequence DESC LIMIT 1
+    `).get(agentRunId, turn) as AgentStepRow | undefined;
+    return row ? mapStep(row) : null;
+  }
+
   update(
     stepId: string,
     input: {

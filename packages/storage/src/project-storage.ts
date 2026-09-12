@@ -1,8 +1,10 @@
-import { constants, rmSync } from "node:fs";
+import { constants, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { copyFile, mkdir, stat } from "node:fs/promises";
 import { mkdirSync } from "node:fs";
 import { dirname, resolve, sep } from "node:path";
 import type { AssetLibrarySection, AssetSource } from "@lyra/contracts";
+import { validateProjectGenerationForms, type ProjectGenerationForms } from "@lyra/contracts";
 import type { LyraDatabase } from "./database.js";
 import type { RuntimeLayout } from "./runtime-layout.js";
 
@@ -41,6 +43,32 @@ export class ProjectDirectoryStore {
       recursive: true,
       force: true
     });
+  }
+
+  readGenerationForms(projectId: string): ProjectGenerationForms {
+    const path = resolve(resolveProjectRoot(this.root, projectId), "settings", "generation-forms.json");
+    let text: string;
+    try { text = readFileSync(path, "utf8"); }
+    catch (error) { if (getErrorCode(error) === "ENOENT") return {}; throw error; }
+    const value = JSON.parse(text);
+    if (value?.version !== 1) throw new Error("项目生成参数文件版本不受支持，原文件已保留。");
+    return validateProjectGenerationForms(value.forms);
+  }
+
+  updateGenerationForms(projectId: string, patch: ProjectGenerationForms): ProjectGenerationForms {
+    validateProjectGenerationForms(patch);
+    const forms = validateProjectGenerationForms({ ...this.readGenerationForms(projectId), ...patch });
+    const directory = resolve(resolveProjectRoot(this.root, projectId), "settings");
+    mkdirSync(directory, { recursive: true });
+    const target = resolve(directory, "generation-forms.json");
+    const temporary = resolve(directory, `generation-forms.${randomUUID()}.tmp`);
+    try {
+      writeFileSync(temporary, JSON.stringify({ version: 1, forms }, null, 2), { encoding: "utf8", flag: "wx" });
+      renameSync(temporary, target);
+    } finally {
+      rmSync(temporary, { force: true });
+    }
+    return forms;
   }
 
   assetDirectory(projectId: string, section: AssetLibrarySection): string {

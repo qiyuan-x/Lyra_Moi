@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef } from "react";
 import type {
   AgentRunSnapshot,
   AgentStepSnapshot,
@@ -6,10 +6,14 @@ import type {
   MessageSnapshot
 } from "@lyra/contracts";
 import { Icon } from "./Icon.js";
+import { isActiveAgentRun } from "../features/conversations/agent-stream-state.js";
+import { AgentRunCard } from "../features/conversations/AgentRunCard.js";
 import { MessageMarkdown } from "./MessageMarkdown.js";
 
 interface AgentPanelProps {
   messages: MessageSnapshot[];
+  submitting?: boolean;
+  submissionError?: string;
   runs: AgentRunSnapshot[];
   stepsByRun: Map<string, AgentStepSnapshot[]>;
   assistantName: string;
@@ -20,35 +24,30 @@ interface AgentPanelProps {
   onCancel: (runId: string) => Promise<void>;
 }
 
-const runStatusText: Record<AgentRunSnapshot["status"], string> = {
-  queued: "等待执行",
-  thinking: "正在理解",
-  calling_tool: "正在调用工具",
-  waiting_tool: "等待生成结果",
-  resuming: "继续执行",
-  awaiting_user: "等待你的回复",
-  completed: "已完成",
-  failed: "执行失败",
-  cancelled: "已取消",
-  interrupted: "已中断"
-};
-
 export function AgentPanel(props: AgentPanelProps) {
   const messageListRef = useRef<HTMLDivElement>(null);
+  const followOutputRef = useRef(true);
+  const previousLastMessageRef = useRef("");
   const runsByMessage = useMemo(
     () => new Map(props.runs.map((run) => [run.requestMessageId, run])),
     [props.runs]
   );
+  const repliesByRequest = useMemo(() => new Map(props.messages
+    .filter((message) => message.role === "assistant" && message.replyToId)
+    .map((message) => [message.replyToId, message])), [props.messages]);
   const scrollKey = [
     props.messages.at(-1)?.id ?? "",
     props.runs.map((run) => `${run.id}:${run.status}`).join("|"),
-    [...props.stepsByRun.entries()].map(([runId, steps]) => `${runId}:${steps.length}`).join("|")
+    [...props.stepsByRun.entries()].map(([runId, steps]) => `${runId}:${steps.map((step) => `${step.id}:${step.updatedAt}:${step.payload.revision ?? 0}`).join(",")}`).join("|")
   ].join(";");
 
   useEffect(() => {
+    const last = props.messages.at(-1);
+    if (last?.role === "user" && previousLastMessageRef.current !== last.id) followOutputRef.current = true;
+    previousLastMessageRef.current = last?.id ?? "";
     const frame = window.requestAnimationFrame(() => {
       const list = messageListRef.current;
-      if (list) list.scrollTop = list.scrollHeight;
+      if (list && followOutputRef.current) list.scrollTop = list.scrollHeight;
     });
     return () => window.cancelAnimationFrame(frame);
   }, [scrollKey]);
@@ -61,7 +60,10 @@ export function AgentPanel(props: AgentPanelProps) {
           <strong>对话</strong>
         </div>
       </header>
-      <div className="message-list" ref={messageListRef}>
+      <div className="message-list" ref={messageListRef} onScroll={() => {
+        const list = messageListRef.current;
+        if (list) followOutputRef.current = list.scrollHeight - list.scrollTop - list.clientHeight < 64;
+      }}>
         {props.messages.length === 0 && (
           <div className="agent-empty">
             <p>输入需求开始对话。</p>
@@ -69,10 +71,11 @@ export function AgentPanel(props: AgentPanelProps) {
           </div>
         )}
         {props.messages.filter((message) => message.role !== "system" && message.role !== "tool" &&
+          !(message.role === "assistant" && message.replyToId && runsByMessage.has(message.replyToId)) &&
           (message.text.trim() || message.attachments.length || runsByMessage.has(message.id))).map((message) => {
           const run = runsByMessage.get(message.id);
           return (
-            <div className={`message-block role-${message.role}`} key={message.id}>
+            <Fragment key={message.id}><div className={`message-block role-${message.role}`}>
               <div className="message-meta">
                 <strong>{message.role === "user" ? "你" : props.assistantName}</strong>
                 <time>{formatTime(message.createdAt)}</time>
@@ -91,169 +94,28 @@ export function AgentPanel(props: AgentPanelProps) {
                 </div>
               )}
               {message.text && (message.role === "assistant" ? <MessageMarkdown text={message.text} /> : <p className="message-text">{message.text}</p>)}
+            </div>
               {run && (
-                <RunCard
+                <div className="agent-response role-assistant">
+                <div className="message-meta"><strong>{props.assistantName}</strong></div>
+                <AgentRunCard
                   run={run}
+                  finalText={repliesByRequest.get(run.requestMessageId)?.text}
                   steps={props.stepsByRun.get(run.id) ?? []}
                   onSubmitInput={props.onSubmitInput}
                   onCancel={props.onCancel}
-                />
+                /></div>
               )}
-            </div>
+            </Fragment>
           );
         })}
+        {props.submitting && !props.runs.some(isActiveAgentRun) && <div className="run-status" role="status"><span className="run-dot run-thinking" />正在思考</div>}
+        {props.submissionError && <p className="inline-error" role="alert">{props.submissionError}</p>}
       </div>
     </section>
   );
 }
 
-interface RunCardProps {
-  run: AgentRunSnapshot;
-  steps: AgentStepSnapshot[];
-  onSubmitInput: (runId: string, text: string, choiceId?: string) => Promise<void>;
-  onCancel: (runId: string) => Promise<void>;
-}
-
-function RunCard({ run, steps, onSubmitInput, onCancel }: RunCardProps) {
-  const [input, setInput] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [inputError, setInputError] = useState("");
-  const active = !["completed", "failed", "cancelled", "interrupted"].includes(run.status);
-  const visibleSteps = steps.filter((step) => ["tool_call", "tool_result", "user_input_request", "user_input_result"].includes(step.type) ||
-    (step.payload.kind === "progress" && typeof step.payload.text === "string" && step.payload.text.trim()));
-  const waitingStep = [...steps].reverse().find((step) => step.type === "user_input_request" && step.status === "waiting");
-  const request = readInputRequest(waitingStep?.payload.request);
-  const planValue = [...steps].reverse().find((step) => step.payload.kind === "plan")?.payload.steps;
-  const plan = Array.isArray(planValue) ? planValue.filter(isRecord).filter((step) =>
-    typeof step.id === "string" && typeof step.text === "string" && ["pending", "running", "completed"].includes(String(step.status))) : [];
-
-  async function submit(choiceId?: string) {
-    if (submitting || (!choiceId && !input.trim())) return;
-    setSubmitting(true);
-    setInputError("");
-    try {
-      await onSubmitInput(run.id, input.trim(), choiceId);
-      setInput("");
-    } catch (error) {
-      setInputError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  return (
-    <div className="run-card">
-      <div className="run-status">
-        <span className={`run-dot run-${run.status}`} />
-        <span>{runStatusText[run.status]}</span>
-        {active && run.status !== "awaiting_user" && (
-          <button type="button" onClick={() => void onCancel(run.id)}>停止</button>
-        )}
-      </div>
-      {plan.length > 0 && (
-        <ol className="agent-plan" aria-label="执行计划">
-          {plan.map((step) => <li key={String(step.id)} data-status={String(step.status)}>
-            <span>{step.status === "completed" ? "已完成" : step.status === "running" ? "执行中" : "待执行"}</span>
-            <span>{String(step.text)}</span>
-          </li>)}
-        </ol>
-      )}
-      {visibleSteps.length > 0 && (
-        <details className="run-steps" open={active}>
-          <summary>执行过程 · {visibleSteps.length} 条记录</summary>
-          <div>
-            {visibleSteps.map((step) => (
-              <div className="step-row" key={step.id}>
-                <span className={`step-state step-${step.status}`} />
-                <div>
-                  <strong>{step.payload.kind === "progress" ? "执行说明" : step.toolName || stepLabel(step.type)}</strong>
-                  {step.payload.kind === "progress" ? <MessageMarkdown text={stepSummary(step)} /> : <small>{stepSummary(step)}</small>}
-                  {step.type === "tool_result" && typeof step.payload.content === "string" && (
-                    <details><summary>查看结果</summary><pre className="agent-tool-result">{step.payload.content}</pre></details>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </details>
-      )}
-      {run.errorMessage && <p className="inline-error">{run.errorMessage}</p>}
-      {run.status === "awaiting_user" && request && request.metadata?.kind !== "approval" && (
-        <div className="agent-question">
-          {request.metadata?.kind === "approval" && (
-            <span className="agent-question-kind">操作审核</span>
-          )}
-          <strong>{request.prompt}</strong>
-          {request.choices.length > 0 && (
-            <div className="choice-row">
-              {request.choices.map((choice) => (
-                <button type="button" disabled={submitting} key={choice.id} onClick={() => void submit(choice.id)}>
-                  {choice.label}
-                </button>
-              ))}
-            </div>
-          )}
-          {request.metadata?.kind !== "approval" && <div className="question-input">
-            <input value={input} onChange={(event) => setInput(event.target.value)} placeholder="补充说明" />
-            <button type="button" disabled={submitting || !input.trim()} onClick={() => void submit()}>
-              <Icon name="send" size={15} />
-            </button>
-          </div>}
-          {inputError && <p className="inline-error">{inputError}</p>}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function readInputRequest(value: unknown): {
-  prompt: string;
-  choices: Array<{ id: string; label: string }>;
-  metadata?: Record<string, unknown>;
-} | null {
-  if (!isRecord(value) || typeof value.prompt !== "string") return null;
-  const choices = Array.isArray(value.choices)
-    ? value.choices.filter(isRecord).flatMap((choice) =>
-        typeof choice.id === "string" && typeof choice.label === "string"
-          ? [{ id: choice.id, label: choice.label }]
-          : []
-      )
-    : [];
-  return {
-    prompt: value.prompt,
-    choices,
-    ...(isRecord(value.metadata) ? { metadata: value.metadata } : {})
-  };
-}
-
-function stepSummary(step: AgentStepSnapshot): string {
-  if (step.type === "user_input_result" && isRecord(step.payload.input)) {
-    if (step.payload.input.choiceId === "approve") return "已批准";
-    if (step.payload.input.choiceId === "reject") return "已拒绝";
-    return typeof step.payload.input.text === "string" ? step.payload.input.text : "已回复";
-  }
-  if (step.payload.kind === "progress" && typeof step.payload.text === "string") return step.payload.text;
-  if (step.type === "tool_call" && isRecord(step.payload.arguments)) {
-    const prompt = step.payload.arguments.prompt;
-    if (typeof prompt === "string") return prompt;
-  }
-  if (step.type === "tool_result") {
-    if (typeof step.payload.error === "string") return step.payload.error;
-    if (typeof step.payload.taskId === "string") return `任务 ${step.payload.taskId.slice(0, 8)}`;
-  }
-  return step.status === "completed" ? "完成" : step.status === "waiting" ? "等待" : "执行中";
-}
-
-function stepLabel(type: AgentStepSnapshot["type"]): string {
-  if (type === "tool_call") return "调用工具";
-  if (type === "tool_result") return "工具结果";
-  return "等待回复";
-}
-
 function formatTime(value: string): string {
   return new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit" }).format(new Date(value));
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

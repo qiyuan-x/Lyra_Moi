@@ -103,7 +103,7 @@ export interface RuntimeEvent {
   data: Record<string, unknown>;
 }
 export interface RunStore {
-  /** Atomically persist the checkpoint and event before publishing the event. */
+  /** Atomically persist state changes (or text-only projections) and the corresponding event. */
   save(state: RuntimeState, event?: RuntimeEvent): Promise<void>;
 }
 export type ResumeCommand =

@@ -68,6 +68,7 @@ interface ConversationWorkspaceProps {
   prompt: string;
   promptTemplates: PromptTemplateSnapshot[];
   submitting: boolean;
+  submissionError: string;
   onPromptChange: (value: string) => void;
   onInsertPrompt: (value: string) => void;
   onRemoveAttachment: (index: number) => void;
@@ -185,6 +186,8 @@ export function ConversationWorkspace(props: ConversationWorkspaceProps) {
             onPointerDown={props.onAgentPanelResize}
           />
           <AgentPanel
+            submitting={props.submitting}
+            submissionError={props.submissionError}
             messages={props.messages}
             runs={props.runs}
             stepsByRun={props.stepsByRun}

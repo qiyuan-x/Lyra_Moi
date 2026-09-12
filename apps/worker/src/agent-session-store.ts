@@ -20,6 +20,14 @@ export class AgentSessionStore implements RunStore {
   }
 
   async save(state: RuntimeState, event?: RuntimeEvent): Promise<void> {
+    // Text deltas do not change the executable checkpoint or tool state.
+    if (event?.type === "message.delta") {
+      this.database.transaction(() => {
+        this.assertOwner();
+        this.publishProgress(state, event);
+      });
+      return;
+    }
     const snapshot = structuredClone(state);
     this.database.transaction(() => {
       this.assertOwner();
@@ -29,19 +37,14 @@ export class AgentSessionStore implements RunStore {
       if (checkpoint) agentSteps.update(checkpoint.id, { payload });
       else agentSteps.append({ agentRunId: this.runId, type: "llm_request", status: "completed", payload });
       for (const item of snapshot.invocations) this.projectTool(item);
-      if (snapshot.calls) agentRuns.markCallingTool(this.runId, this.workerId, snapshot.calls);
+      if (event?.type === "turn.started") agentRuns.markThinking(this.runId, this.workerId);
+      else if (snapshot.invocations.length && snapshot.calls) agentRuns.markCallingTool(this.runId, this.workerId, snapshot.calls);
       if (event) {
-        runtimeEvents.append({ projectId: snapshot.context.projectId, conversationId: snapshot.context.conversationId,
+        if (event.type === "message.progress" || event.type === "run.completed") this.publishProgress(snapshot, event);
+        if (event.type !== "message.progress") runtimeEvents.append({ projectId: snapshot.context.projectId, conversationId: snapshot.context.conversationId,
           agentRunId: this.runId, type: `agent.runtime.${event.type}`, payload: event.data });
         if (event.type === "plan.updated") agentSteps.append({ agentRunId: this.runId, type: "llm_response", status: "completed",
           payload: { kind: "plan", steps: snapshot.plan } });
-        if (event.type === "message.delta" || event.type === "message.progress") {
-          const existing = agentSteps.list(this.runId).find((step) => step.type === "llm_response" && step.payload.runtimeTurn === snapshot.turn);
-          const text = event.type === "message.delta" ? String(existing?.payload.text ?? "") + String(event.data.text ?? "") : String(event.data.text ?? "");
-          const messagePayload = { kind: "progress", runtimeTurn: snapshot.turn, text };
-          if (existing) agentSteps.update(existing.id, { payload: messagePayload });
-          else agentSteps.append({ agentRunId: this.runId, type: "llm_response", status: "completed", payload: messagePayload });
-        }
       }
       if (snapshot.status === "waiting") {
         const item = snapshot.invocations.find((invocation) => invocation.status === "approval" || invocation.status === "input");
@@ -60,6 +63,22 @@ export class AgentSessionStore implements RunStore {
         agentRuns.fail(this.runId, this.workerId, "AGENT_EXECUTION_FAILED", snapshot.error || "Agent 执行失败。");
       }
     });
+  }
+
+  private publishProgress(state: RuntimeState, event: RuntimeEvent): void {
+    const { agentSteps, runtimeEvents } = this.repositories;
+    const existing = agentSteps.findProgress(this.runId, state.turn);
+    const text = event.type === "message.delta"
+      ? String(existing?.payload.text ?? "") + String(event.data.text ?? "") : String(event.data.text ?? "");
+    const payload = { kind: "progress", runtimeTurn: state.turn, text,
+      revision: Number(existing?.payload.revision ?? 0) + 1, final: event.type === "run.completed" };
+    const status = event.type === "message.delta" ? "running" : "completed";
+    const step = existing ? agentSteps.update(existing.id, { payload, status }) :
+      agentSteps.append({ agentRunId: this.runId, type: "llm_response", status, payload });
+    // An absolute snapshot makes replay and reconnection idempotent.
+    runtimeEvents.append({ projectId: state.context.projectId, conversationId: state.context.conversationId,
+      agentRunId: this.runId, type: `agent.runtime.${event.type === "message.delta" ? "message.delta" : "message.progress"}`,
+      payload: { step } });
   }
 
   /** Commit the business mutation and its result together. Replays return the recorded result. */

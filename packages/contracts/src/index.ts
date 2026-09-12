@@ -12,6 +12,7 @@ export * from "./provider.js";
 export * from "./provider-oauth.js";
 export * from "./prompt.js";
 export * from "./project-animation.js";
+export * from "./project-generation-forms.js";
 export * from "./schemas.js";
 export * from "./task-runtime-settings.js";
 export * from "./validation.js";

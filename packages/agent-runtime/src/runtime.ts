@@ -46,12 +46,26 @@ export class AgentRuntime {
         state.turn += 1;
         await this.save(state, "turn.started", { turn: state.turn });
         let response: ModelResponse | undefined;
-        for await (const event of this.model.generate({ projectId: state.context.projectId, messages,
-          tools: definitions,
-          ...(signal ? { signal } : {}) })) {
-          signal?.throwIfAborted();
-          if (event.type === "text_delta") await this.save(state, "message.delta", { text: event.text, turn: state.turn });
-          else response = event.response;
+        let pendingText = "";
+        let lastFlush = 0;
+        const flushText = async () => {
+          if (!pendingText) return;
+          await this.save(state, "message.delta", { text: pendingText, turn: state.turn });
+          pendingText = "";
+          lastFlush = Date.now();
+        };
+        try {
+          for await (const event of this.model.generate({ projectId: state.context.projectId, messages,
+            tools: definitions,
+            ...(signal ? { signal } : {}) })) {
+            signal?.throwIfAborted();
+            if (event.type === "text_delta") {
+              pendingText += event.text;
+              if (Date.now() - lastFlush >= 50 || pendingText.length >= 256) await flushText();
+            } else response = event.response;
+          }
+        } finally {
+          if (!signal?.aborted) await flushText();
         }
         if (!response || response.finishReason === "length") throw new Error("模型输出不完整，本轮未执行未完成的工具参数。");
         const calls = response.message.parts.flatMap((part) => part.type === "tool_call" ? [part.call] : []);

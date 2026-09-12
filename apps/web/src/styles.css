@@ -698,14 +698,6 @@ img { display: block; max-width: 100%; }
 .run-thinking, .run-calling_tool, .run-waiting_tool, .run-resuming, .run-queued, .step-running, .step-pending { background: #d08b11; box-shadow: 0 0 0 .2rem var(--status-running-ring); }
 .run-completed, .step-completed { background: var(--success); }
 .run-failed, .run-interrupted, .step-failed { background: var(--danger); }
-.run-steps { font-size: var(--font-small); }
-.run-steps summary { color: var(--muted); }
-.run-steps > div { display: grid; gap: .35rem; margin-top: .4rem; padding-left: .15rem; }
-.step-row { display: flex; align-items: start; gap: .4rem; }
-.step-row .step-state { margin-top: .23rem; }
-.step-row > div { display: grid; min-width: 0; gap: .1rem; }
-.step-row strong { font-size: var(--font-small); overflow-wrap: anywhere; }
-.step-row small { overflow: hidden; color: var(--muted); font-size: var(--font-small); text-overflow: ellipsis; white-space: nowrap; }
 .agent-question { display: grid; gap: .5rem; padding: .6rem; background: var(--warning-soft); border: 1px solid var(--warning-border); border-radius: .45rem; }
 .agent-question-kind { width: fit-content; padding: .15rem .4rem; color: var(--status-running-text); background: var(--status-running-bg); border-radius: 999px; font-size: var(--font-small); font-weight: 700; }
 .agent-question > strong { font-size: var(--font-body); line-height: 1.45; }
@@ -2342,9 +2334,34 @@ img { display: block; max-width: 100%; }
 .settings-model-filter { min-height: 48px; flex-shrink: 0; }
 
 /* Keep unbroken upstream errors inside the conversation bubble. */
-.agent-panel, .message-list, .run-card, .run-card > *, .step-row > div { min-width: 0; }
+.agent-panel, .message-list, .run-card, .run-card > * { min-width: 0; }
 .message-list { overflow-x: hidden; }
 .message-block .inline-error { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; max-width: 100%; }
-.run-steps, .step-row small { overflow-wrap: anywhere; }
 
 @media (max-width: 1100px) { .conversation-model-selectors { flex-wrap: wrap; } }
+
+/* Streaming replies use the same typography as persisted messages. */
+.agent-response { min-width: 0; padding: .5rem .75rem; }
+.agent-response .run-card { margin-top: 0; padding-top: 0; border-top: 0; }
+.agent-live-response { min-width: 0; overflow-wrap: anywhere; }
+.agent-response .run-status { color: var(--muted); }
+.run-thinking, .run-queued, .run-resuming { animation: agent-thinking-pulse 1.5s ease-in-out infinite; }
+@keyframes agent-thinking-pulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .run-thinking, .run-queued, .run-resuming { animation: none; } }
+
+.agent-timeline { display: grid; gap: .7rem; min-width: 0; }
+.agent-tool-step { min-width: 0; font-size: var(--font-small); color: var(--muted); }
+.agent-tool-step > summary { display: flex; align-items: center; gap: .45rem; padding: .3rem 0; cursor: pointer; list-style: none; }
+.agent-tool-step > summary::-webkit-details-marker { display: none; }
+.agent-tool-step > summary::after { content: "›"; transition: transform .12s; }
+.agent-tool-step[open] > summary::after { transform: rotate(90deg); }
+.agent-tool-name { min-width: 0; overflow-wrap: anywhere; }
+.agent-tool-status { flex-shrink: 0; font-size: var(--font-small); }
+.agent-tool-details { border-left: 2px solid var(--border); padding: .25rem .65rem; margin: .25rem 0; min-width: 0; }
+.agent-tool-details > div + div { margin-top: .6rem; }
+.agent-input-record { font-size: var(--font-small); color: var(--muted); overflow-wrap: anywhere; }
+
+.app-notice { position: fixed; z-index: 1000; top: 1rem; left: 50%; transform: translateX(-50%); display: flex; align-items: start; gap: .7rem; width: max-content; max-width: min(560px, calc(100vw - 2rem)); max-height: 35vh; overflow: auto; padding: .65rem .8rem; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text); box-shadow: 0 8px 24px #0002; font-size: var(--font-small); }
+.app-notice > span { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.app-notice .icon-button { flex-shrink: 0; }
+.app-notice-error { border-color: var(--danger); }

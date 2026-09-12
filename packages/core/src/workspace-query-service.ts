@@ -8,6 +8,7 @@ import type {
   ProjectSnapshot
 } from "@lyra/contracts";
 import type { ImageMode } from "@lyra/contracts";
+import { validateProjectGenerationForms, type ProjectGenerationForms } from "@lyra/contracts";
 import type {
   AgentRunRepository,
   AgentStepRepository,
@@ -46,6 +47,19 @@ export class WorkspaceQueryService {
 
   listProjects(): ProjectSnapshot[] {
     return this.#projects.listActive();
+  }
+
+  getGenerationForms(projectId: string): ProjectGenerationForms {
+    const project = this.#projects.findById(projectId);
+    if (!project || project.deletedAt !== null) throw new Error(`Project not found: ${projectId}`);
+    if (!this.#projectDirectories) throw new Error("Project directories are not configured.");
+    return this.#projectDirectories.readGenerationForms(projectId);
+  }
+
+  updateGenerationForms(projectId: string, value: unknown): ProjectGenerationForms {
+    const patch = validateProjectGenerationForms(value);
+    this.getGenerationForms(projectId);
+    return this.#projectDirectories!.updateGenerationForms(projectId, patch);
   }
 
   getAssetDirectory(projectId: string, section: unknown): string {
@@ -172,7 +186,7 @@ function sanitizeAgentStep(step: AgentStepSnapshot): AgentStepSnapshot {
   } else if (step.type === "final_message") {
     payload = selectKeys(step.payload, ["messageId", "text"]);
   } else if (step.type === "llm_response" && (step.payload.kind === "plan" || step.payload.kind === "progress")) {
-    payload = selectKeys(step.payload, ["kind", "steps", "text", "runtimeTurn"]);
+    payload = selectKeys(step.payload, ["kind", "steps", "text", "runtimeTurn", "revision", "final"]);
   }
   return { ...step, payload };
 }

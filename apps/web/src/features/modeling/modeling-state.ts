@@ -3,6 +3,7 @@ import type {
   ModelOutputFormat,
   ModelViewType
 } from "@lyra/contracts";
+import { readProjectForm, saveProjectForm } from "../generation/project-form-state.js";
 
 export type ModelPageConfig = {
   parameters: Record<string, unknown>;
@@ -31,9 +32,7 @@ export function readPersistedModelingState(
   projectId: string
 ): PersistedModelingState {
   try {
-    const value: unknown = JSON.parse(
-      localStorage.getItem(storageKey(projectId)) ?? "null"
-    );
+    const value: unknown = readProjectForm(projectId, "modeling");
     if (!isRecord(value)) return cloneEmptyState();
     return {
       inputMode: value.inputMode === "text" || value.inputMode === "multiview"
@@ -60,15 +59,7 @@ export function savePersistedModelingState(
   projectId: string,
   value: PersistedModelingState
 ): void {
-  try {
-    localStorage.setItem(storageKey(projectId), JSON.stringify(value));
-  } catch {
-    // The modeling page remains usable when browser storage is unavailable.
-  }
-}
-
-function storageKey(projectId: string): string {
-  return `lyra.modeling.state.${projectId}`;
+  saveProjectForm(projectId, "modeling", value);
 }
 
 function readLegacySelection(

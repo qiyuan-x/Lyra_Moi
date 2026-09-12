@@ -1,6 +1,8 @@
 import { readAgentModelDefaults } from "../features/modeling/modeling-state.js";
+import { flushProjectForms } from "../features/generation/project-form-state.js";
 import {
   useState,
+  useEffect,
   type Dispatch,
   type SetStateAction
 } from "react";
@@ -29,11 +31,12 @@ interface UseAgentActionsOptions {
   refreshProject: (projectId: string) => Promise<void>;
   refreshConversation: (conversationId: string) => Promise<void>;
   onMissingLlm: () => void;
-  onError: (error: unknown) => void;
 }
 
 export function useAgentActions(options: UseAgentActionsOptions) {
   const [submitting, setSubmitting] = useState(false);
+  const [submissionError, setSubmissionError] = useState("");
+  useEffect(() => setSubmissionError(""), [options.projectId, options.conversationId]);
 
   async function submitAgent() {
     if (!options.projectId) return;
@@ -41,8 +44,10 @@ export function useAgentActions(options: UseAgentActionsOptions) {
       options.onMissingLlm();
       return;
     }
+    setSubmissionError("");
     setSubmitting(true);
     try {
+      await flushProjectForms(options.projectId);
       const conversationId = await options.ensureCurrentConversation();
       await options.api.sendAgentMessage(conversationId, {
         text: options.prompt,
@@ -81,7 +86,7 @@ export function useAgentActions(options: UseAgentActionsOptions) {
         options.refreshConversation(conversationId)
       ]);
     } catch (error) {
-      options.onError(error);
+      setSubmissionError(error instanceof Error ? error.message : String(error));
     } finally {
       setSubmitting(false);
     }
@@ -93,35 +98,27 @@ export function useAgentActions(options: UseAgentActionsOptions) {
     choiceId?: string,
     modelChanges?: import("@lyra/contracts").ModelApprovalChanges
   ) {
-    try {
-      await options.api.submitAgentInput(runId, {
-        text,
-        attachments: choiceId === "approve" || choiceId === "reject" ? [] : toOrderedAttachments(options.attachments),
-        ...(choiceId ? { choiceId } : {}),
-        ...(modelChanges ? { modelChanges } : {})
-      });
-      if (choiceId !== "approve" && choiceId !== "reject") options.setAttachments([]);
-      await options.refreshConversation(options.conversationId);
-    } catch (error) {
-      options.onError(error);
-      throw error;
-    }
+    await options.api.submitAgentInput(runId, {
+      text,
+      attachments: choiceId === "approve" || choiceId === "reject" ? [] : toOrderedAttachments(options.attachments),
+      ...(choiceId ? { choiceId } : {}),
+      ...(modelChanges ? { modelChanges } : {})
+    });
+    if (choiceId !== "approve" && choiceId !== "reject") options.setAttachments([]);
+    await options.refreshConversation(options.conversationId);
   }
 
   async function cancelAgent(runId: string) {
-    try {
-      await options.api.cancelAgent(runId);
-      await Promise.all([
-        options.refreshConversation(options.conversationId),
-        options.refreshProject(options.projectId)
-      ]);
-    } catch (error) {
-      options.onError(error);
-    }
+    await options.api.cancelAgent(runId);
+    await Promise.all([
+      options.refreshConversation(options.conversationId),
+      options.refreshProject(options.projectId)
+    ]);
   }
 
   return {
     submitting,
+    submissionError,
     submitAgent,
     submitAgentInput,
     cancelAgent

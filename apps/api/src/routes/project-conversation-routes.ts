@@ -63,6 +63,15 @@ export const handleProjectConversationRoutes: BusinessRouteHandler =
       return true;
     }
 
+    const generationForms = matchPath(url.pathname, /^\/api\/v1\/projects\/([^/]+)\/generation-forms$/u);
+    if (generationForms && (request.method === "GET" || request.method === "PATCH")) {
+      const workspace = requireService(options.workspace, "Workspace");
+      const forms = request.method === "GET" ? workspace.getGenerationForms(generationForms[0]!)
+        : workspace.updateGenerationForms(generationForms[0]!, await readJsonBody(request, options.maxJsonBodyBytes));
+      writeJson(response, 200, forms, requestId);
+      return true;
+    }
+
     const projectConversations = matchPath(
       url.pathname,
       /^\/api\/v1\/projects\/([^/]+)\/conversations$/u

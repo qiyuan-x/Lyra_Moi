@@ -210,6 +210,14 @@ export class AgentRunRepository {
     return row?.cancel_requested === 1;
   }
 
+  markThinking(agentRunId: string, workerId: string): void {
+    const result = this.#database.connection.prepare(`
+      UPDATE agent_runs SET status = 'thinking', updated_at = ?
+      WHERE id = ? AND status IN ('thinking', 'calling_tool', 'resuming') AND locked_by = ?
+    `).run(new Date().toISOString(), agentRunId, workerId);
+    if (result.changes !== 1) throw new AgentRunTransitionError(`Agent run ${agentRunId} is not claimed by worker ${workerId}.`);
+  }
+
   markCallingTool(agentRunId: string, workerId: string, toolCallCount: number): AgentRunSnapshot {
     if (!Number.isInteger(toolCallCount) || toolCallCount < 1) {
       throw new Error("Agent tool call count must be a positive integer.");
